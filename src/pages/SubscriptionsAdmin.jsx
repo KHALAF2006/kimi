@@ -1,0 +1,1 @@
+import React from "react";import ServicePage from "@/components/ServicePage";export default function SubscriptionsAdmin(){return <ServicePage title="إدارة الاشتراكات" description="الخطط ودورة حياة الاشتراك؛ كل انتقال يتطلب سبباً وتدقيقاً." functionName="adminSubscriptions" payload={{action:'plans'}}/>}

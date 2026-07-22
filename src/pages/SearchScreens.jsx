@@ -1,0 +1,1 @@
+import React from "react";import ServicePage from "@/components/ServicePage";export default function SearchScreens(){return <ServicePage title="البحث والشاشات المحفوظة" description="ابحث بالرمز أو الاسم أو القطاع واحفظ إعداداتك الخاصة." functionName="screeningWatchlists" payload={{action:'list'}}/>}

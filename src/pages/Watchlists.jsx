@@ -1,0 +1,1 @@
+import React from "react";import ServicePage from "@/components/ServicePage";export default function Watchlists(){return <ServicePage title="قوائم المتابعة" description="قوائمك الخاصة بالشركات التي تتابعها." functionName="screeningWatchlists" payload={{action:'list'}}/>}

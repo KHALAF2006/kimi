@@ -1,0 +1,4 @@
+import React from "react";
+import ServicePage from "@/components/ServicePage";
+import StatusPanel from "@/components/StatusPanel";
+export default function Dashboard(){return <ServicePage title="نظرة السوق" description="الأسعار والحالة اللحظية مع المصدر ووقت آخر تحديث." functionName="marketRead" payload={{limit:50}}>{data=>data.instruments?.length?<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{data.instruments.map(x=><a href={`/company?id=${x.id}`} key={x.id} className="rounded-xl border border-white/10 bg-white/[.03] p-4 hover:border-emerald-400/30"><b>{x.symbol}</b><p className="mt-1 text-sm text-slate-400">{x.name_ar}</p></a>)}</div>:<StatusPanel/>}</ServicePage>}

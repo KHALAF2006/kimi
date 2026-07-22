@@ -1,0 +1,38 @@
+{
+  "name": "ActiveDeviceSession",
+  "type": "object",
+  "properties": {
+    "customer_id": {
+      "type": "string"
+    },
+    "session_hash": {
+      "type": "string"
+    },
+    "device_hash": {
+      "type": "string"
+    },
+    "remember_me": {
+      "type": "boolean"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "revoked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_seen_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "customer_id",
+    "session_hash",
+    "device_hash",
+    "remember_me",
+    "expires_at",
+    "last_seen_at"
+  ]
+}

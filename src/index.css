@@ -87,6 +87,14 @@
   }
 
   body {
-    @apply bg-background text-foreground font-body;
+    @apply bg-[#0b1220] text-slate-100 font-body antialiased;
+  }
+
+  ::selection {
+    @apply bg-emerald-400/30 text-white;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-emerald-400 ring-offset-2 ring-offset-[#0b1220];
   }
 }

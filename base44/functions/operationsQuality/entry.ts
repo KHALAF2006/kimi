@@ -1,0 +1,3 @@
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.38';
+import { requireRole, requireActiveSession, replyError } from '../../shared/security.ts';
+Deno.serve(async(req)=>{try{const base44=createClientFromRequest(req);const {profile}=await requireRole(base44,['admin','owner']);const body=await req.json();await requireActiveSession(base44,profile,body.session_id);const sources=await base44.asServiceRole.entities.DataSource.list();const issues=await base44.asServiceRole.entities.DataQualityIssue.filter({status:'open'});const runs=await base44.asServiceRole.entities.IngestionRun.list('-started_at',20);return Response.json({sources,issues,runs});}catch(error){return replyError(error);}});

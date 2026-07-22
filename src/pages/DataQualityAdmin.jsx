@@ -1,0 +1,1 @@
+import React from "react";import ServicePage from "@/components/ServicePage";export default function DataQualityAdmin(){return <ServicePage title="جودة البيانات والمصادر" description="حالة الترخيص وقضايا الجودة وعمليات الجلب." functionName="operationsQuality" payload={{}}/>}

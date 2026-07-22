@@ -1,0 +1,1 @@
+import React from "react";import ServicePage from "@/components/ServicePage";export default function Screener(){return <ServicePage title="ماسح الاستراتيجيات" description="نتائج مؤشرات محفوظة بمنطق AND أو OR دون كشف المعادلات الداخلية." functionName="marketRead" payload={{limit:50}}/>}

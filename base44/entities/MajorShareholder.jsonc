@@ -1,0 +1,37 @@
+{
+  "name": "MajorShareholder",
+  "type": "object",
+  "properties": {
+    "instrument_id": {
+      "type": "string"
+    },
+    "shareholder_name_ar": {
+      "type": "string"
+    },
+    "shareholder_name_en": {
+      "type": "string"
+    },
+    "ownership_percent": {
+      "type": "number"
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "source_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "instrument_id",
+    "shareholder_name_en",
+    "ownership_percent",
+    "source_id",
+    "source_url",
+    "as_of"
+  ]
+}

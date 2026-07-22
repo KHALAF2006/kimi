@@ -1,0 +1,32 @@
+{
+  "name": "MarketSession",
+  "type": "object",
+  "properties": {
+    "session_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "is_trading_day": {
+      "type": "boolean"
+    },
+    "opens_at": {
+      "type": "string"
+    },
+    "closes_at": {
+      "type": "string"
+    },
+    "reconcile_until": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_date",
+    "is_trading_day",
+    "opens_at",
+    "closes_at",
+    "reconcile_until"
+  ]
+}

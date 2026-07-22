@@ -1,0 +1,1 @@
+import React from "react";import ServicePage from "@/components/ServicePage";export default function OperationsAdmin(){return <ServicePage title="الاستهلاك والأتمتة" description="حالة التشغيل والاستهلاك دون تفعيل الجلب قبل المصدر المرخّص." functionName="operationsQuality" payload={{}}/>}

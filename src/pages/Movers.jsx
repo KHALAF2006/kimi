@@ -1,0 +1,1 @@
+import React from "react";import ServicePage from "@/components/ServicePage";export default function Movers(){return <ServicePage title="الأعلى والأقل والثابتة" description="فرز رقمي موثّق حسب نسبة التغير، مع حسم التعادل بالرمز." functionName="marketRead" payload={{limit:100}}/>}

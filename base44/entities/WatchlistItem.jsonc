@@ -1,0 +1,20 @@
+{
+  "name": "WatchlistItem",
+  "type": "object",
+  "properties": {
+    "watchlist_id": {
+      "type": "string"
+    },
+    "instrument_id": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "watchlist_id",
+    "instrument_id",
+    "symbol"
+  ]
+}

@@ -6,7 +6,29 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ScrollToTop from './components/ScrollToTop';
-// Add page imports here
+import ProtectedRoute from '@/components/ProtectedRoute';
+import KmyLayout from '@/components/KmyLayout';
+import Landing from '@/pages/Landing';
+import Login from '@/pages/Login';
+import Register from '@/pages/Register';
+import ForgotPassword from '@/pages/ForgotPassword';
+import ResetPassword from '@/pages/ResetPassword';
+import VerifyContact from '@/pages/VerifyContact';
+import Dashboard from '@/pages/Dashboard';
+import CompanyDetails from '@/pages/CompanyDetails';
+import Movers from '@/pages/Movers';
+import Screener from '@/pages/Screener';
+import SearchScreens from '@/pages/SearchScreens';
+import Watchlists from '@/pages/Watchlists';
+import Alerts from '@/pages/Alerts';
+import Destinations from '@/pages/Destinations';
+import Profile from '@/pages/Profile';
+import AdminDashboard from '@/pages/AdminDashboard';
+import SubscriptionsAdmin from '@/pages/SubscriptionsAdmin';
+import CustomersAdmin from '@/pages/CustomersAdmin';
+import DataQualityAdmin from '@/pages/DataQualityAdmin';
+import OperationsAdmin from '@/pages/OperationsAdmin';
+import AuditAdmin from '@/pages/AuditAdmin';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -34,7 +56,31 @@ const AuthenticatedApp = () => {
   // Render the main app
   return (
     <Routes>
-      {/* Add your page Route elements here */}
+      <Route path="/" element={<Landing />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/verify" element={<VerifyContact />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route element={<ProtectedRoute />}>
+        <Route element={<KmyLayout />}>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/company" element={<CompanyDetails />} />
+          <Route path="/movers" element={<Movers />} />
+          <Route path="/screener" element={<Screener />} />
+          <Route path="/search" element={<SearchScreens />} />
+          <Route path="/watchlists" element={<Watchlists />} />
+          <Route path="/alerts" element={<Alerts />} />
+          <Route path="/destinations" element={<Destinations />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/subscriptions" element={<SubscriptionsAdmin />} />
+          <Route path="/admin/customers" element={<CustomersAdmin />} />
+          <Route path="/admin/quality" element={<DataQualityAdmin />} />
+          <Route path="/admin/operations" element={<OperationsAdmin />} />
+          <Route path="/admin/audit" element={<AuditAdmin />} />
+        </Route>
+      </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );

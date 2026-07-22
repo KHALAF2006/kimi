@@ -1,0 +1,1 @@
+import React from "react";import ServicePage from "@/components/ServicePage";export default function CustomersAdmin(){return <ServicePage title="دليل العملاء" description="بيانات مقنّعة للدعم وصلاحيات إدارية محكومة." functionName="adminCustomers" payload={{action:'list',limit:50}}/>}
