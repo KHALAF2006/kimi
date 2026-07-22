@@ -9,7 +9,10 @@ export default defineConfig({
       '/reference-api': {
         target: 'http://127.0.0.1:3001',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/reference-api/, '/api'),
+        // marketService already requests /api/*; only strip the local proxy prefix.
+        // Adding another /api here turns /reference-api/api/companies into
+        // /api/api/companies and makes an otherwise healthy backend look broken.
+        rewrite: (path) => path.replace(/^\/reference-api/, ''),
       },
     },
   },

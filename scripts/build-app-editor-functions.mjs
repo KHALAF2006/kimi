@@ -8,6 +8,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const sourceRoot = join(root, "base44", "functions");
 const outputRoot = join(root, "functions");
 const checkOnly = process.argv.includes("--check");
+const normalizeLineEndings = (value) => value.replace(/\r\n?/g, "\n");
 
 const sourceEntries = (await readdir(sourceRoot, { withFileTypes: true }))
   .filter((item) => item.isDirectory())
@@ -38,7 +39,7 @@ for (const functionName of sourceEntries) {
   const target = join(outputRoot, targetName);
   if (checkOnly) {
     const current = await readFile(target, "utf8").catch(() => "");
-    assert.equal(current, generated, `functions/${targetName} is stale; run npm run build:app-editor-functions`);
+    assert.equal(normalizeLineEndings(current), normalizeLineEndings(generated), `functions/${targetName} is stale; run npm run build:app-editor-functions`);
   } else {
     await writeFile(target, generated, "utf8");
   }

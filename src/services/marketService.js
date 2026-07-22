@@ -50,7 +50,9 @@ async function referenceFetch(path) {
 
 async function referenceMarketRead(payload) {
   if (payload.action === "chart") {
-    const path = "/api/companies/" + encodeURIComponent(payload.symbol) + "/chart?interval=" + encodeURIComponent(payload.interval || "1d") + "&range=" + encodeURIComponent(payload.range || "3M");
+    const referenceRanges = { "5d": "1w", "1mo": "1M", "3mo": "3M", "1y": "1y", "5y": "5y" };
+    const referenceRange = referenceRanges[payload.range] || "3M";
+    const path = "/api/companies/" + encodeURIComponent(payload.symbol) + "/chart?interval=" + encodeURIComponent(payload.interval || "1d") + "&range=" + encodeURIComponent(referenceRange);
     const data = await referenceFetch(path);
     return { candles: data.candles || [], source: data.source, as_of: data.asOf, data_state: { label: "مرجعية متأخرة", stale: false } };
   }

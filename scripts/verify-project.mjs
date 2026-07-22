@@ -9,7 +9,10 @@ const root = new URL("../", import.meta.url);
 const catalogPath = new URL("../base44/data/official-main-market-catalog-2026-07-21.json", import.meta.url);
 const catalogBytes = await readFile(catalogPath);
 const catalog = JSON.parse(catalogBytes.toString("utf8"));
-const hash = createHash("sha256").update(catalogBytes).digest("hex").toUpperCase();
+// Git may materialize LF as CRLF on Windows. Hash the canonical text so the
+// verified catalog identity remains stable without weakening field checks.
+const canonicalCatalogText = catalogBytes.toString("utf8").replace(/\r\n?/g, "\n");
+const hash = createHash("sha256").update(canonicalCatalogText).digest("hex").toUpperCase();
 
 assert.equal(hash, "4BCC19FD271E1D84D1390E8B2E311046243A8CC9B79B024FF43850C4D8F31337", "official catalog checksum changed");
 assert.equal(catalog.companies.length, 270, "catalog must contain exactly the verified 270 main-market companies");
@@ -91,6 +94,35 @@ const marketService = await readFile(new URL("../src/services/marketService.js",
 assert.match(marketService, /name_ar:\s*company\.nameAr/);
 assert.match(marketService, /name_en:\s*company\.nameEn/);
 assert.doesNotMatch(marketService, /Math\.random|faker|mockCompany/i);
+
+const companyChart = await readFile(new URL("../src/components/market/CompanyChart.jsx", import.meta.url), "utf8");
+assert.match(companyChart, /showVolume/);
+assert.match(companyChart, /showMomentum/);
+assert.match(companyChart, /showRsi/);
+assert.match(companyChart, /calculateRsiSeries/);
+assert.match(companyChart, /calculateMomentumSnapshot/);
+assert.match(companyChart, /rsiSettings\.lineColor/);
+assert.match(companyChart, /momentumSettings\.zones/);
+
+const { calculateRsiSeries, calculateMomentumSnapshot } = await import(new URL("../src/lib/market.js", import.meta.url));
+const risingBars = Array.from({ length: 40 }, (_, index) => ({
+  time: 1_700_000_000 + index * 86_400,
+  open: 100 + index,
+  high: 101 + index,
+  low: 99 + index,
+  close: 100 + index,
+  volume: 1_000 + index,
+}));
+const risingRsi = calculateRsiSeries(risingBars, 14, "close");
+assert.equal(risingRsi.length, 26, "RSI should start after the configured Wilder seed period");
+assert.ok(risingRsi.every((point) => point.value === 100), "strictly rising verified bars should produce RSI 100");
+const momentumSnapshot = calculateMomentumSnapshot(risingBars, 20, 500, "dark");
+assert.ok(momentumSnapshot?.zones?.length === 5, "momentum port must return all five Pine zones");
+assert.ok(momentumSnapshot.zones.every((zone) => zone.top > zone.bottom && zone.bottom > zone.stop), "momentum zone price ordering must remain strict");
+
+const viteConfig = await readFile(new URL("../vite.config.js", import.meta.url), "utf8");
+assert.match(viteConfig, /path\.replace\(\/\^\\\/reference-api\/,\s*['\"]['\"]\)/, "reference proxy must only strip its prefix");
+assert.doesNotMatch(viteConfig, /path\.replace\(\/\^\\\/reference-api\/,\s*['\"]\/api['\"]\)/, "reference proxy must not duplicate the /api prefix");
 
 console.log(JSON.stringify({
   status: "pass",
