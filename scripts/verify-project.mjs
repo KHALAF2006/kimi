@@ -37,7 +37,7 @@ const ingestion = await readFile(new URL("../base44/functions/marketIngestion/en
 assert.match(ingestion, /official-main-market-catalog-2026-07-21\.json/);
 assert.match(ingestion, /name_ar:\s*row\.nameAr/);
 assert.match(ingestion, /name_en:\s*row\.nameEn/);
-assert.match(ingestion, /upsertMany\(base44,\s*'Instrument'/);
+assert.match(ingestion, /upsertMany\(base44,\s*["']Instrument["']/);
 assert.match(ingestion, /instrument\.symbol\}\.SR/);
 assert.match(ingestion, /Base44-Service-Authorization/, "scheduled ingestion must require Base44 service authorization");
 assert.match(ingestion, /MAIN_MARKET_SYMBOLS\.has\(row\.symbol\)/, "ingestion must exclude records outside the verified main-market catalog");
@@ -125,6 +125,16 @@ assert.match(companyChart, /calculateRsiSeries/);
 assert.match(companyChart, /calculateMomentumSnapshot/);
 assert.match(companyChart, /rsiSettings\.lineColor/);
 assert.match(companyChart, /momentumSettings\.zones/);
+assert.match(companyChart, /className=\{["']ohlc-strip ["'] \+ \(hovered \? ["']["'] : ["']invisible["']\)\}/, "the OHLC strip must reserve its height so pane hover cannot shake the chart");
+assert.match(companyChart, /interactionEvents = \[[^\]]*["']wheel["'][^\]]*["']pointermove["']/, "zone geometry must follow price-scale wheel and drag interactions");
+assert.match(companyChart, /sameZoneGeometry\(current, zones\)/, "zone synchronization must avoid redundant React layout updates");
+
+const sharedSecurity = await readFile(new URL("../base44/shared/security.ts", import.meta.url), "utf8");
+assert.match(sharedSecurity, /\["admin", "owner"\]\.includes\(profile\.role\)/, "trusted administrative login must preserve an explicit owner role");
+assert.doesNotMatch(sharedSecurity, /if \(profile\.role !== "admin"/, "administrative login must never downgrade the owner to admin");
+const authLoginFunction = await readFile(new URL("../base44/functions/authLogin/entry.ts", import.meta.url), "utf8");
+assert.match(authLoginFunction, /\["admin", "owner"\]\.includes\(profile\.role\)/, "the deployed authLogin function must preserve an explicit owner role");
+assert.match(authLoginFunction, /role:\s*profile\.role === "owner" \? "owner" : "admin"/, "the deployed authLogin function must not downgrade the owner");
 
 const { calculateRsiSeries, calculateMomentumSnapshot } = await import(new URL("../src/lib/market.js", import.meta.url));
 const risingBars = Array.from({ length: 40 }, (_, index) => ({

@@ -46,9 +46,12 @@ export async function ensureAdministrativeProfile(base44, user) {
     return profile;
   }
 
-  if (profile.role !== "admin" || profile.account_status === "pending_verification") {
+  // The explicit KMY owner role is the source of truth for owner-only actions.
+  // Never downgrade it merely because Base44 exposes the trusted app identity
+  // through its broader built-in `admin` role.
+  if (!["admin", "owner"].includes(profile.role) || profile.account_status === "pending_verification") {
     profile = await base44.asServiceRole.entities.CustomerProfile.update(profile.id, {
-      role: "admin",
+      role: profile.role === "owner" ? "owner" : "admin",
       account_status: "active",
       email_verified_at: profile.email_verified_at || now,
       last_seen_at: now,

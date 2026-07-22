@@ -89,6 +89,20 @@ function colorWithOpacity(color, opacity) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+function sameZoneGeometry(current, next) {
+  if (current.length !== next.length) return false;
+  return current.every((zone, index) => {
+    const candidate = next[index];
+    return candidate && zone.key === candidate.key && zone.color === candidate.color && zone.name === candidate.name
+      && Math.abs(zone.left - candidate.left) < 0.25
+      && Math.abs(zone.width - candidate.width) < 0.25
+      && Math.abs(zone.top - candidate.top) < 0.25
+      && Math.abs(zone.height - candidate.height) < 0.25
+      && Number(zone.topPrice) === Number(candidate.topPrice)
+      && Number(zone.bottomPrice) === Number(candidate.bottomPrice);
+  });
+}
+
 function ToggleButton({ active, label, icon: Icon, onClick, settings = false, onSettings = null, isArabic }) {
   return <div className={"indicator-control " + (active ? "indicator-control-active" : "")}>
     <button type="button" onClick={onClick} className="indicator-toggle" title={(active ? (isArabic ? "إخفاء " : "Hide ") : (isArabic ? "إظهار " : "Show ")) + label}>
@@ -108,6 +122,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
   const rsiSeriesRef = useRef(null);
   const momentumLinesRef = useRef([]);
   const overlayUpdateRef = useRef(() => {});
+  const overlayFrameRef = useRef(0);
   const [interval, setInterval] = useState(() => localStorage.getItem("kmy_chart_interval") || "1d");
   const [range, setRange] = useState(() => localStorage.getItem("kmy_chart_range") || "1y");
   const [candles, setCandles] = useState([]);
@@ -236,16 +251,28 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
       rsiSeries.createPriceLine({ price: Number(rsiSettings.lower), color: rsiSettings.lowerColor, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: isArabic ? "تشبع بيعي" : "Oversold" });
     }
 
+    const scheduleOverlayUpdate = () => {
+      if (overlayFrameRef.current) window.cancelAnimationFrame(overlayFrameRef.current);
+      overlayFrameRef.current = window.requestAnimationFrame(() => {
+        overlayFrameRef.current = window.requestAnimationFrame(() => {
+          overlayFrameRef.current = 0;
+          overlayUpdateRef.current();
+        });
+      });
+    };
     chart.subscribeCrosshairMove((param) => {
       const candle = /** @type {any} */ (param.seriesData.get(candlesSeries));
       const volume = volumeSeries ? /** @type {any} */ (param.seriesData.get(volumeSeries)) : null;
       const rsi = rsiSeries ? /** @type {any} */ (param.seriesData.get(rsiSeries)) : null;
       setHovered(candle && typeof candle.open === "number" ? { ...candle, volume: volume?.value, rsi: rsi?.value } : null);
+      scheduleOverlayUpdate();
     });
-    const visibleHandler = () => overlayUpdateRef.current();
+    const visibleHandler = scheduleOverlayUpdate;
     chart.timeScale().subscribeVisibleLogicalRangeChange(visibleHandler);
-    const resizeObserver = new ResizeObserver(() => overlayUpdateRef.current());
+    const resizeObserver = new ResizeObserver(scheduleOverlayUpdate);
     resizeObserver.observe(containerRef.current);
+    const interactionEvents = ["wheel", "pointermove", "pointerdown", "pointerup", "touchmove", "dblclick"];
+    interactionEvents.forEach((eventName) => containerRef.current?.addEventListener(eventName, scheduleOverlayUpdate, { passive: true }));
 
     chartRef.current = chart;
     candleSeriesRef.current = candlesSeries;
@@ -260,6 +287,8 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
     });
     return () => {
       resizeObserver.disconnect();
+      interactionEvents.forEach((eventName) => containerRef.current?.removeEventListener(eventName, scheduleOverlayUpdate));
+      if (overlayFrameRef.current) window.cancelAnimationFrame(overlayFrameRef.current);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleHandler);
       chart.remove();
       chartRef.current = null;
@@ -311,7 +340,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
       const series = candleSeriesRef.current;
       const container = containerRef.current;
       if (!chart || !series || !container || !showMomentum || !momentumSettings.showZones || !momentum?.zones?.length) {
-        setZoneGeometry([]);
+        setZoneGeometry((current) => current.length ? [] : current);
         return;
       }
       const fallbackTime = orderedCandles[0]?.time;
@@ -336,7 +365,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
           bottomPrice: zone.bottom,
         };
       }).filter(Boolean);
-      setZoneGeometry(zones);
+      setZoneGeometry((current) => sameZoneGeometry(current, zones) ? current : zones);
     };
     overlayUpdateRef.current();
   }, [momentum, momentumSettings, orderedCandles, showMomentum, isArabic]);
@@ -444,7 +473,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
       })}</div>
     </section>}
 
-    {hovered && <div className="ohlc-strip" dir="ltr"><span>O {formatNumber(hovered.open, "en")}</span><span>H {formatNumber(hovered.high, "en")}</span><span>L {formatNumber(hovered.low, "en")}</span><span>C {formatNumber(hovered.close, "en")}</span>{Number.isFinite(Number(hovered.volume)) && <span>VOL {formatNumber(hovered.volume, "en", 0)}</span>}{Number.isFinite(Number(hovered.rsi)) && <span>RSI {formatNumber(hovered.rsi, "en")}</span>}</div>}
+    <div className={"ohlc-strip " + (hovered ? "" : "invisible")} dir="ltr" aria-hidden={!hovered}>{hovered ? <><span>O {formatNumber(hovered.open, "en")}</span><span>H {formatNumber(hovered.high, "en")}</span><span>L {formatNumber(hovered.low, "en")}</span><span>C {formatNumber(hovered.close, "en")}</span>{Number.isFinite(Number(hovered.volume)) && <span>VOL {formatNumber(hovered.volume, "en", 0)}</span>}{Number.isFinite(Number(hovered.rsi)) && <span>RSI {formatNumber(hovered.rsi, "en")}</span>}</> : <span>&nbsp;</span>}</div>
     {loading && <div className="chart-message">{isArabic ? "جارٍ تحميل الشموع الحقيقية…" : "Loading verified candles…"}</div>}
     {error && <div className="chart-message text-red-600">{isArabic ? "تعذر جلب الشموع. لم تُستبدل ببيانات وهمية." : "Candles are unavailable. No mock data was substituted."}</div>}
     {!loading && !error && !candles.length && <div className="chart-message">{isArabic ? "لا توجد شموع موثقة لهذا النطاق." : "No verified candles for this range."}</div>}
