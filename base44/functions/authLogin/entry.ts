@@ -1,8 +1,9 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.38';
-import { requireUser, profileFor, audit, replyError } from '../../shared/security.ts';
+import { requireUser, ensureAdministrativeProfile, audit, replyError } from '../../shared/security.ts';
 Deno.serve(async (req) => { try {
-  const base44=createClientFromRequest(req); const user=await requireUser(base44); const body=await req.json(); const profile=await profileFor(base44,user);
-  if(!profile || profile.account_status!=='active') return Response.json({error:'Account is not active'},{status:403});
+  const base44=createClientFromRequest(req); const user=await requireUser(base44); const body=await req.json(); const profile=await ensureAdministrativeProfile(base44,user);
+  if(!profile) return Response.json({error:'Complete registration before signing in',code:'PROFILE_SETUP_REQUIRED'},{status:428});
+  if(profile.account_status!=='active') return Response.json({error:'Account is not active',code:'ACCOUNT_NOT_ACTIVE'},{status:403});
   const hash=async(v)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v)))).map(x=>x.toString(16).padStart(2,'0')).join('');
   if(body.action==='start'){
     const otp=String(crypto.getRandomValues(new Uint32Array(1))[0]%1000000).padStart(6,'0');
