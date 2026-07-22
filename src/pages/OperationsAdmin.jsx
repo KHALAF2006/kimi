@@ -1,1 +1,1 @@
-import React from "react";import ServicePage from "@/components/ServicePage";export default function OperationsAdmin(){return <ServicePage title="الاستهلاك والأتمتة" description="حالة التشغيل والاستهلاك دون تفعيل الجلب قبل المصدر المرخّص." functionName="operationsQuality" payload={{}}/>}
+import React from "react";import ServicePage from "@/components/ServicePage";export default function OperationsAdmin(){return <ServicePage title="الاستهلاك والأتمتة" description="مزامنة مرجعية متأخرة كل 15 دقيقة مع نقطة استئناف وتخزين مؤقت." functionName="operationsQuality" payload={{}}/>}
