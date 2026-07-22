@@ -94,6 +94,12 @@ const marketService = await readFile(new URL("../src/services/marketService.js",
 assert.match(marketService, /name_ar:\s*company\.nameAr/);
 assert.match(marketService, /name_en:\s*company\.nameEn/);
 assert.doesNotMatch(marketService, /Math\.random|faker|mockCompany/i);
+assert.match(marketService, /localBrowserHosts\.has\(window\.location\.hostname\)/, "reference market API must be limited to localhost browsers");
+assert.doesNotMatch(marketService, /referenceApi\s*=\s*import\.meta\.env\.DEV/, "Base44 editor preview must not be mistaken for the local reference runtime");
+
+const base44Client = await readFile(new URL("../src/api/base44Client.js", import.meta.url), "utf8");
+assert.match(base44Client, /localBrowserHosts\.has\(window\.location\.hostname\)/, "the Base44 SDK stub must be limited to localhost browsers");
+assert.doesNotMatch(base44Client, /isLocalReferencePreview\s*=\s*import\.meta\.env\.DEV/, "Base44 editor preview must initialize the real Base44 SDK");
 
 const companyChart = await readFile(new URL("../src/components/market/CompanyChart.jsx", import.meta.url), "utf8");
 assert.match(companyChart, /showVolume/);

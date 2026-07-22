@@ -2,9 +2,9 @@ import { createClient } from '@base44/sdk';
 import { appParams } from '@/lib/app-params';
 
 const { appId, token, functionsVersion, appBaseUrl } = appParams;
-const configuredReferenceApi = String(import.meta.env.VITE_KMY_REFERENCE_API || "").replace(/\/$/, "");
-const isLocalReferencePreview = import.meta.env.DEV
-  && (!configuredReferenceApi || /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?$/i.test(configuredReferenceApi));
+const localBrowserHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+const isLocalReferencePreview = typeof window !== "undefined"
+  && localBrowserHosts.has(window.location.hostname);
 
 function referenceOnlyError() {
   throw new Error("base44_unavailable_in_reference_preview");

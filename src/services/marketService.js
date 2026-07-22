@@ -1,6 +1,9 @@
 import { base44 } from "@/api/base44Client";
 
-const referenceApi = String(import.meta.env.VITE_KMY_REFERENCE_API || "").replace(/\/$/, "");
+const configuredReferenceApi = String(import.meta.env.VITE_KMY_REFERENCE_API || "").replace(/\/$/, "");
+const localBrowserHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+const isLocalBrowser = typeof window !== "undefined" && localBrowserHosts.has(window.location.hostname);
+const referenceApi = isLocalBrowser ? (configuredReferenceApi || "/reference-api") : "";
 
 function quoteFromReference(company) {
   return {
