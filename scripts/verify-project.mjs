@@ -40,6 +40,13 @@ assert.match(ingestion, /name_en:\s*row\.nameEn/);
 assert.match(ingestion, /upsertMany\(base44,\s*'Instrument'/);
 assert.match(ingestion, /instrument\.symbol\}\.SR/);
 assert.match(ingestion, /Base44-Service-Authorization/, "scheduled ingestion must require Base44 service authorization");
+assert.match(ingestion, /MAIN_MARKET_SYMBOLS\.has\(row\.symbol\)/, "ingestion must exclude records outside the verified main-market catalog");
+
+const marketRead = await readFile(new URL("../base44/functions/marketRead/entry.ts", import.meta.url), "utf8");
+assert.match(marketRead, /official-main-market-catalog-2026-07-21\.json/, "market reads must use the verified main-market allowlist");
+assert.match(marketRead, /MAIN_MARKET_SYMBOLS\.has\(item\.symbol\)/, "market reads must exclude non-main-market records");
+assert.match(marketRead, /optionalRows/, "optional source metadata must not take down the market catalog");
+assert.match(marketRead, /Main-market catalog mismatch/, "an incomplete verified catalog must fail closed");
 
 const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIngestion/function.jsonc", import.meta.url), "utf8"));
 assert.equal(schedule.name, "marketIngestion");

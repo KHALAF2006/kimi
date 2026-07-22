@@ -5272,6 +5272,7 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
 // base44/functions/marketIngestion/entry.ts
 var YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart";
 var SAUDI_PROFILE = "https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/company-profile-main?companySymbol=";
+var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
 async function source(base44, code, data) {
   const rows = await base44.asServiceRole.entities.DataSource.filter({ code });
   return rows[0] ? await base44.asServiceRole.entities.DataSource.update(rows[0].id, data) : await base44.asServiceRole.entities.DataSource.create({ code, ...data });
@@ -5467,9 +5468,11 @@ Deno.serve(async (req) => {
       last_verified_at: (/* @__PURE__ */ new Date()).toISOString()
     });
     await upsertMany(base44, "Instrument", official_main_market_catalog_2026_07_21_default.companies.map(exactInstrument), ["symbol"]);
-    const instruments = await base44.asServiceRole.entities.Instrument.list("symbol", 500);
+    const instruments = (await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((row) => MAIN_MARKET_SYMBOLS.has(row.symbol));
     const bySymbol = new Map(instruments.map((row) => [row.symbol, row]));
-    if (instruments.length < 270) throw new Error(`Verified main-market catalog is incomplete: ${instruments.length}/270`);
+    if (instruments.length !== MAIN_MARKET_SYMBOLS.size) {
+      throw new Error(`Verified main-market catalog is incomplete: ${instruments.length}/${MAIN_MARKET_SYMBOLS.size}`);
+    }
     const officialQuotes = [];
     const lossRows = [];
     for (const row of official_main_market_catalog_2026_07_21_default.companies) {
