@@ -1,55 +1,141 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.38';
+import catalog from '../../data/official-main-market-catalog-2026-07-21.json' with { type: 'json' };
 import { requireRole, replyError } from '../../shared/security.ts';
+import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from '../../shared/momentum.ts';
 
-const tadawulUrl = 'https://www.saudiexchange.sa/wps/portal/saudiexchange/trading/market-services/market-information-services/market-data';
-const yahooBase = 'https://query1.finance.yahoo.com/v8/finance/chart';
+const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
+const SAUDI_PROFILE = 'https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/company-profile-main?companySymbol=';
 
 async function source(base44, code, data) {
   const rows = await base44.asServiceRole.entities.DataSource.filter({ code });
-  if (rows[0]) return await base44.asServiceRole.entities.DataSource.update(rows[0].id, data);
-  return await base44.asServiceRole.entities.DataSource.create({ code, ...data });
-}
-
-function officialRows(html) {
-  const pattern = /company:\s*"(\d{4})"[\s\S]*?companyDisplay:\s*"([^"]+)"[\s\S]*?price:\s*"([\d.]+)"[\s\S]*?change:\s*"(-?[\d.]+)"[\s\S]*?changePercent:\s*"(-?[\d.]+)"/g;
-  const found = [...html.matchAll(pattern)].map((match) => ({ symbol: match[1], name: match[2].trim(), price: Number(match[3]), change: Number(match[4]), changePercent: Number(match[5]) }));
-  return [...new Map(found.map((row) => [row.symbol, row])).values()];
+  return rows[0]
+    ? await base44.asServiceRole.entities.DataSource.update(rows[0].id, data)
+    : await base44.asServiceRole.entities.DataSource.create({ code, ...data });
 }
 
 async function checksum(value) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(value)));
-  return Array.from(new Uint8Array(bytes)).map((x) => x.toString(16).padStart(2, '0')).join('');
-}
-
-async function yahooRecord(row, yahooSourceId) {
-  const response = await fetch(`${yahooBase}/${row.symbol}.SR?interval=1d&range=1y`, { headers: { 'User-Agent': 'Mozilla/5.0 KMY-Market-Reference/1.0' } });
-  if (!response.ok) throw new Error(`Yahoo ${response.status}`);
-  const result = (await response.json())?.chart?.result?.[0];
-  if (!result?.timestamp?.length) throw new Error('Yahoo returned no bars');
-  const quote = result.indicators?.quote?.[0] || {};
-  const bars = result.timestamp.map((time, index) => ({ time: new Date(time * 1000).toISOString(), open: Number(quote.open?.[index]), high: Number(quote.high?.[index]), low: Number(quote.low?.[index]), close: Number(quote.close?.[index]), volume: Number(quote.volume?.[index] || 0) })).filter((bar) => [bar.open, bar.high, bar.low, bar.close].every(Number.isFinite));
-  const meta = result.meta || {};
-  const last = bars[bars.length - 1];
-  const previous = bars[bars.length - 2];
-  const previousClose = Number(meta.chartPreviousClose ?? previous?.close ?? last.close);
-  const change = Number(last.close - previousClose);
-  const quoteTime = new Date((meta.regularMarketTime || result.timestamp[result.timestamp.length - 1]) * 1000).toISOString();
-  return {
-    quote: { instrument_id: row.id, symbol: row.symbol, last_price: last.close, previous_close: previousClose, change_value: change, change_percent: previousClose ? change / previousClose * 100 : 0, open: last.open, high: last.high, low: last.low, volume: last.volume, source_id: yahooSourceId, quote_time: quoteTime, quality_status: 'verified' },
-    candle: { instrument_id: row.id, symbol: row.symbol, interval: '1d', chunk_key: `${row.symbol}-1d-1y`, start_time: bars[0].time, end_time: last.time, bars, bar_count: bars.length, checksum: await checksum(bars), source_id: yahooSourceId, quality_status: 'verified' },
-    indicator: { instrument_id: row.id, symbol: row.symbol, indicator_key: 'momentum_zones', timeframe: '1d', values: { low: Math.min(...bars.slice(-20).map((bar) => bar.close)), high: Math.max(...bars.slice(-20).map((bar) => bar.close)), last: last.close, direction: last.close >= bars[Math.max(0, bars.length - 20)].close ? 'up' : 'down' }, source_as_of: quoteTime, calculated_at: new Date().toISOString(), formula_version: 'momentum-zones-v1' }
-  };
+  return Array.from(new Uint8Array(bytes)).map((item) => item.toString(16).padStart(2, '0')).join('');
 }
 
 async function upsertMany(base44, entity, rows, keyFields) {
   if (!rows.length) return;
-  const existing = await base44.asServiceRole.entities[entity].list('-updated_date', 500);
+  const existing = await base44.asServiceRole.entities[entity].list('-updated_date', 5000);
   const key = (row) => keyFields.map((field) => row[field]).join('|');
-  const map = new Map(existing.map((row) => [key(row), row]));
-  const creates = rows.filter((row) => !map.has(key(row)));
-  const updates = rows.filter((row) => map.has(key(row))).map((row) => ({ id: map.get(key(row)).id, ...row }));
+  const byKey = new Map(existing.map((row) => [key(row), row]));
+  const creates = rows.filter((row) => !byKey.has(key(row)));
+  const updates = rows.filter((row) => byKey.has(key(row))).map((row) => ({ id: byKey.get(key(row)).id, ...row }));
   if (creates.length) await base44.asServiceRole.entities[entity].bulkCreate(creates);
   if (updates.length) await base44.asServiceRole.entities[entity].bulkUpdate(updates);
+}
+
+function riyadhClock(now = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit',
+    weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(now).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, weekday: parts.weekday, hour: Number(parts.hour), minute: Number(parts.minute) };
+}
+
+async function shouldRunScheduled(base44, body) {
+  if (!String(body.source || '').startsWith('scheduled') || body.force === true) return { run: true };
+  const clock = riyadhClock();
+  if (!['Sun', 'Mon', 'Tue', 'Wed', 'Thu'].includes(clock.weekday)) return { run: false, reason: 'non_trading_weekday', clock };
+  if (clock.hour < 10 || clock.hour > 16 || (clock.hour === 16 && clock.minute > 0)) return { run: false, reason: 'outside_market_window', clock };
+  const holidays = await base44.asServiceRole.entities.MarketHoliday.filter({ holiday_date: clock.date });
+  if (holidays.length) return { run: false, reason: 'official_market_holiday', clock };
+  return { run: true, clock };
+}
+
+function exactInstrument(row) {
+  return {
+    symbol: row.symbol,
+    name_ar: row.nameAr,
+    name_en: row.nameEn,
+    sector_ar: row.sectorAr,
+    sector_en: row.sectorEn,
+    market: 'Saudi Main Market',
+    currency: 'SAR',
+    status: 'active',
+    official_url: SAUDI_PROFILE + row.symbol,
+  };
+}
+
+function officialQuote(row, instrumentId, sourceId) {
+  const last = Number(row.officialQuote?.lastPrice);
+  const percent = Number(row.officialQuote?.changePercent || 0);
+  const previous = percent === -100 ? null : last / (1 + percent / 100);
+  return {
+    instrument_id: instrumentId,
+    symbol: row.symbol,
+    last_price: last,
+    previous_close: previous,
+    change_value: previous == null ? null : last - previous,
+    change_percent: percent,
+    open: Number(row.officialQuote?.openPrice),
+    high: Number(row.officialQuote?.highPrice),
+    low: Number(row.officialQuote?.lowPrice),
+    volume: Number(row.officialQuote?.volume || 0),
+    trade_count: Number(row.officialQuote?.tradeCount || 0),
+    traded_value: Number(row.officialQuote?.tradedValue || 0),
+    market_cap: Number(row.officialQuote?.marketCap || 0),
+    source_id: sourceId,
+    quote_time: catalog.quoteTime,
+    quality_status: 'verified',
+  };
+}
+
+function lossClassification(row, instrumentId, sourceId) {
+  const level = row.warningFlag || 'none';
+  const labels = {
+    none: ['لا يوجد تصنيف خسائر متراكمة', 'No accumulated-loss flag'],
+    yellow: ['خسائر متراكمة من 20% إلى أقل من 35%', 'Accumulated losses from 20% to below 35%'],
+    orange: ['خسائر متراكمة من 35% إلى أقل من 50%', 'Accumulated losses from 35% to below 50%'],
+    red: ['خسائر متراكمة 50% فأكثر', 'Accumulated losses of 50% or more'],
+  };
+  return { instrument_id: instrumentId, level, label_ar: labels[level][0], label_en: labels[level][1], source_id: sourceId, as_of: catalog.quoteTime };
+}
+
+async function yahooHistory(instrument, yahooSourceId) {
+  const response = await fetch(`${YAHOO_CHART}/${instrument.symbol}.SR?interval=1d&range=2y&events=div%2Csplits`, {
+    headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0 KMY-Saudi-Market/2.0' },
+  });
+  if (!response.ok) throw new Error(`Yahoo chart ${response.status}`);
+  const result = (await response.json())?.chart?.result?.[0];
+  if (!result?.timestamp?.length) throw new Error('Yahoo chart returned no timestamps');
+  const values = result.indicators?.quote?.[0] || {};
+  const bars = result.timestamp.map((timestamp, index) => ({
+    time: new Date(timestamp * 1000).toISOString(),
+    open: Number(values.open?.[index]), high: Number(values.high?.[index]),
+    low: Number(values.low?.[index]), close: Number(values.close?.[index]),
+    volume: Number(values.volume?.[index] || 0),
+  })).filter((bar) => [bar.open, bar.high, bar.low, bar.close].every(Number.isFinite) && bar.high >= bar.low && bar.volume >= 0);
+  if (bars.length < 2) throw new Error('Yahoo chart returned insufficient valid bars');
+  const meta = result.meta || {};
+  const last = bars[bars.length - 1];
+  const previous = bars[bars.length - 2];
+  const previousClose = Number(meta.chartPreviousClose ?? previous.close);
+  const quoteTime = new Date((meta.regularMarketTime || result.timestamp[result.timestamp.length - 1]) * 1000).toISOString();
+  const momentum = calculateMomentumZones(bars);
+  return {
+    quote: {
+      instrument_id: instrument.id, symbol: instrument.symbol, last_price: last.close,
+      previous_close: previousClose, change_value: last.close - previousClose,
+      change_percent: previousClose ? ((last.close - previousClose) / previousClose) * 100 : 0,
+      open: last.open, high: last.high, low: last.low, volume: last.volume,
+      week52_high: Number(meta.fiftyTwoWeekHigh), week52_low: Number(meta.fiftyTwoWeekLow),
+      source_id: yahooSourceId, quote_time: quoteTime, quality_status: 'verified',
+    },
+    candle: {
+      instrument_id: instrument.id, symbol: instrument.symbol, interval: '1d', chunk_key: `${instrument.symbol}-1d-2y`,
+      start_time: bars[0].time, end_time: last.time, bars, bar_count: bars.length,
+      checksum: await checksum(bars), source_id: yahooSourceId, quality_status: 'verified',
+    },
+    indicator: momentum ? {
+      instrument_id: instrument.id, symbol: instrument.symbol, indicator_key: 'momentum_zones', timeframe: '1d',
+      values: momentum, source_as_of: quoteTime, calculated_at: new Date().toISOString(), formula_version: MOMENTUM_FORMULA_VERSION,
+    } : null,
+  };
 }
 
 Deno.serve(async (req) => {
@@ -58,54 +144,62 @@ Deno.serve(async (req) => {
     await requireRole(base44, ['admin', 'owner']);
     const body = await req.json();
     const startedAt = new Date().toISOString();
-    let catalog = [];
-    let tadawulAvailable = false;
-    try {
-      const htmlResponse = await fetch(tadawulUrl, { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html,application/xhtml+xml', 'Accept-Language': 'ar,en;q=0.9', 'Referer': 'https://www.saudiexchange.sa/' } });
-      if (htmlResponse.ok) {
-        catalog = officialRows(await htmlResponse.text());
-        tadawulAvailable = catalog.length >= 270;
-      }
-    } catch { tadawulAvailable = false; }
+    const schedule = await shouldRunScheduled(base44, body);
+    if (!schedule.run) return Response.json({ status: 'skipped', reason: schedule.reason, clock: schedule.clock });
 
-    const now = new Date().toISOString();
-    const tadawul = await source(base44, 'SAUDI_EXCHANGE_REFERENCE', { name: 'تداول السعودية — بيانات موقع متأخرة', source_type: 'official', license_status: 'restricted', base_url: 'https://www.saudiexchange.sa/', last_verified_at: now });
-    const yahoo = await source(base44, 'YAHOO_FINANCE_SA_DELAYED', { name: 'Yahoo Finance — Saudi delayed quotes', source_type: 'reference', license_status: 'restricted', base_url: 'https://finance.yahoo.com/', last_verified_at: now });
+    const officialSource = await source(base44, 'SAUDI_EXCHANGE_DAILY_REFERENCE', {
+      name: 'تداول السعودية — التقرير اليومي التفصيلي', source_type: 'official', license_status: 'restricted',
+      base_url: catalog.sourceUrl, last_verified_at: catalog.quoteTime,
+    });
+    const yahooSource = await source(base44, 'YAHOO_FINANCE_SA_DELAYED', {
+      name: 'Yahoo Finance — Saudi delayed chart', source_type: 'reference', license_status: 'restricted',
+      base_url: 'https://finance.yahoo.com/', last_verified_at: new Date().toISOString(),
+    });
 
-    const existingInstruments = await base44.asServiceRole.entities.Instrument.list('symbol', 500);
-    if (!tadawulAvailable && !existingInstruments.length) throw new Error('Saudi Exchange unavailable and no verified catalog is cached');
-    const instrumentMap = new Map(existingInstruments.map((row) => [row.symbol, row]));
-    const instrumentCreates = catalog.filter((row) => !instrumentMap.has(row.symbol)).map((row) => ({ symbol: row.symbol, name_ar: row.name, name_en: row.name, sector_ar: 'غير مصنف', sector_en: 'Unclassified', market: 'Saudi Main Market', currency: 'SAR', status: 'active', official_url: `https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/company-profile-main?companySymbol=${row.symbol}` }));
-    if (instrumentCreates.length) await base44.asServiceRole.entities.Instrument.bulkCreate(instrumentCreates);
+    await upsertMany(base44, 'Instrument', catalog.companies.map(exactInstrument), ['symbol']);
     const instruments = await base44.asServiceRole.entities.Instrument.list('symbol', 500);
     const bySymbol = new Map(instruments.map((row) => [row.symbol, row]));
+    if (instruments.length < 270) throw new Error(`Verified main-market catalog is incomplete: ${instruments.length}/270`);
 
-    if (tadawulAvailable) {
-      const tadawulQuotes = catalog.map((row) => { const instrument = bySymbol.get(row.symbol); return { instrument_id: instrument.id, symbol: row.symbol, last_price: row.price, change_value: row.change, change_percent: row.changePercent, previous_close: row.price - row.change, source_id: tadawul.id, quote_time: now, quality_status: 'verified' }; });
-      await upsertMany(base44, 'QuoteLatest', tadawulQuotes, ['instrument_id']);
+    const officialQuotes = [];
+    const lossRows = [];
+    for (const row of catalog.companies) {
+      const instrument = bySymbol.get(row.symbol);
+      if (!instrument) continue;
+      officialQuotes.push(officialQuote(row, instrument.id, officialSource.id));
+      lossRows.push(lossClassification(row, instrument.id, officialSource.id));
     }
+    await upsertMany(base44, 'QuoteLatest', officialQuotes, ['instrument_id']);
+    await upsertMany(base44, 'LossClassification', lossRows, ['instrument_id']);
 
-    let cursor = Number.isInteger(body.cursor) ? body.cursor : null;
-    if (cursor === null) {
-      const previousRuns = await base44.asServiceRole.entities.IngestionRun.list('-started_at', 1);
-      try { cursor = Number(JSON.parse(previousRuns[0]?.notes || '{}').next_cursor || 0); } catch { cursor = 0; }
-    }
-    const batchSize = Math.min(Math.max(Number(body.batch_size || 60), 1), 100);
-    const selected = instruments.slice(cursor, cursor + batchSize);
+    const batchSize = Math.min(Math.max(Number(body.batch_size || 270), 1), 500);
+    const selected = instruments.slice(0, batchSize);
     const successes = [];
     const failures = [];
-    for (let index = 0; index < selected.length; index += 8) {
-      const group = selected.slice(index, index + 8);
-      const settled = await Promise.allSettled(group.map((row) => yahooRecord(row, yahoo.id)));
-      settled.forEach((result, offset) => result.status === 'fulfilled' ? successes.push(result.value) : failures.push({ symbol: group[offset].symbol, error: result.reason?.message || 'Yahoo failed' }));
+    for (let index = 0; index < selected.length; index += 12) {
+      const group = selected.slice(index, index + 12);
+      const settled = await Promise.allSettled(group.map((instrument) => yahooHistory(instrument, yahooSource.id)));
+      settled.forEach((result, offset) => {
+        if (result.status === 'fulfilled') successes.push(result.value);
+        else failures.push({ symbol: group[offset].symbol, error: result.reason?.message || 'Yahoo history failed' });
+      });
     }
-    await upsertMany(base44, 'QuoteLatest', successes.map((row) => row.quote), ['instrument_id']);
-    await upsertMany(base44, 'CandleChunk', successes.map((row) => row.candle), ['instrument_id', 'interval', 'chunk_key']);
-    await upsertMany(base44, 'IndicatorSnapshot', successes.map((row) => row.indicator), ['instrument_id', 'indicator_key', 'timeframe']);
-    const nextCursor = cursor + selected.length >= instruments.length ? 0 : cursor + selected.length;
+    await upsertMany(base44, 'QuoteLatest', successes.map((item) => item.quote), ['instrument_id']);
+    await upsertMany(base44, 'CandleChunk', successes.map((item) => item.candle), ['instrument_id', 'interval', 'chunk_key']);
+    await upsertMany(base44, 'IndicatorSnapshot', successes.map((item) => item.indicator).filter(Boolean), ['instrument_id', 'indicator_key', 'timeframe']);
+
     const status = failures.length ? (successes.length ? 'partial' : 'failed') : 'success';
-    await base44.asServiceRole.entities.IngestionRun.create({ run_type: body.source || 'manual_reference_sync', started_at: startedAt, finished_at: new Date().toISOString(), total_records: selected.length, success_count: successes.length, failed_count: failures.length, status, source_id: yahoo.id, notes: JSON.stringify({ cursor, next_cursor: nextCursor, catalog_count: instruments.length, failures: failures.slice(0, 20) }) });
-    return Response.json({ status, mode: 'delayed_reference', catalog_count: instruments.length, yahoo_success_count: successes.length, yahoo_failure_count: failures.length, cursor, next_cursor: nextCursor, is_active: true, sources: [tadawul.name, yahoo.name], last_updated_at: now });
+    await base44.asServiceRole.entities.IngestionRun.create({
+      run_type: body.source || 'manual_verified_sync', started_at: startedAt, finished_at: new Date().toISOString(),
+      total_records: selected.length, success_count: successes.length, failed_count: failures.length, status,
+      source_id: yahooSource.id,
+      notes: JSON.stringify({ catalog_count: instruments.length, official_catalog_date: catalog.marketDate, yahoo_failures: failures.slice(0, 30) }),
+    });
+    return Response.json({
+      status, catalog_count: instruments.length, exact_names_source: catalog.sourceUrl, official_catalog_date: catalog.marketDate,
+      yahoo_success_count: successes.length, yahoo_failure_count: failures.length, failures: failures.slice(0, 30),
+      mode: 'verified_delayed_reference', last_updated_at: new Date().toISOString(),
+    });
   } catch (error) {
     return replyError(error);
   }

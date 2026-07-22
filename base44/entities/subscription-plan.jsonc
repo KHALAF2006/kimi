@@ -1,0 +1,43 @@
+{
+  "name": "SubscriptionPlan",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string"
+    },
+    "name_ar": {
+      "type": "string"
+    },
+    "name_en": {
+      "type": "string"
+    },
+    "duration_months": {
+      "type": "integer",
+      "enum": [
+        1,
+        3,
+        6
+      ]
+    },
+    "price_sar": {
+      "type": "number"
+    },
+    "active": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "name_ar",
+    "name_en",
+    "duration_months",
+    "price_sar",
+    "active"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

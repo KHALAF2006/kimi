@@ -1,34 +1,38 @@
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ScrollToTop from './components/ScrollToTop';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import KmyLayout from '@/components/KmyLayout';
-import Landing from '@/pages/Landing';
-import Login from '@/pages/Login';
-import Register from '@/pages/Register';
-import ForgotPassword from '@/pages/ForgotPassword';
-import ResetPassword from '@/pages/ResetPassword';
-import VerifyContact from '@/pages/VerifyContact';
-import Dashboard from '@/pages/Dashboard';
-import CompanyDetails from '@/pages/CompanyDetails';
-import Movers from '@/pages/Movers';
-import Screener from '@/pages/Screener';
-import SearchScreens from '@/pages/SearchScreens';
-import Watchlists from '@/pages/Watchlists';
-import Alerts from '@/pages/Alerts';
-import Destinations from '@/pages/Destinations';
-import Profile from '@/pages/Profile';
-import AdminDashboard from '@/pages/AdminDashboard';
-import SubscriptionsAdmin from '@/pages/SubscriptionsAdmin';
-import CustomersAdmin from '@/pages/CustomersAdmin';
-import DataQualityAdmin from '@/pages/DataQualityAdmin';
-import OperationsAdmin from '@/pages/OperationsAdmin';
-import AuditAdmin from '@/pages/AuditAdmin';
+import { PreferencesProvider } from '@/lib/preferences';
+
+import { lazy, Suspense } from 'react';
+
+const Landing = lazy(() => import('@/pages/Landing'));
+const Login = lazy(() => import('@/pages/Login'));
+const Register = lazy(() => import('@/pages/Register'));
+const ForgotPassword = lazy(() => import('@/pages/ForgotPassword'));
+const ResetPassword = lazy(() => import('@/pages/ResetPassword'));
+const VerifyContact = lazy(() => import('@/pages/VerifyContact'));
+const Dashboard = lazy(() => import('@/pages/Dashboard'));
+const CompanyDetails = lazy(() => import('@/pages/CompanyDetails'));
+const Movers = lazy(() => import('@/pages/Movers'));
+const Screener = lazy(() => import('@/pages/Screener'));
+const SearchScreens = lazy(() => import('@/pages/SearchScreens'));
+const Watchlists = lazy(() => import('@/pages/Watchlists'));
+const Alerts = lazy(() => import('@/pages/Alerts'));
+const Destinations = lazy(() => import('@/pages/Destinations'));
+const Profile = lazy(() => import('@/pages/Profile'));
+const AdminDashboard = lazy(() => import('@/pages/AdminDashboard'));
+const SubscriptionsAdmin = lazy(() => import('@/pages/SubscriptionsAdmin'));
+const CustomersAdmin = lazy(() => import('@/pages/CustomersAdmin'));
+const DataQualityAdmin = lazy(() => import('@/pages/DataQualityAdmin'));
+const OperationsAdmin = lazy(() => import('@/pages/OperationsAdmin'));
+const AuditAdmin = lazy(() => import('@/pages/AuditAdmin'));
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -55,6 +59,7 @@ const AuthenticatedApp = () => {
 
   // Render the main app
   return (
+    <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-white dark:bg-slate-950"><div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-amber-500" /></div>}>
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
@@ -62,7 +67,7 @@ const AuthenticatedApp = () => {
       <Route path="/verify" element={<VerifyContact />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
-      <Route element={<ProtectedRoute />}>
+      <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
         <Route element={<KmyLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/company" element={<CompanyDetails />} />
@@ -83,6 +88,7 @@ const AuthenticatedApp = () => {
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
+    </Suspense>
   );
 };
 
@@ -90,15 +96,17 @@ const AuthenticatedApp = () => {
 function App() {
 
   return (
-    <AuthProvider>
-      <QueryClientProvider client={queryClientInstance}>
-        <Router>
-          <ScrollToTop />
-          <AuthenticatedApp />
-        </Router>
-        <Toaster />
-      </QueryClientProvider>
-    </AuthProvider>
+    <PreferencesProvider>
+      <AuthProvider>
+        <QueryClientProvider client={queryClientInstance}>
+          <Router>
+            <ScrollToTop />
+            <AuthenticatedApp />
+          </Router>
+          <Toaster />
+        </QueryClientProvider>
+      </AuthProvider>
+    </PreferencesProvider>
   )
 }
 

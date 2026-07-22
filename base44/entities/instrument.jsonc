@@ -1,0 +1,57 @@
+{
+  "name": "Instrument",
+  "type": "object",
+  "properties": {
+    "symbol": {
+      "type": "string",
+      "pattern": "^[0-9]{4}$"
+    },
+    "name_ar": {
+      "type": "string"
+    },
+    "name_en": {
+      "type": "string"
+    },
+    "sector_ar": {
+      "type": "string"
+    },
+    "sector_en": {
+      "type": "string"
+    },
+    "market": {
+      "type": "string",
+      "default": "Saudi Main Market"
+    },
+    "currency": {
+      "type": "string",
+      "default": "SAR"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "suspended",
+        "delisted"
+      ],
+      "default": "active"
+    },
+    "official_url": {
+      "type": "string",
+      "format": "uri"
+    }
+  },
+  "required": [
+    "symbol",
+    "name_ar",
+    "name_en",
+    "sector_ar",
+    "sector_en",
+    "official_url"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

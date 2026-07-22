@@ -1,0 +1,56 @@
+{
+  "name": "IngestionRun",
+  "type": "object",
+  "properties": {
+    "run_type": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finished_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "total_records": {
+      "type": "integer"
+    },
+    "success_count": {
+      "type": "integer"
+    },
+    "failed_count": {
+      "type": "integer"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "running",
+        "success",
+        "partial",
+        "failed"
+      ]
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_type",
+    "started_at",
+    "total_records",
+    "success_count",
+    "failed_count",
+    "status",
+    "source_id"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

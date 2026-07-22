@@ -1,0 +1,26 @@
+{
+  "name": "SavedScreen",
+  "type": "object",
+  "properties": {
+    "customer_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "filters": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "customer_id",
+    "name",
+    "filters"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

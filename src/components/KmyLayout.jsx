@@ -1,21 +1,35 @@
 import React from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { BarChart3, Bell, Eye, LogOut, Search, Settings } from "lucide-react";
+import { BarChart3, Bell, Eye, Languages, LogOut, Moon, Search, Settings, ShieldCheck, Sparkles, Sun } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
+import { usePreferences } from "@/lib/preferences";
 
-const links = [
-  ["/dashboard", "السوق", BarChart3], ["/search", "البحث", Search],
-  ["/watchlists", "المتابعة", Eye], ["/alerts", "التنبيهات", Bell],
-  ["/profile", "الحساب", Settings]
-];
 export default function KmyLayout() {
-  return <div dir="rtl" className="min-h-screen bg-[#0b1220] text-slate-100">
-    <header className="sticky top-0 z-40 border-b border-white/10 bg-[#0b1220]/95 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
-        <NavLink to="/dashboard" className="text-xl font-black text-emerald-400">كيمي</NavLink>
-        <nav className="flex flex-1 gap-1 overflow-x-auto">{links.map(([to,label,Icon])=><NavLink key={to} to={to} className={({isActive})=>`flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm ${isActive?'bg-white/10 text-white':'text-slate-400 hover:text-white'}`}><Icon className="h-4 w-4"/>{label}</NavLink>)}</nav>
-        <button aria-label="تسجيل الخروج" onClick={()=>{localStorage.removeItem('kmy_session_id');base44.auth.logout('/')}} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white"><LogOut className="h-4 w-4"/></button>
+  const { text, isArabic, theme, toggleLanguage, toggleTheme } = usePreferences();
+  const { user } = useAuth();
+  const links = [
+    ["/dashboard", text.market, BarChart3],
+    ["/search", text.search, Search],
+    ["/screener", text.screener, Sparkles],
+    ["/watchlists", text.watchlists, Eye],
+    ["/alerts", text.alerts, Bell],
+    ["/profile", text.account, Settings],
+  ];
+  if (["admin", "owner"].includes(user?.role)) links.push(["/admin", isArabic ? "الإدارة" : "Admin", ShieldCheck]);
+
+  return <div className="min-h-screen bg-slate-50 text-slate-950 transition-colors dark:bg-[#08111f] dark:text-slate-100">
+    <header className="app-header">
+      <div className="mx-auto flex max-w-[1800px] items-center gap-3 px-3 py-3 sm:px-5">
+        <NavLink to="/dashboard" className="brand-lockup" aria-label={isArabic ? "كيمي" : "KMY"}><span className="brand-mark"><BarChart3 size={19} /></span><span>كيمي<small>KMY</small></span></NavLink>
+        <nav className="app-nav">{links.map(([to, label, Icon]) => <NavLink key={to} to={to} className={({ isActive }) => isActive ? "active" : ""}><Icon size={16} /><span>{label}</span></NavLink>)}</nav>
+        <div className="ms-auto flex items-center gap-1">
+          <button className="icon-button" onClick={toggleLanguage} title={isArabic ? "English" : "العربية"}><Languages size={17} /></button>
+          <button className="icon-button" onClick={toggleTheme} title={isArabic ? "تغيير المظهر" : "Change theme"}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button>
+          <button aria-label={isArabic ? "تسجيل الخروج" : "Sign out"} onClick={() => { localStorage.removeItem("kmy_session_id"); base44.auth.logout("/"); }} className="icon-button"><LogOut size={17} /></button>
+        </div>
       </div>
-    </header><main className="mx-auto max-w-7xl px-4 py-8"><Outlet/></main>
+    </header>
+    <main><Outlet /></main>
   </div>;
 }
