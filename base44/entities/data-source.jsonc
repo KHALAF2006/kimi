@@ -1,0 +1,50 @@
+{
+  "name": "DataSource",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "source_type": {
+      "type": "string",
+      "enum": [
+        "licensed",
+        "official",
+        "reference"
+      ]
+    },
+    "license_status": {
+      "type": "string",
+      "enum": [
+        "approved",
+        "restricted",
+        "expired"
+      ]
+    },
+    "base_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "last_verified_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "code",
+    "name",
+    "source_type",
+    "license_status",
+    "base_url",
+    "last_verified_at"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

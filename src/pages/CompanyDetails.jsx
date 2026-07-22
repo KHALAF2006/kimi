@@ -1,8 +1,16 @@
 import React from "react";
-import ServicePage from "@/components/ServicePage";
-import StatusPanel from "@/components/StatusPanel";
-import DataNotice from "@/components/market/DataNotice";
-import SourceStamp from "@/components/market/SourceStamp";
-import CompanyChart from "@/components/market/CompanyChart";
-export default function CompanyDetails(){const id=new URLSearchParams(window.location.search).get('id');return <ServicePage title="تفاصيل الشركة" description="السعر والشموع والمؤشرات والمعلومات المرجعية المحفوظة." functionName="marketRead" payload={{instrument_id:id}}>{data=>data.instrument?<div className="space-y-5"><DataNotice text={data.notice}/><section className="rounded-2xl border border-white/10 bg-white/[.03] p-6"><span className="text-emerald-400">{data.instrument.symbol}</span><h2 className="mt-2 text-2xl font-bold">{data.instrument.name_ar}</h2><p className="mt-2 text-sm text-slate-400">{data.instrument.sector_ar} · {data.instrument.market}</p><div className="mt-5 text-3xl font-black">{data.quote?.last_price?.toLocaleString('ar-SA')??'—'} ر.س</div><SourceStamp quote={data.quote}/></section><section className="rounded-2xl border border-white/10 bg-white/[.03] p-6"><h3 className="mb-5 font-bold">الشموع اليومية</h3><CompanyChart candles={data.candles}/></section><section className="grid gap-5 lg:grid-cols-3"><Info title="البيانات المالية" rows={data.financials}/><Info title="إجراءات الشركات" rows={data.actions}/><Info title="كبار المساهمين" rows={data.shareholders}/></section></div>:<StatusPanel/>}</ServicePage>}
-function Info({title,rows}){return <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6"><h3 className="font-bold">{title}</h3>{rows?.length?<div className="mt-4 space-y-3">{rows.map(x=><div key={x.id} className="text-sm text-slate-300">{x.shareholder_name_ar||x.description_ar||x.period||x.shareholder_name_en} {x.ownership_percent!=null&&`${x.ownership_percent}%`}</div>)}</div>:<p className="mt-4 text-sm text-slate-500">لم ينشر المصدر قيمة متاحة لهذا القسم بعد.</p>}</div>}
+import { Link, useSearchParams } from "react-router-dom";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import CompanyPanel from "@/components/market/CompanyPanel";
+import { usePreferences } from "@/lib/preferences";
+
+export default function CompanyDetails() {
+  const [params] = useSearchParams();
+  const { isArabic } = usePreferences();
+  const symbol = params.get("company") || params.get("symbol") || "";
+  const Arrow = isArabic ? ArrowRight : ArrowLeft;
+  return <div className="mx-auto max-w-[1500px] space-y-4 px-3 py-5 sm:px-5">
+    <Link to={"/dashboard" + (symbol ? "?company=" + symbol : "")} className="secondary-button"><Arrow size={15} />{isArabic ? "العودة إلى السوق" : "Back to market"}</Link>
+    <CompanyPanel symbol={symbol} onResetWidth={() => {}} />
+  </div>;
+}

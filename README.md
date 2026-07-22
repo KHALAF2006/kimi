@@ -1,77 +1,67 @@
-# Base44 Project
+# KMY Saudi Market Platform — منصة كيمي
 
-Use this repository to run and edit the app locally, then publish changes back through Base44.
+منصة عربية/إنجليزية لمتابعة السوق الرئيسية السعودية. هذا المستودع هو تنفيذ Full-stack لـBase44، وليس واجهة عرض منفصلة.
 
-Any change pushed to the repo will also be reflected in the Base44 Builder.
+## مصدر الشركات والأسعار
 
-## Prerequisites
+- المصدر المثبت لأسماء الشركات والقطاعات والأسعار اليومية: تقرير تداول السعودية التفصيلي ليوم `2026-07-21`.
+- الملف الرسمي المحفوظ: `base44/data/official-main-market-catalog-2026-07-21.json`.
+- العدد: `270` شركة، و`270` رمزًا فريدًا.
+- بصمة SHA-256: `4BCC19FD271E1D84D1390E8B2E311046243A8CC9B79B024FF43850C4D8F31337`.
+- الشموع التاريخية تُجلب من Yahoo Finance بالرمز السعودي `SYMBOL.SR`، ولا توجد شموع مولدة أو بدائل عشوائية.
+- تقوم `marketIngestion` بعمل upsert للاسم العربي والإنجليزي والقطاع في كل دورة، لذلك تستبدل أسماء Base44 القديمة ولا تحتفظ بها.
 
-1. Clone the repository using the project's Git URL.
-2. Navigate to the project directory.
-3. Install dependencies: `npm install`.
-4. Install the Base44 CLI: `npm install -g base44@latest`.
-
-See the [Base44 CLI docs](https://docs.base44.com/developers/references/cli/get-started/overview) if you want to run Base44 commands directly.
-
-## Run Locally
-
-Run the full local development environment from the project root:
+## التشغيل المحلي
 
 ```bash
-base44 dev
-```
-
-`base44 dev` starts the local Base44 development backend and, when this app is configured for it, also starts the frontend dev server for you. Use the frontend URL printed by the command.
-
-For example, when the Base44 project config includes a `serveCommand`, `base44 dev` can launch the frontend too:
-
-```json5
-{
-  "site": {
-    "serveCommand": "npm run dev"
-  }
-}
-```
-
-In a Base44 project this lives in `base44/config.jsonc`.
-
-## Run Only The Frontend
-
-If you only want to work on the frontend against the hosted Base44 backend, run:
-
-```bash
+npm install
+npm test
+npm run typecheck
+npm run lint
+npm run build
 npm run dev
 ```
 
-Open the local URL printed by Vite.
-
-## Use The Hosted Backend
-
-For frontend-only development, create or update `.env.local` in the project root:
+لربط الواجهة محليًا بالـbackend المرجعي الحقيقي:
 
 ```bash
-VITE_BASE44_APP_ID=your_app_id
-VITE_BASE44_APP_BASE_URL=https://your-app.base44.app
+VITE_KMY_REFERENCE_API=/reference-api npm run dev
 ```
 
-`VITE_BASE44_APP_ID` identifies the Base44 app.
+يمر المسار `/reference-api` عبر Vite إلى `http://127.0.0.1:3001/api` لتجنب أخطاء CORS. هذا المسار محلي فقط؛ الإنتاج يستخدم وظائف Base44 المحمية.
 
-`VITE_BASE44_APP_BASE_URL` tells the Base44 Vite plugin where to send local `/api` requests. Point it at your deployed Base44 app URL when you want the local frontend to use the hosted backend.
-
-When you use `base44 dev`, the command injects the local Base44 values for you, so `.env.local` is mainly needed for frontend-only workflows.
-
-## Publish Your Changes
-
-After pushing your changes to git, open the Base44 dashboard and publish the app:
+## Base44
 
 ```bash
-base44 dashboard open
+base44 dev
+base44 deploy --dry-run
 ```
 
-## Docs & Support
+قبل أي نشر فعلي يجب تهيئة قاعدة Base44 والأسرار، وتشغيل مزامنة إجبارية مرة واحدة لتحديث جميع الأسماء الرسمية. لا يجوز النشر إذا فشلت مصفوفة الاختبارات أو كان مصدر بيانات السوق غير متاح.
 
-Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
+## أسرار التنبيهات
 
-Base44 CLI command reference: [https://docs.base44.com/developers/references/cli/commands/introduction](https://docs.base44.com/developers/references/cli/commands/introduction)
+لا تُحفظ الأسرار في Git. تُضاف في إعدادات أسرار Base44:
 
-Support: [https://app.base44.com/support](https://app.base44.com/support)
+- `TELEGRAM_BOT_TOKEN`
+- `WHATSAPP_ACCESS_TOKEN`
+- `WHATSAPP_PHONE_NUMBER_ID`
+- `WHATSAPP_GRAPH_VERSION`
+- `WHATSAPP_ALERT_TEMPLATE_NAME`
+- `WHATSAPP_ALERT_TEMPLATE_LANGUAGE`
+
+تنبيهات WhatsApp تستخدم قالبًا معتمدًا بخمسة متغيرات مرتبة: اسم الشركة، الرمز، السعر، الشرط، ووقت السعر. لا يُرسل أي رقم دون موافقة موثقة، ولا تُرجع واجهة العميل الرقم الكامل.
+
+## الأمان
+
+- القراءة والكتابة المباشرة من المتصفح مرفوضة في جميع كيانات Base44.
+- الوصول يتم عبر وظائف خلفية تتحقق من المستخدم والجلسة النشطة والاشتراك والدور وملكية الكائن.
+- دخول جهاز جديد يبطل الجلسة السابقة بعد نجاح التحقق.
+- أحداث التسليم لها مفتاح منع تكرار وحد أقصى للمحاولات.
+- بيانات السوق لا تُستبدل ببيانات Mock عند فشل المصدر.
+
+## التحقق
+
+`npm test` يتحقق من عدد الشركات، تفرد الرموز، بصمة الملف، الاسم الصحيح للشركة `4210`، ربط ingest بالملف الرسمي، الجدولة، ورفض RLS المباشر لجميع الكيانات.
+
+توثيق تكامل GitHub مع Base44: <https://docs.base44.com/Integrations/Using-GitHub>

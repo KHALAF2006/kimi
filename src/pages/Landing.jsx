@@ -1,4 +1,56 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { ShieldCheck, LineChart, Database } from "lucide-react";
-export default function Landing(){return <div dir="rtl" className="min-h-screen bg-[#0b1220] text-white"><header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5"><b className="text-2xl text-emerald-400">كيمي</b><Link to="/login" className="rounded-xl border border-white/15 px-4 py-2 text-sm">تسجيل الدخول</Link></header><main className="mx-auto max-w-7xl px-5 pb-20 pt-16"><div className="max-w-3xl"><span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-sm text-emerald-300">السوق الرئيسية السعودية</span><h1 className="mt-7 text-4xl font-black leading-tight sm:text-6xl">راقب السوق ببيانات موثقة، لا بتخمينات.</h1><p className="mt-6 text-lg leading-8 text-slate-400">منصة مالية ثنائية اللغة لمتابعة الشركات والمؤشرات والتنبيهات، مع إظهار المصدر ووقت البيانات وحالتها.</p><Link to="/register" className="mt-8 inline-block rounded-xl bg-emerald-400 px-6 py-3 font-bold text-[#07110d]">إنشاء حساب</Link></div><section className="mt-20 grid gap-4 md:grid-cols-3">{[[Database,'مصادر موثقة','بيانات مرجعية متأخرة من تداول السعودية وياهو مع المصدر والوقت.'],[LineChart,'تحليل حتمي','مؤشرات ثابتة الإصدار دون ذكاء اصطناعي.'],[ShieldCheck,'حماية متعددة','تحقق إضافي وجهاز نشط واحد وصلاحيات دقيقة.']].map(([Icon,t,d])=><article key={t} className="rounded-2xl border border-white/10 bg-white/[.03] p-6"><Icon className="h-6 w-6 text-emerald-400"/><h2 className="mt-5 font-bold">{t}</h2><p className="mt-2 text-sm leading-6 text-slate-400">{d}</p></article>)}</section><p className="mt-12 text-xs text-slate-500">كيمي أداة معلومات ومراقبة وليست توصية استثمارية.</p></main></div>}
+import { Activity, ArrowLeft, ArrowRight, BarChart3, BellRing, CheckCircle2, Database, Languages, LineChart, LockKeyhole, Moon, ShieldCheck, Sparkles, Sun, Target } from "lucide-react";
+import { usePreferences } from "@/lib/preferences";
+
+const sections = {
+  market: { icon: Database, ar: ["سوق كامل، لا قائمة مختصرة", "شركات السوق الرئيسية بأسمائها وقطاعاتها، ترتيب المرتفعة والمنخفضة والثابتة، ومصدر ووقت لكل سعر."], en: ["The full market, not a shortlist", "Saudi Main Market companies with names, sectors, movers and a source timestamp for every quote."] },
+  chart: { icon: LineChart, ar: ["شموع حقيقية ومؤشر واضح", "فواصل متعددة، حجم التداول، قيم الافتتاح والأعلى والأدنى والإغلاق، ومناطق الزخم بأسمائها وألوانها وأسعارها."], en: ["Verified candles and a clear indicator", "Multiple intervals, OHLCV and momentum zones with explicit names, colors, prices and stops."] },
+  alerts: { icon: BellRing, ar: ["تنبيه حين يتحقق الشرط", "قواعد محفوظة لكل شركة واستراتيجية، مع منع التكرار وسجل تسليم إلى قنوات تيليجرام وواتساب المعتمدة."], en: ["Alerts when the rule is met", "Saved rules per company and strategy with deduplication and audited Telegram and WhatsApp delivery."] },
+  security: { icon: ShieldCheck, ar: ["اشتراك وصلاحيات من الخلفية", "تحقق بريد عند الدخول، جهاز نشط واحد، حظر واشتراكات وصلاحيات لا يمكن تجاوزها من الواجهة."], en: ["Backend-enforced access", "Login verification, one active device, subscription state and permissions that cannot be bypassed from the interface."] },
+};
+
+export default function Landing() {
+  const { isArabic, theme, toggleLanguage, toggleTheme } = usePreferences();
+  const [active, setActive] = useState("market");
+  const item = sections[active];
+  const Icon = item.icon;
+  const Arrow = isArabic ? ArrowLeft : ArrowRight;
+  const workflowSteps = [
+    { icon: Database, title: isArabic ? "جلب" : "Ingest", body: isArabic ? "المصدر والوقت والجودة" : "Source, timestamp and quality" },
+    { icon: LineChart, title: isArabic ? "حساب" : "Calculate", body: isArabic ? "معادلات حتمية ثابتة الإصدار" : "Versioned deterministic formulas" },
+    { icon: Target, title: isArabic ? "مطابقة" : "Match", body: isArabic ? "شروط المستخدم المحفوظة" : "Saved user conditions" },
+    { icon: BellRing, title: isArabic ? "تسليم" : "Deliver", body: isArabic ? "منع تكرار وسجل نتيجة" : "Deduplication and result log" },
+  ];
+  return <div className="landing-page">
+    <header className="landing-header">
+      <Link to="/" className="brand-lockup"><span className="brand-mark"><BarChart3 size={19} /></span><span>كيمي<small>KMY</small></span></Link>
+      <nav><a href="#platform">{isArabic ? "المنصة" : "Platform"}</a><a href="#workflow">{isArabic ? "كيف تعمل" : "How it works"}</a><a href="#security">{isArabic ? "الحماية" : "Security"}</a></nav>
+      <div className="flex items-center gap-1"><button className="icon-button" onClick={toggleLanguage}><Languages size={17} /></button><button className="icon-button" onClick={toggleTheme}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button><Link to="/login" className="secondary-button">{isArabic ? "دخول" : "Sign in"}</Link></div>
+    </header>
+
+    <main>
+      <section className="hero-section">
+        <div className="hero-glow hero-glow-one" /><div className="hero-glow hero-glow-two" />
+        <div className="relative z-10 mx-auto grid max-w-[1500px] items-center gap-12 px-5 py-20 lg:grid-cols-[1.05fr_0.95fr] lg:py-28">
+          <div><span className="eyebrow"><Activity size={14} />{isArabic ? "منصة كيمي للسوق السعودي" : "KMY Saudi Market Platform"}</span><h1>{isArabic ? <>قرار أوضح يبدأ من <em>بيانات أوضح.</em></> : <>Clearer decisions begin with <em>clearer data.</em></>}</h1><p>{isArabic ? "منصة عربية وإنجليزية لمراقبة السوق الرئيسية، تعرض السعر والشموع والمؤشرات ومعلومات الشركة كما وصلتها من مصادرها المسجلة، وتحوّل شروطك الدقيقة إلى متابعة وتنبيهات." : "A bilingual platform for the Saudi Main Market, combining sourced quotes, candles, company information, strict indicators, watchlists and alerts."}</p><div className="mt-8 flex flex-wrap gap-3"><Link to="/register" className="primary-button">{isArabic ? "ابدأ حسابك" : "Create account"}<Arrow size={17} /></Link><Link to="/login" className="secondary-button">{isArabic ? "لدي حساب" : "I have an account"}</Link></div><div className="hero-trust">{[isArabic ? "لا بيانات وهمية" : "No fabricated data", isArabic ? "مصدر ووقت لكل سعر" : "Source and time for every quote", isArabic ? "صلاحيات خلفية" : "Backend authorization"].map((label) => <span key={label}><CheckCircle2 size={15} />{label}</span>)}</div></div>
+          <div className="hero-console">
+            <div className="console-top"><span className="console-source"><Database size={14} />{isArabic ? "بيانات موثقة" : "Sourced data"}</span><b>{isArabic ? "مراقبة السوق" : "Market monitor"}</b><Activity size={17} /></div>
+            <div className="console-grid"><div className="console-card console-wide"><span>{isArabic ? "السوق الرئيسية" : "Main Market"}</span><b>{isArabic ? "الشركات · القطاعات · الحركة" : "Companies · sectors · movers"}</b><div className="console-fields">{(isArabic ? ["الافتتاح والأعلى والأدنى والإغلاق", "الحجم والقيمة وعدد الصفقات", "المصدر ووقت آخر تحديث"] : ["Open, high, low and close", "Volume, value and trades", "Source and last-updated time"]).map((label) => <span key={label}><CheckCircle2 size={14} />{label}</span>)}</div></div><div className="console-card"><Target /><span>{isArabic ? "مناطق محددة" : "Strict zones"}</span><b>{isArabic ? "اسم · لون · سعر · وقف" : "Name · color · price · stop"}</b></div><div className="console-card"><BellRing /><span>{isArabic ? "تنبيهات" : "Alerts"}</span><b>{isArabic ? "شرط واضح وسجل تسليم" : "Explicit rule and delivery log"}</b></div><div className="console-card console-wide"><LockKeyhole /><span>{isArabic ? "وصول محمي" : "Protected access"}</span><b>{isArabic ? "اشتراك · جهاز واحد · تدقيق" : "Subscription · one device · audit"}</b></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="platform" className="landing-section">
+        <div className="section-kicker"><Sparkles size={16} />{isArabic ? "تجربة مترابطة" : "One connected experience"}</div><h2>{isArabic ? "كل ما تحتاجه الشركة في مكان واحد" : "Everything you need for a company, in one place"}</h2>
+        <div className="landing-tabs">{Object.entries(sections).map(([key, value]) => { const TabIcon = value.icon; return <button key={key} onClick={() => setActive(key)} className={active === key ? "active" : ""}><TabIcon size={17} />{isArabic ? { market: "السوق", chart: "الشارت والمؤشر", alerts: "التنبيهات", security: "الحماية" }[key] : { market: "Market", chart: "Chart & indicator", alerts: "Alerts", security: "Security" }[key]}</button>; })}</div>
+        <div className="landing-feature-panel"><div><span className="feature-icon"><Icon size={25} /></span><h3>{isArabic ? item.ar[0] : item.en[0]}</h3><p>{isArabic ? item.ar[1] : item.en[1]}</p></div><div className="feature-checks">{(isArabic ? ["بحث وتخصيص", "تحديث مجدول", "حالة بيانات صريحة", "فتح تفاصيل الشركة"] : ["Search and personalize", "Scheduled refresh", "Explicit data status", "Open company details"]).map((label) => <span key={label}><CheckCircle2 size={17} />{label}</span>)}</div></div>
+      </section>
+
+      <section id="workflow" className="landing-section landing-section-muted"><div className="section-kicker"><BarChart3 size={16} />{isArabic ? "من البيانات إلى التنبيه" : "From data to alert"}</div><h2>{isArabic ? "تدفق واحد يمكن مراجعته" : "One traceable workflow"}</h2><div className="workflow-grid">{workflowSteps.map(({ icon: StepIcon, title, body }, index) => <article key={title}><span>{index + 1}</span><StepIcon /><h3>{title}</h3><p>{body}</p></article>)}</div></section>
+
+      <section id="security" className="landing-section"><div className="cta-panel"><div><span className="section-kicker"><ShieldCheck size={16} />{isArabic ? "منصة اشتراكات كاملة" : "Complete subscription platform"}</span><h2>{isArabic ? "رؤية دقيقة، ووصول مضبوط." : "Precise insight, controlled access."}</h2><p>{isArabic ? "أنشئ حسابك، فعّل اشتراكك، وابدأ ببناء قوائمك واستراتيجياتك وتنبيهاتك." : "Create your account, activate a plan, then build your watchlists, strategies and alerts."}</p></div><Link to="/register" className="primary-button">{isArabic ? "إنشاء حساب" : "Create account"}<Arrow size={17} /></Link></div></section>
+    </main>
+    <footer className="landing-footer"><div className="brand-lockup"><span className="brand-mark"><BarChart3 size={18} /></span><span>كيمي<small>KMY</small></span></div><p>{isArabic ? "كيمي أداة معلومات ومراقبة وليست توصية استثمارية." : "KMY is an information and monitoring tool, not investment advice."}</p></footer>
+  </div>;
+}

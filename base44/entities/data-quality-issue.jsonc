@@ -1,0 +1,53 @@
+{
+  "name": "DataQualityIssue",
+  "type": "object",
+  "properties": {
+    "instrument_id": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "issue_type": {
+      "type": "string"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "critical"
+      ]
+    },
+    "message": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "resolved"
+      ]
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "resolved_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "issue_type",
+    "severity",
+    "message",
+    "status",
+    "source_id"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

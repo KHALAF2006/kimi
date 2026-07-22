@@ -1,3 +1,19 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.38';
 import { requireRole, replyError } from '../../shared/security.ts';
-Deno.serve(async(req)=>{try{const base44=createClientFromRequest(req);await requireRole(base44,['admin','owner']);const body=await req.json();if(!Array.isArray(body.bars)||body.bars.length<500)return Response.json({status:'insufficient_history',required:500},{status:422});const closes=body.bars.slice(-20).map(x=>Number(x.close));const low=Math.min(...closes),high=Math.max(...closes),step=(high-low)/5;return Response.json({formula_version:'momentum-zones-v1',zones:[0,1,2,3,4].map(i=>({key:`zone${i+1}`,low:low+step*i,high:low+step*(i+1)}))});}catch(error){return replyError(error);}});
+import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from '../../shared/momentum.ts';
+
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+    await requireRole(base44, ['admin', 'owner']);
+    const body = await req.json();
+    if (!Array.isArray(body.bars) || body.bars.length < 2) {
+      return Response.json({ status: 'insufficient_history', required: 2 }, { status: 422 });
+    }
+    const result = calculateMomentumZones(body.bars, Number(body.lookback_days || 20), 500);
+    if (!result) return Response.json({ status: 'insufficient_history', formula_version: MOMENTUM_FORMULA_VERSION }, { status: 422 });
+    return Response.json({ status: 'success', ...result, formula_version: MOMENTUM_FORMULA_VERSION });
+  } catch (error) {
+    return replyError(error);
+  }
+});

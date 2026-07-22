@@ -1,0 +1,29 @@
+{
+  "name": "RecipientGroup",
+  "type": "object",
+  "properties": {
+    "customer_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "whatsapp"
+      ]
+    }
+  },
+  "required": [
+    "customer_id",
+    "name",
+    "channel"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

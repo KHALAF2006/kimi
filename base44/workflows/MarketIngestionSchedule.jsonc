@@ -7,7 +7,7 @@
       "trigger_type": "scheduled",
       "events": [],
       "schedule_mode": "recurring",
-      "cron_expression": "*/15 10-15 * * 0-4",
+      "cron_expression": "*/15 10-16 * * 0-4",
       "one_time_date": null,
       "timezone": "Asia/Riyadh",
       "interval_value": null,
@@ -33,7 +33,7 @@
             "function_name": "marketIngestion",
             "args": {
               "source": "scheduled_reference_sync",
-              "batch_size": 60
+              "batch_size": 270
             }
           },
           "then": "end",

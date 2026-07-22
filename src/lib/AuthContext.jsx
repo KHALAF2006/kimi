@@ -2,10 +2,12 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
 import { createAxiosClient } from '@base44/sdk/dist/utils/axios-client';
+import { isReferencePreview } from '@/services/marketService';
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
+  const referencePreview = isReferencePreview();
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
@@ -15,6 +17,14 @@ export const AuthProvider = ({ children }) => {
   const [appPublicSettings, setAppPublicSettings] = useState(null); // Contains only { id, public_settings }
 
   useEffect(() => {
+    if (referencePreview) {
+      setUser({ id: 'reference-preview', full_name: 'Reference Preview', role: 'owner' });
+      setIsAuthenticated(true);
+      setIsLoadingAuth(false);
+      setIsLoadingPublicSettings(false);
+      setAuthChecked(true);
+      return;
+    }
     checkAppState();
   }, []);
 
