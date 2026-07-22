@@ -101,6 +101,13 @@ const base44Client = await readFile(new URL("../src/api/base44Client.js", import
 assert.match(base44Client, /localBrowserHosts\.has\(window\.location\.hostname\)/, "the Base44 SDK stub must be limited to localhost browsers");
 assert.doesNotMatch(base44Client, /isLocalReferencePreview\s*=\s*import\.meta\.env\.DEV/, "Base44 editor preview must initialize the real Base44 SDK");
 
+const protectedRoute = await readFile(new URL("../src/components/ProtectedRoute.jsx", import.meta.url), "utf8");
+assert.match(protectedRoute, /!isReferencePreview\(\)\s*&&\s*!localStorage\.getItem\(['"]kmy_session_id['"]\)/, "protected market routes must require the verified KMY device session");
+
+const loginPage = await readFile(new URL("../src/pages/Login.jsx", import.meta.url), "utf8");
+assert.match(loginPage, /isAuthenticated\?t\.sendCode:t\.next/, "an already authenticated Base44 user must continue through KMY email OTP");
+assert.match(loginPage, /base44\.functions\.invoke\(['"]authLogin['"],\{action:['"]start['"]\}\)/, "login must start the server-side OTP challenge");
+
 const companyChart = await readFile(new URL("../src/components/market/CompanyChart.jsx", import.meta.url), "utf8");
 assert.match(companyChart, /showVolume/);
 assert.match(companyChart, /showMomentum/);

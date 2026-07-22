@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import { isReferencePreview } from '@/services/marketService';
 
 const DefaultFallback = () => (
   <div className="fixed inset-0 flex items-center justify-center">
@@ -30,6 +31,10 @@ export default function ProtectedRoute({ fallback = <DefaultFallback />, unauthe
   }
 
   if (!isAuthenticated) {
+    return unauthenticatedElement;
+  }
+
+  if (!isReferencePreview() && !localStorage.getItem('kmy_session_id')) {
     return unauthenticatedElement;
   }
 
