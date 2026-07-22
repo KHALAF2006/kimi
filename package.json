@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node scripts/verify-project.mjs",
+    "test": "node scripts/verify-project.mjs && node scripts/build-app-editor-functions.mjs --check",
+    "build:app-editor-functions": "node scripts/build-app-editor-functions.mjs",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./jsconfig.json",
@@ -89,6 +90,7 @@
     "autoprefixer": "^10.4.20",
     "base44": "^0.1.4",
     "baseline-browser-mapping": "^2.8.32",
+    "esbuild": "^0.25.12",
     "eslint": "^9.19.0",
     "eslint-plugin-react": "^7.37.4",
     "eslint-plugin-react-hooks": "^5.0.0",
