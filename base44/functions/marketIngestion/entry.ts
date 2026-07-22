@@ -1,10 +1,18 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.38';
-import catalog from '../../data/official-main-market-catalog-2026-07-21.json' with { type: 'json' };
 import { requireRole, replyError } from '../../shared/security.ts';
 import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from '../../shared/momentum.ts';
 
+const CATALOG_URL = 'https://raw.githubusercontent.com/KHALAF2006/kimi/a398d051f9d19c6eec2c00fac0250842a23f3c13/base44/data/official-main-market-catalog-2026-07-21.json';
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const SAUDI_PROFILE = 'https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/company-profile-main?companySymbol=';
+
+async function loadCatalog() {
+  const response = await fetch(CATALOG_URL, { headers: { 'Accept': 'application/json' } });
+  if (!response.ok) throw new Error(`Official catalog unavailable (${response.status})`);
+  const catalog = await response.json();
+  if (!Array.isArray(catalog.companies) || catalog.companies.length < 270) throw new Error('Official main-market catalog is incomplete');
+  return catalog;
+}
 
 async function source(base44, code, data) {
   const rows = await base44.asServiceRole.entities.DataSource.filter({ code });
@@ -37,13 +45,29 @@ function riyadhClock(now = new Date()) {
   return { date: `${parts.year}-${parts.month}-${parts.day}`, weekday: parts.weekday, hour: Number(parts.hour), minute: Number(parts.minute) };
 }
 
+function minuteOfDay(value, fallback) {
+  const match = String(value || '').match(/(\d{1,2}):(\d{2})/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : fallback;
+}
+
 async function shouldRunScheduled(base44, body) {
   if (!String(body.source || '').startsWith('scheduled') || body.force === true) return { run: true };
   const clock = riyadhClock();
   if (!['Sun', 'Mon', 'Tue', 'Wed', 'Thu'].includes(clock.weekday)) return { run: false, reason: 'non_trading_weekday', clock };
   if (clock.hour < 10 || clock.hour > 16 || (clock.hour === 16 && clock.minute > 0)) return { run: false, reason: 'outside_market_window', clock };
-  const holidays = await base44.asServiceRole.entities.MarketHoliday.filter({ holiday_date: clock.date });
+  const [holidays, sessions] = await Promise.all([
+    base44.asServiceRole.entities.MarketHoliday.filter({ holiday_date: clock.date }),
+    base44.asServiceRole.entities.MarketSession.filter({ session_date: clock.date }),
+  ]);
   if (holidays.length) return { run: false, reason: 'official_market_holiday', clock };
+  const session = sessions[0];
+  if (session && !session.is_trading_day) return { run: false, reason: 'market_session_closed', clock };
+  const nowMinute = clock.hour * 60 + clock.minute;
+  const opensAt = minuteOfDay(session?.opens_at, 10 * 60);
+  const closesAt = minuteOfDay(session?.closes_at, 15 * 60 + 45);
+  const reconcileUntil = minuteOfDay(session?.reconcile_until, 16 * 60);
+  if (body.source === 'scheduled_reference_sync' && (nowMinute < opensAt || nowMinute > closesAt)) return { run: false, reason: 'outside_market_session', clock };
+  if (body.source === 'scheduled_close_reconciliation' && (nowMinute < closesAt || nowMinute > reconcileUntil)) return { run: false, reason: 'outside_reconciliation_window', clock };
   return { run: true, clock };
 }
 
@@ -61,7 +85,7 @@ function exactInstrument(row) {
   };
 }
 
-function officialQuote(row, instrumentId, sourceId) {
+function officialQuote(row, instrumentId, sourceId, quoteTime) {
   const last = Number(row.officialQuote?.lastPrice);
   const percent = Number(row.officialQuote?.changePercent || 0);
   const previous = percent === -100 ? null : last / (1 + percent / 100);
@@ -80,12 +104,12 @@ function officialQuote(row, instrumentId, sourceId) {
     traded_value: Number(row.officialQuote?.tradedValue || 0),
     market_cap: Number(row.officialQuote?.marketCap || 0),
     source_id: sourceId,
-    quote_time: catalog.quoteTime,
+    quote_time: quoteTime,
     quality_status: 'verified',
   };
 }
 
-function lossClassification(row, instrumentId, sourceId) {
+function lossClassification(row, instrumentId, sourceId, quoteTime) {
   const level = row.warningFlag || 'none';
   const labels = {
     none: ['لا يوجد تصنيف خسائر متراكمة', 'No accumulated-loss flag'],
@@ -93,7 +117,7 @@ function lossClassification(row, instrumentId, sourceId) {
     orange: ['خسائر متراكمة من 35% إلى أقل من 50%', 'Accumulated losses from 35% to below 50%'],
     red: ['خسائر متراكمة 50% فأكثر', 'Accumulated losses of 50% or more'],
   };
-  return { instrument_id: instrumentId, level, label_ar: labels[level][0], label_en: labels[level][1], source_id: sourceId, as_of: catalog.quoteTime };
+  return { instrument_id: instrumentId, level, label_ar: labels[level][0], label_en: labels[level][1], source_id: sourceId, as_of: quoteTime };
 }
 
 async function yahooHistory(instrument, yahooSourceId) {
@@ -162,6 +186,7 @@ Deno.serve(async (req) => {
     const startedAt = new Date().toISOString();
     const schedule = await shouldRunScheduled(base44, body);
     if (!schedule.run) return Response.json({ status: 'skipped', reason: schedule.reason, clock: schedule.clock });
+    const catalog = await loadCatalog();
 
     const officialSource = await source(base44, 'SAUDI_EXCHANGE_DAILY_REFERENCE', {
       name: 'تداول السعودية — التقرير اليومي التفصيلي', source_type: 'official', license_status: 'restricted',
@@ -173,7 +198,9 @@ Deno.serve(async (req) => {
     });
 
     await upsertMany(base44, 'Instrument', catalog.companies.map(exactInstrument), ['symbol']);
-    const instruments = await base44.asServiceRole.entities.Instrument.list('symbol', 500);
+    const catalogSymbols = new Set(catalog.companies.map((item) => item.symbol));
+    const allInstruments = await base44.asServiceRole.entities.Instrument.list('symbol', 500);
+    const instruments = allInstruments.filter((row) => catalogSymbols.has(row.symbol));
     const bySymbol = new Map(instruments.map((row) => [row.symbol, row]));
     if (instruments.length < 270) throw new Error(`Verified main-market catalog is incomplete: ${instruments.length}/270`);
 
@@ -182,8 +209,8 @@ Deno.serve(async (req) => {
     for (const row of catalog.companies) {
       const instrument = bySymbol.get(row.symbol);
       if (!instrument) continue;
-      officialQuotes.push(officialQuote(row, instrument.id, officialSource.id));
-      lossRows.push(lossClassification(row, instrument.id, officialSource.id));
+      officialQuotes.push(officialQuote(row, instrument.id, officialSource.id, catalog.quoteTime));
+      lossRows.push(lossClassification(row, instrument.id, officialSource.id, catalog.quoteTime));
     }
     await upsertMany(base44, 'QuoteLatest', officialQuotes, ['instrument_id']);
     await upsertMany(base44, 'LossClassification', lossRows, ['instrument_id']);
@@ -200,7 +227,6 @@ Deno.serve(async (req) => {
         else failures.push({ symbol: group[offset].symbol, error: result.reason?.message || 'Yahoo history failed' });
       });
     }
-    await upsertMany(base44, 'QuoteLatest', successes.map((item) => item.quote), ['instrument_id']);
     await upsertMany(base44, 'CandleChunk', successes.map((item) => item.candle), ['instrument_id', 'interval', 'chunk_key']);
     await upsertMany(base44, 'IndicatorSnapshot', successes.map((item) => item.indicator).filter(Boolean), ['instrument_id', 'indicator_key', 'timeframe']);
 

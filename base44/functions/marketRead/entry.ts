@@ -1,9 +1,18 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.38';
 import { requireUser, profileFor, requireActiveSession, replyError } from '../../shared/security.ts';
 
+const CATALOG_URL = 'https://raw.githubusercontent.com/KHALAF2006/kimi/a398d051f9d19c6eec2c00fac0250842a23f3c13/base44/data/official-main-market-catalog-2026-07-21.json';
 const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const ALLOWED_INTERVALS = new Set(['15m', '1h', '1d', '1wk', '1mo']);
 const ALLOWED_RANGES = new Set(['5d', '1mo', '3mo', '1y', '2y', '5y', '10y', 'max']);
+
+async function loadCatalog() {
+  const response = await fetch(CATALOG_URL, { headers: { 'Accept': 'application/json' } });
+  if (!response.ok) throw Object.assign(new Error(`Official catalog unavailable (${response.status})`), { status: 502 });
+  const catalog = await response.json();
+  if (!Array.isArray(catalog.companies) || catalog.companies.length < 270) throw Object.assign(new Error('Official main-market catalog is incomplete'), { status: 502 });
+  return catalog;
+}
 
 function stateFor(value, source, now = Date.now()) {
   const age = value ? now - new Date(value).getTime() : Number.POSITIVE_INFINITY;
@@ -104,7 +113,10 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const body = await req.json();
     await requireMarketAccess(base44, body);
-    const sources = await base44.asServiceRole.entities.DataSource.list('-last_verified_at', 20);
+    const [sources, catalog] = await Promise.all([
+      base44.asServiceRole.entities.DataSource.list('-last_verified_at', 20),
+      loadCatalog(),
+    ]);
     const sourceById = new Map(sources.map((item) => [item.id, item]));
 
     if (body.action === 'chart') return Response.json(await chartResponse(base44, body, sources));
@@ -130,12 +142,14 @@ Deno.serve(async (req) => {
     }
 
     const limit = Math.min(Math.max(Number(body.limit || 500), 1), 500);
-    const [instruments, quotes, indicators, losses] = await Promise.all([
+    const catalogSymbols = new Set(catalog.companies.map((item) => item.symbol));
+    const [allInstruments, quotes, indicators, losses] = await Promise.all([
       base44.asServiceRole.entities.Instrument.list('symbol', 500),
       base44.asServiceRole.entities.QuoteLatest.list('-quote_time', 500),
       body.mode === 'screener' ? base44.asServiceRole.entities.IndicatorSnapshot.list('-source_as_of', 500) : Promise.resolve([]),
       base44.asServiceRole.entities.LossClassification.list('-as_of', 500),
     ]);
+    const instruments = allInstruments.filter((instrument) => catalogSymbols.has(instrument.symbol));
     const quoteByInstrument = new Map();
     for (const quote of quotes) if (!quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
     const indicatorByInstrument = new Map(indicators.map((item) => [item.instrument_id, item]));

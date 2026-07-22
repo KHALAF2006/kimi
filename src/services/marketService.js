@@ -1,11 +1,6 @@
 import { base44 } from "@/api/base44Client";
 
-const configuredReferenceApi = String(import.meta.env.VITE_KMY_REFERENCE_API || "").replace(/\/$/, "");
-const referenceApi = import.meta.env.DEV
-  ? (configuredReferenceApi && !/^https?:\/\/127\.0\.0\.1(?::\d+)?$/i.test(configuredReferenceApi)
-      ? configuredReferenceApi
-      : "/reference-api")
-  : "";
+const referenceApi = String(import.meta.env.VITE_KMY_REFERENCE_API || "").replace(/\/$/, "");
 
 function quoteFromReference(company) {
   return {

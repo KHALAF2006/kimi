@@ -1,0 +1,54 @@
+{
+  "name": "OperationUsage",
+  "type": "object",
+  "properties": {
+    "operation_name": {
+      "type": "string"
+    },
+    "trigger_type": {
+      "type": "string"
+    },
+    "credit_reason": {
+      "type": "string"
+    },
+    "estimated_credits": {
+      "type": "number"
+    },
+    "success_count": {
+      "type": "integer"
+    },
+    "failure_count": {
+      "type": "integer"
+    },
+    "dedupe_count": {
+      "type": "integer"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finished_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "operation_name",
+    "trigger_type",
+    "credit_reason",
+    "estimated_credits",
+    "success_count",
+    "failure_count",
+    "dedupe_count",
+    "started_at"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "DeliveryEvent",
+  "type": "object",
+  "properties": {
+    "alert_rule_id": {
+      "type": "string"
+    },
+    "destination_id": {
+      "type": "string"
+    },
+    "dedupe_key": {
+      "type": "string"
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "telegram",
+        "whatsapp"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "sent",
+        "failed",
+        "retry"
+      ]
+    },
+    "attempt_count": {
+      "type": "integer"
+    },
+    "provider_code": {
+      "type": "string"
+    },
+    "next_attempt_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "delivered_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "alert_rule_id",
+    "destination_id",
+    "dedupe_key",
+    "channel",
+    "status",
+    "attempt_count"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

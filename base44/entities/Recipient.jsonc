@@ -1,0 +1,39 @@
+{
+  "name": "Recipient",
+  "type": "object",
+  "properties": {
+    "group_id": {
+      "type": "string"
+    },
+    "phone_e164": {
+      "type": "string"
+    },
+    "phone_masked": {
+      "type": "string"
+    },
+    "consent_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "granted",
+        "withdrawn"
+      ]
+    },
+    "active": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "group_id",
+    "phone_e164",
+    "phone_masked",
+    "consent_status",
+    "active"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

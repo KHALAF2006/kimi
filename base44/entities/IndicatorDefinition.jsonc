@@ -1,0 +1,42 @@
+{
+  "name": "IndicatorDefinition",
+  "type": "object",
+  "properties": {
+    "key": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "name_ar": {
+      "type": "string"
+    },
+    "name_en": {
+      "type": "string"
+    },
+    "colors": {
+      "type": "object"
+    },
+    "parameters_schema": {
+      "type": "object"
+    },
+    "active": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "key",
+    "version",
+    "name_ar",
+    "name_en",
+    "colors",
+    "parameters_schema",
+    "active"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

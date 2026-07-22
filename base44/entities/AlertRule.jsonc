@@ -1,0 +1,69 @@
+{
+  "name": "AlertRule",
+  "type": "object",
+  "properties": {
+    "customer_id": {
+      "type": "string"
+    },
+    "instrument_id": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "indicator_key": {
+      "type": "string"
+    },
+    "condition": {
+      "type": "string",
+      "enum": [
+        "crosses_above",
+        "crosses_below",
+        "enters_zone",
+        "exits_zone"
+      ]
+    },
+    "threshold": {
+      "type": "number"
+    },
+    "zone_key": {
+      "type": "string"
+    },
+    "frequency": {
+      "type": "string",
+      "enum": [
+        "once",
+        "repeat"
+      ]
+    },
+    "cooldown_minutes": {
+      "type": "integer",
+      "minimum": 15
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "last_observed_price": {
+      "type": "number"
+    },
+    "last_observed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "customer_id",
+    "instrument_id",
+    "symbol",
+    "condition",
+    "frequency",
+    "cooldown_minutes",
+    "enabled"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

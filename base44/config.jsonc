@@ -1,5 +1,5 @@
 {
-  "name": "KMY Saudi Market Platform",
+  "name": "منصة كيمي",
   "site": {
     "installCommand": "npm install",
     "buildCommand": "npm run build",
