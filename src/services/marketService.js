@@ -93,8 +93,17 @@ async function referenceMarketRead(payload) {
 
 export async function invokeAppFunction(functionName, payload = {}) {
   if (referenceApi && functionName === "marketRead") return referenceMarketRead(payload);
-  const response = await base44.functions.invoke(functionName, { ...payload, session_id: localStorage.getItem("kmy_session_id") });
-  return response.data;
+  try {
+    const response = await base44.functions.invoke(functionName, { ...payload, session_id: localStorage.getItem("kmy_session_id") });
+    return response.data;
+  } catch (error) {
+    const message = error?.response?.data?.error || error?.message;
+    if (message === "Active device session required") {
+      localStorage.removeItem("kmy_session_id");
+      if (window.location.pathname !== "/login") window.location.assign("/login");
+    }
+    throw error;
+  }
 }
 
 export function isReferencePreview() {
