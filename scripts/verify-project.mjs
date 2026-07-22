@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const root = new URL("../", import.meta.url);
 const catalogPath = new URL("../base44/data/official-main-market-catalog-2026-07-21.json", import.meta.url);
@@ -35,21 +36,56 @@ assert.match(ingestion, /name_ar:\s*row\.nameAr/);
 assert.match(ingestion, /name_en:\s*row\.nameEn/);
 assert.match(ingestion, /upsertMany\(base44,\s*'Instrument'/);
 assert.match(ingestion, /instrument\.symbol\}\.SR/);
+assert.match(ingestion, /Base44-Service-Authorization/, "scheduled ingestion must require Base44 service authorization");
 
-const schedule = await readFile(new URL("../base44/workflows/MarketIngestionSchedule.jsonc", import.meta.url), "utf8");
-assert.match(schedule, /\*\/15 10-16 \* \* 0-4/);
-assert.match(schedule, /"batch_size"\s*:\s*270/);
+const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIngestion/function.jsonc", import.meta.url), "utf8"));
+assert.equal(schedule.name, "marketIngestion");
+assert.equal(schedule.automations.length, 2);
+assert.deepEqual(schedule.automations.map((item) => item.cron_expression), ["*/15 7-12 * * 0-4", "0 13 * * 0-4"]);
+assert.ok(schedule.automations.every((item) => item.function_args?.batch_size === 270));
 
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
 const entityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc"));
-assert.equal(entityFiles.length, 32, "all 32 Base44 entity schemas must be present");
+assert.equal(entityFiles.length, 31, "all 31 custom Base44 entity schemas must be present");
+const entityNames = new Set();
 for (const name of entityFiles) {
   assert.match(name, /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/, `entity filename is not kebab-case: ${name}`);
   const source = await readFile(join(entityDirectory, name), "utf8");
+  const schema = JSON.parse(source);
+  assert.equal(schema.type, "object", `${name} must have an object schema`);
+  assert.match(schema.name, /^[A-Za-z0-9]+$/, `${name} has an invalid entity name`);
+  assert.ok(!entityNames.has(schema.name), `duplicate entity name: ${schema.name}`);
+  entityNames.add(schema.name);
   for (const operation of ["create", "read", "update", "delete"]) {
-    assert.match(source, new RegExp(`"${operation}"\\s*:\\s*false`), `${name} must deny browser ${operation}`);
+    assert.equal(schema.rls?.[operation], false, `${name} must deny browser ${operation}`);
   }
 }
+assert.ok(!entityNames.has("User"), "built-in Base44 User fields and permissions must not be redefined");
+for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "CandleChunk", "ActiveDeviceSession", "Subscription"]) {
+  assert.ok(entityNames.has(required), `required entity is missing: ${required}`);
+}
+const customerProfile = JSON.parse(await readFile(new URL("../base44/entities/customer-profile.jsonc", import.meta.url), "utf8"));
+assert.ok(!customerProfile.required.includes("phone_e164"), "admin migration must not fabricate a phone number");
+assert.ok(!customerProfile.required.includes("country_code"), "admin migration must not fabricate a country");
+
+const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
+const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
+assert.equal(functionNames.length, 14, "all 14 backend functions must be present");
+const referencedEntities = new Set();
+for (const functionName of functionNames) {
+  const file = join(functionDirectory, functionName, "entry.ts");
+  const source = await readFile(file, "utf8");
+  const result = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext }, reportDiagnostics: true, fileName: file });
+  const errors = (result.diagnostics || []).filter((item) => item.category === ts.DiagnosticCategory.Error);
+  assert.equal(errors.length, 0, `${functionName} has TypeScript syntax errors`);
+  for (const match of source.matchAll(/entities\.([A-Za-z0-9]+)/g)) referencedEntities.add(match[1]);
+}
+const sharedDirectory = fileURLToPath(new URL("../base44/shared/", import.meta.url));
+for (const name of (await readdir(sharedDirectory)).filter((item) => item.endsWith(".ts"))) {
+  const source = await readFile(join(sharedDirectory, name), "utf8");
+  for (const match of source.matchAll(/entities\.([A-Za-z0-9]+)/g)) referencedEntities.add(match[1]);
+}
+for (const entity of referencedEntities) assert.ok(entityNames.has(entity), `backend references missing entity schema: ${entity}`);
 
 const marketService = await readFile(new URL("../src/services/marketService.js", import.meta.url), "utf8");
 assert.match(marketService, /name_ar:\s*company\.nameAr/);
@@ -62,5 +98,7 @@ console.log(JSON.stringify({
   uniqueSymbols: 270,
   exactCatalogSha256: hash,
   entities: entityFiles.length,
+  functions: functionNames.length,
+  referencedEntities: referencedEntities.size,
   selectedCompany: { symbol: "4210", nameAr: company4210.nameAr, nameEn: company4210.nameEn },
 }, null, 2));

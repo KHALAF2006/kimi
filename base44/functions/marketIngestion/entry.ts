@@ -141,8 +141,24 @@ async function yahooHistory(instrument, yahooSourceId) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    await requireRole(base44, ['admin', 'owner']);
-    const body = await req.json();
+    const requestBody = await req.json();
+    const body = { ...requestBody, ...(requestBody.args || {}) };
+    let user = null;
+    try { user = await base44.auth.me(); } catch { user = null; }
+    if (user) {
+      await requireRole(base44, ['admin', 'owner']);
+    } else {
+      const serviceAuthorization = req.headers.get('Base44-Service-Authorization');
+      const scheduledSources = new Set(['scheduled_reference_sync', 'scheduled_close_reconciliation']);
+      if (!serviceAuthorization || !scheduledSources.has(String(body.source || ''))) {
+        throw Object.assign(new Error('Unauthorized'), { status: 401 });
+      }
+      const recentRuns = await base44.asServiceRole.entities.IngestionRun.list('-started_at', 5);
+      const lastScheduled = recentRuns.find((row) => String(row.run_type || '').startsWith('scheduled'));
+      if (lastScheduled && Date.now() - new Date(lastScheduled.started_at).getTime() < 12 * 60 * 1000) {
+        return Response.json({ status: 'skipped', reason: 'scheduled_run_already_recent' });
+      }
+    }
     const startedAt = new Date().toISOString();
     const schedule = await shouldRunScheduled(base44, body);
     if (!schedule.run) return Response.json({ status: 'skipped', reason: schedule.reason, clock: schedule.clock });

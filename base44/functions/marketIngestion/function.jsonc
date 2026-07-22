@@ -1,0 +1,32 @@
+{
+  "name": "marketIngestion",
+  "entry": "entry.ts",
+  "automations": [
+    {
+      "type": "scheduled",
+      "name": "market_quarter_hour",
+      "description": "Saudi main-market refresh every 15 minutes from 10:00 through 15:45 Asia/Riyadh.",
+      "function_args": {
+        "source": "scheduled_reference_sync",
+        "batch_size": 270
+      },
+      "is_active": true,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "*/15 7-12 * * 0-4"
+    },
+    {
+      "type": "scheduled",
+      "name": "market_close_reconciliation",
+      "description": "One closing reconciliation at 16:00 Asia/Riyadh.",
+      "function_args": {
+        "source": "scheduled_close_reconciliation",
+        "batch_size": 270
+      },
+      "is_active": true,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "0 13 * * 0-4"
+    }
+  ]
+}

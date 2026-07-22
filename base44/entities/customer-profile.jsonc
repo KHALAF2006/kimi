@@ -87,9 +87,7 @@
     "customer_number",
     "auth_user_id",
     "email_normalized",
-    "phone_e164",
     "full_name",
-    "country_code",
     "preferred_language",
     "account_status",
     "role"
