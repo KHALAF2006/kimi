@@ -9,6 +9,17 @@ export async function profileFor(base44, user) {
   return rows[0] || null;
 }
 
+export function hasTrustedOwnerMarker(user, profile) {
+  return user?.role === "admin"
+    && profile?.acquisition_source === "platform_owner_bootstrap"
+    && Array.isArray(profile?.tags)
+    && profile.tags.includes("owner");
+}
+
+export function resolvedRole(user, profile) {
+  return hasTrustedOwnerMarker(user, profile) ? "owner" : (profile?.role || user?.role);
+}
+
 function normalizedEmail(user) {
   return String(user?.email || "").trim().toLowerCase();
 }
@@ -46,12 +57,10 @@ export async function ensureAdministrativeProfile(base44, user) {
     return profile;
   }
 
-  // The explicit KMY owner role is the source of truth for owner-only actions.
-  // Never downgrade it merely because Base44 exposes the trusted app identity
-  // through its broader built-in `admin` role.
-  if (!["admin", "owner"].includes(profile.role) || profile.account_status === "pending_verification") {
+  const owner = hasTrustedOwnerMarker(user, profile) || profile.role === "owner";
+  if (!["admin", "owner"].includes(profile.role) || profile.account_status === "pending_verification" || (owner && profile.role !== "owner")) {
     profile = await base44.asServiceRole.entities.CustomerProfile.update(profile.id, {
-      role: profile.role === "owner" ? "owner" : "admin",
+      role: owner ? "owner" : "admin",
       account_status: "active",
       email_verified_at: profile.email_verified_at || now,
       last_seen_at: now,
@@ -64,7 +73,7 @@ export async function ensureAdministrativeProfile(base44, user) {
 export async function requireRole(base44, roles) {
   const user = await requireUser(base44);
   const profile = await profileFor(base44, user);
-  const role = profile?.role || user.role;
+  const role = resolvedRole(user, profile);
   if (!roles.includes(role)) throw Object.assign(new Error("Forbidden"), { status: 403 });
   return { user, profile, role };
 }

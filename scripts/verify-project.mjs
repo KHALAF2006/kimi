@@ -130,11 +130,16 @@ assert.match(companyChart, /interactionEvents = \[[^\]]*["']wheel["'][^\]]*["']p
 assert.match(companyChart, /sameZoneGeometry\(current, zones\)/, "zone synchronization must avoid redundant React layout updates");
 
 const sharedSecurity = await readFile(new URL("../base44/shared/security.ts", import.meta.url), "utf8");
-assert.match(sharedSecurity, /\["admin", "owner"\]\.includes\(profile\.role\)/, "trusted administrative login must preserve an explicit owner role");
+assert.match(sharedSecurity, /profile\?\.acquisition_source === "platform_owner_bootstrap"/, "owner access must be rooted in the server-managed platform owner marker");
+assert.match(sharedSecurity, /profile\.tags\.includes\("owner"\)/, "owner access must require the server-managed owner tag");
 assert.doesNotMatch(sharedSecurity, /if \(profile\.role !== "admin"/, "administrative login must never downgrade the owner to admin");
 const authLoginFunction = await readFile(new URL("../base44/functions/authLogin/entry.ts", import.meta.url), "utf8");
-assert.match(authLoginFunction, /\["admin", "owner"\]\.includes\(profile\.role\)/, "the deployed authLogin function must preserve an explicit owner role");
-assert.match(authLoginFunction, /role:\s*profile\.role === "owner" \? "owner" : "admin"/, "the deployed authLogin function must not downgrade the owner");
+assert.match(authLoginFunction, /acquisition_source === "platform_owner_bootstrap"/, "the deployed authLogin function must reconcile the trusted owner");
+assert.match(authLoginFunction, /role:\s*owner \? "owner" : "admin"/, "the deployed authLogin function must not downgrade the owner");
+for (const fileName of ["adminCustomers", "adminSubscriptions"]) {
+  const deployed = await readFile(new URL(`../base44/functions/${fileName}/entry.ts`, import.meta.url), "utf8");
+  assert.match(deployed, /const role = resolvedRole\(user, profile\)/, `${fileName} must enforce the trusted owner marker on the backend`);
+}
 
 const { calculateRsiSeries, calculateMomentumSnapshot } = await import(new URL("../src/lib/market.js", import.meta.url));
 const risingBars = Array.from({ length: 40 }, (_, index) => ({

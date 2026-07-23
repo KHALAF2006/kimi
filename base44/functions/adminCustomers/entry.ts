@@ -13,10 +13,14 @@ async function profileFor(base44, user) {
   const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
   return rows[0] || null;
 }
+function resolvedRole(user, profile) {
+  const trustedOwner = user?.role === "admin" && profile?.acquisition_source === "platform_owner_bootstrap" && Array.isArray(profile?.tags) && profile.tags.includes("owner");
+  return trustedOwner ? "owner" : profile?.role || user.role;
+}
 async function requireRole(base44, roles) {
   const user = await requireUser(base44);
   const profile = await profileFor(base44, user);
-  const role = profile?.role || user.role;
+  const role = resolvedRole(user, profile);
   if (!roles.includes(role)) throw Object.assign(new Error("Forbidden"), { status: 403 });
   return { user, profile, role };
 }

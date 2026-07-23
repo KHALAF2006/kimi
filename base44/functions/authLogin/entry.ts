@@ -41,9 +41,10 @@ async function ensureAdministrativeProfile(base44, user) {
     await audit(base44, user.id, "customer.admin_bootstrapped", "CustomerProfile", profile.id, "success");
     return profile;
   }
-  if (!["admin", "owner"].includes(profile.role) || profile.account_status === "pending_verification") {
+  const owner = profile.role === "owner" || profile.acquisition_source === "platform_owner_bootstrap" && Array.isArray(profile.tags) && profile.tags.includes("owner");
+  if (!["admin", "owner"].includes(profile.role) || profile.account_status === "pending_verification" || owner && profile.role !== "owner") {
     profile = await base44.asServiceRole.entities.CustomerProfile.update(profile.id, {
-      role: profile.role === "owner" ? "owner" : "admin",
+      role: owner ? "owner" : "admin",
       account_status: "active",
       email_verified_at: profile.email_verified_at || now,
       last_seen_at: now
