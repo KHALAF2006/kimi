@@ -5359,6 +5359,11 @@ function lossClassification(row, instrumentId, sourceId) {
   };
   return { instrument_id: instrumentId, level, label_ar: labels[level][0], label_en: labels[level][1], source_id: sourceId, as_of: official_main_market_catalog_2026_07_21_default.quoteTime };
 }
+function yahooPrice(value) {
+  if (value === null || value === void 0 || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 async function yahooHistory(instrument, yahooSourceId) {
   const response = await fetch(`${YAHOO_CHART}/${instrument.symbol}.SR?interval=1d&range=2y&events=div%2Csplits`, {
     headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 KMY-Saudi-Market/2.0" }
@@ -5367,20 +5372,26 @@ async function yahooHistory(instrument, yahooSourceId) {
   const result = (await response.json())?.chart?.result?.[0];
   if (!result?.timestamp?.length) throw new Error("Yahoo chart returned no timestamps");
   const values = result.indicators?.quote?.[0] || {};
-  const bars = result.timestamp.map((timestamp, index) => ({
-    time: new Date(timestamp * 1e3).toISOString(),
-    open: Number(values.open?.[index]),
-    high: Number(values.high?.[index]),
-    low: Number(values.low?.[index]),
-    close: Number(values.close?.[index]),
-    volume: Number(values.volume?.[index] || 0)
-  })).filter((bar) => [bar.open, bar.high, bar.low, bar.close].every(Number.isFinite) && bar.high >= bar.low && bar.volume >= 0);
+  const lastIndex = result.timestamp.length - 1;
+  const regularMarketPrice = yahooPrice(result.meta?.regularMarketPrice);
+  const bars = result.timestamp.map((timestamp, index) => {
+    const open = yahooPrice(values.open?.[index]);
+    const high = yahooPrice(values.high?.[index]);
+    const low = yahooPrice(values.low?.[index]);
+    const sourceClose = yahooPrice(values.close?.[index]);
+    const reconciledClose = index === lastIndex && sourceClose === null && regularMarketPrice !== null && low !== null && high !== null && regularMarketPrice >= low && regularMarketPrice <= high ? regularMarketPrice : sourceClose;
+    const rawVolume = values.volume?.[index];
+    const volume = rawVolume === null || rawVolume === void 0 || rawVolume === "" ? 0 : Number(rawVolume);
+    return { time: new Date(timestamp * 1e3).toISOString(), open, high, low, close: reconciledClose, volume };
+  }).filter((bar) => [bar.open, bar.high, bar.low, bar.close].every((value) => value !== null && Number.isFinite(value)) && bar.high >= Math.max(bar.open, bar.close) && bar.low <= Math.min(bar.open, bar.close) && Number.isFinite(bar.volume) && bar.volume >= 0);
   if (bars.length < 2) throw new Error("Yahoo chart returned insufficient valid bars");
   const meta = result.meta || {};
   const last = bars[bars.length - 1];
   const previous = bars[bars.length - 2];
-  const previousClose = Number(meta.chartPreviousClose ?? previous.close);
-  const quoteTime = new Date((meta.regularMarketTime || result.timestamp[result.timestamp.length - 1]) * 1e3).toISOString();
+  const previousClose = previous.close;
+  const rawLastTime = new Date(result.timestamp[lastIndex] * 1e3).toISOString();
+  const acceptedLatestBar = last.time === rawLastTime;
+  const quoteTime = acceptedLatestBar && meta.regularMarketTime ? new Date(meta.regularMarketTime * 1e3).toISOString() : last.time;
   const momentum = calculateMomentumZones(bars);
   return {
     quote: {

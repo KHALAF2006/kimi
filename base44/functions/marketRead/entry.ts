@@ -5232,6 +5232,11 @@ async function checksum(value) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
   return Array.from(new Uint8Array(bytes)).map((item) => item.toString(16).padStart(2, "0")).join("");
 }
+function yahooPrice(value) {
+  if (value === null || value === void 0 || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 async function yahooCandles(symbol, interval, range) {
   const response = await fetch(`${YAHOO_CHART}/${symbol}.SR?interval=${interval}&range=${range}&events=div%2Csplits`, {
     headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 KMY-Saudi-Market/2.0" }
@@ -5240,16 +5245,22 @@ async function yahooCandles(symbol, interval, range) {
   const result = (await response.json())?.chart?.result?.[0];
   if (!result?.timestamp?.length) throw Object.assign(new Error("Market chart source returned no candles"), { status: 502 });
   const values = result.indicators?.quote?.[0] || {};
-  const candles = result.timestamp.map((timestamp, index) => ({
-    time: new Date(timestamp * 1e3).toISOString(),
-    open: Number(values.open?.[index]),
-    high: Number(values.high?.[index]),
-    low: Number(values.low?.[index]),
-    close: Number(values.close?.[index]),
-    volume: Number(values.volume?.[index] || 0)
-  })).filter((bar) => [bar.open, bar.high, bar.low, bar.close].every(Number.isFinite) && bar.high >= bar.low && bar.volume >= 0);
+  const lastIndex = result.timestamp.length - 1;
+  const regularMarketPrice = yahooPrice(result.meta?.regularMarketPrice);
+  const candles = result.timestamp.map((timestamp, index) => {
+    const open = yahooPrice(values.open?.[index]);
+    const high = yahooPrice(values.high?.[index]);
+    const low = yahooPrice(values.low?.[index]);
+    const sourceClose = yahooPrice(values.close?.[index]);
+    const reconciledClose = index === lastIndex && sourceClose === null && regularMarketPrice !== null && low !== null && high !== null && regularMarketPrice >= low && regularMarketPrice <= high ? regularMarketPrice : sourceClose;
+    const rawVolume = values.volume?.[index];
+    const volume = rawVolume === null || rawVolume === void 0 || rawVolume === "" ? 0 : Number(rawVolume);
+    return { time: new Date(timestamp * 1e3).toISOString(), open, high, low, close: reconciledClose, volume };
+  }).filter((bar) => [bar.open, bar.high, bar.low, bar.close].every((value) => value !== null && Number.isFinite(value)) && bar.high >= Math.max(bar.open, bar.close) && bar.low <= Math.min(bar.open, bar.close) && Number.isFinite(bar.volume) && bar.volume >= 0);
   if (!candles.length) throw Object.assign(new Error("Market chart source returned no valid candles"), { status: 502 });
-  const lastTimestamp = result.meta?.regularMarketTime || result.timestamp[result.timestamp.length - 1];
+  const rawLastTime = new Date(result.timestamp[lastIndex] * 1e3).toISOString();
+  const acceptedLatestBar = candles[candles.length - 1].time === rawLastTime;
+  const lastTimestamp = acceptedLatestBar && result.meta?.regularMarketTime ? result.meta.regularMarketTime : new Date(candles[candles.length - 1].time).getTime() / 1e3;
   return { candles, asOf: new Date(lastTimestamp * 1e3).toISOString() };
 }
 async function chartResponse(base44, body, sources) {

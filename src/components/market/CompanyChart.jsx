@@ -67,14 +67,21 @@ function asChartTime(value) {
 
 function normalizeCandles(values) {
   const seen = new Set();
-  return values.map((candle) => ({
-    time: asChartTime(candle.time),
-    open: Number(candle.open),
-    high: Number(candle.high),
-    low: Number(candle.low),
-    close: Number(candle.close),
-    volume: Number(candle.volume || 0),
-  })).filter((candle) => Number.isFinite(candle.time) && [candle.open, candle.high, candle.low, candle.close].every(Number.isFinite) && candle.high >= candle.low)
+  return values.map((candle) => {
+    const price = (value) => value === null || value === undefined || value === "" ? null : Number(value);
+    return {
+      time: asChartTime(candle.time),
+      open: price(candle.open),
+      high: price(candle.high),
+      low: price(candle.low),
+      close: price(candle.close),
+      volume: candle.volume === null || candle.volume === undefined || candle.volume === "" ? 0 : Number(candle.volume),
+    };
+  }).filter((candle) => Number.isFinite(candle.time)
+      && [candle.open, candle.high, candle.low, candle.close].every((value) => Number.isFinite(value) && value > 0)
+      && Number.isFinite(candle.volume) && candle.volume >= 0
+      && candle.high >= Math.max(candle.open, candle.close)
+      && candle.low <= Math.min(candle.open, candle.close))
     .sort((a, b) => a.time - b.time)
     .filter((candle) => !seen.has(candle.time) && seen.add(candle.time));
 }
@@ -152,6 +159,10 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
 
   const orderedCandles = useMemo(() => normalizeCandles(candles), [candles]);
   const rsiData = useMemo(() => calculateRsiSeries(orderedCandles, rsiSettings.length, rsiSettings.source), [orderedCandles, rsiSettings.length, rsiSettings.source]);
+  const orderedCandlesRef = useRef(orderedCandles);
+  const rsiDataRef = useRef(rsiData);
+  orderedCandlesRef.current = orderedCandles;
+  rsiDataRef.current = rsiData;
   const fallbackMomentum = useMemo(() => normalizeMomentum(rawMomentum, theme), [rawMomentum, theme]);
   const calculatedMomentum = useMemo(() => calculateMomentumSnapshot(indicatorCandles, momentumSettings.peakLookbackDays, 500, theme), [indicatorCandles, momentumSettings.peakLookbackDays, theme]);
   const momentum = calculatedMomentum || fallbackMomentum;
@@ -229,28 +240,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
       priceLineVisible: true,
       lastValueVisible: true,
     }, 0);
-    let nextPane = 1;
-    const volumeSeries = showVolume ? chart.addSeries(HistogramSeries, {
-      priceFormat: { type: "volume" },
-      priceScaleId: "right",
-      lastValueVisible: true,
-      priceLineVisible: false,
-    }, nextPane++) : null;
-    const rsiSeries = showRsi ? chart.addSeries(LineSeries, {
-      color: rsiSettings.lineColor,
-      lineWidth: /** @type {1 | 2 | 3 | 4} */ (Number(rsiSettings.lineWidth) || 2),
-      priceLineVisible: false,
-      lastValueVisible: true,
-      crosshairMarkerVisible: true,
-      autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
-    }, nextPane++) : null;
-
-    if (rsiSeries) {
-      rsiSeries.createPriceLine({ price: Number(rsiSettings.upper), color: rsiSettings.upperColor, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: isArabic ? "تشبع شرائي" : "Overbought" });
-      rsiSeries.createPriceLine({ price: 50, color: dark ? "#475569" : "#94a3b8", lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: "50" });
-      rsiSeries.createPriceLine({ price: Number(rsiSettings.lower), color: rsiSettings.lowerColor, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: isArabic ? "تشبع بيعي" : "Oversold" });
-    }
-
+    candlesSeries.setData(orderedCandlesRef.current.map(({ volume: _volume, ...candle }) => candle));
     const scheduleOverlayUpdate = () => {
       if (overlayFrameRef.current) window.cancelAnimationFrame(overlayFrameRef.current);
       overlayFrameRef.current = window.requestAnimationFrame(() => {
@@ -262,8 +252,8 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
     };
     chart.subscribeCrosshairMove((param) => {
       const candle = /** @type {any} */ (param.seriesData.get(candlesSeries));
-      const volume = volumeSeries ? /** @type {any} */ (param.seriesData.get(volumeSeries)) : null;
-      const rsi = rsiSeries ? /** @type {any} */ (param.seriesData.get(rsiSeries)) : null;
+      const volume = volumeSeriesRef.current ? /** @type {any} */ (param.seriesData.get(volumeSeriesRef.current)) : null;
+      const rsi = rsiSeriesRef.current ? /** @type {any} */ (param.seriesData.get(rsiSeriesRef.current)) : null;
       setHovered(candle && typeof candle.open === "number" ? { ...candle, volume: volume?.value, rsi: rsi?.value } : null);
       scheduleOverlayUpdate();
     });
@@ -276,13 +266,11 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
 
     chartRef.current = chart;
     candleSeriesRef.current = candlesSeries;
-    volumeSeriesRef.current = volumeSeries;
-    rsiSeriesRef.current = rsiSeries;
+    volumeSeriesRef.current = null;
+    rsiSeriesRef.current = null;
     window.requestAnimationFrame(() => {
       const panes = chart.panes();
       panes[0]?.setHeight(470);
-      if (showVolume) panes[1]?.setHeight(115);
-      if (showRsi) panes[showVolume ? 2 : 1]?.setHeight(165);
       overlayUpdateRef.current();
     });
     return () => {
@@ -297,7 +285,55 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
       rsiSeriesRef.current = null;
       momentumLinesRef.current = [];
     };
-  }, [theme, language, interval, showVolume, showRsi, rsiSettings.lineColor, rsiSettings.lineWidth, rsiSettings.upper, rsiSettings.lower, rsiSettings.upperColor, rsiSettings.lowerColor, chartHeight, isArabic]);
+  }, [theme, language, interval]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const visibleRange = chart.timeScale().getVisibleLogicalRange();
+
+    if (rsiSeriesRef.current) chart.removeSeries(rsiSeriesRef.current);
+    if (volumeSeriesRef.current) chart.removeSeries(volumeSeriesRef.current);
+    rsiSeriesRef.current = null;
+    volumeSeriesRef.current = null;
+
+    let nextPane = 1;
+    if (showVolume) {
+      volumeSeriesRef.current = chart.addSeries(HistogramSeries, {
+        priceFormat: { type: "volume" },
+        priceScaleId: "right",
+        lastValueVisible: true,
+        priceLineVisible: false,
+      }, nextPane++);
+      volumeSeriesRef.current.setData(orderedCandlesRef.current.map((candle) => ({ time: candle.time, value: candle.volume, color: candle.close >= candle.open ? "#16a34acc" : "#dc2626cc" })));
+    }
+
+    if (showRsi) {
+      const dark = theme === "dark";
+      rsiSeriesRef.current = chart.addSeries(LineSeries, {
+        color: rsiSettings.lineColor,
+        lineWidth: /** @type {1 | 2 | 3 | 4} */ (Number(rsiSettings.lineWidth) || 2),
+        priceLineVisible: false,
+        lastValueVisible: true,
+        crosshairMarkerVisible: true,
+        autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
+      }, nextPane++);
+      rsiSeriesRef.current.setData(rsiDataRef.current);
+      rsiSeriesRef.current.createPriceLine({ price: Number(rsiSettings.upper), color: rsiSettings.upperColor, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: isArabic ? "تشبع شرائي" : "Overbought" });
+      rsiSeriesRef.current.createPriceLine({ price: 50, color: dark ? "#475569" : "#94a3b8", lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: "50" });
+      rsiSeriesRef.current.createPriceLine({ price: Number(rsiSettings.lower), color: rsiSettings.lowerColor, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: isArabic ? "تشبع بيعي" : "Oversold" });
+    }
+
+    chart.applyOptions({ height: chartHeight });
+    window.requestAnimationFrame(() => {
+      const panes = chart.panes();
+      panes[0]?.setHeight(470);
+      if (showVolume) panes[1]?.setHeight(115);
+      if (showRsi) panes[showVolume ? 2 : 1]?.setHeight(165);
+      if (visibleRange) chart.timeScale().setVisibleLogicalRange(visibleRange);
+      overlayUpdateRef.current();
+    });
+  }, [showVolume, showRsi, rsiSettings.lineColor, rsiSettings.lineWidth, rsiSettings.upper, rsiSettings.lower, rsiSettings.upperColor, rsiSettings.lowerColor, chartHeight, theme, language, interval, isArabic]);
 
   useEffect(() => {
     candleSeriesRef.current?.setData(orderedCandles.map(({ volume: _volume, ...candle }) => candle));
@@ -305,7 +341,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
     rsiSeriesRef.current?.setData(rsiData);
     if (orderedCandles.length) chartRef.current?.timeScale().fitContent();
     window.requestAnimationFrame(() => overlayUpdateRef.current());
-  }, [orderedCandles, rsiData, theme, language]);
+  }, [orderedCandles, rsiData]);
 
   useEffect(() => {
     const series = candleSeriesRef.current;
@@ -348,17 +384,23 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
       const referenceX = Number.isFinite(referenceTime) ? chart.timeScale().timeToCoordinate(referenceTime) : null;
       const left = Math.max(0, referenceX == null ? 0 : referenceX);
       const right = Math.max(left, container.clientWidth - 70);
+      const mainPaneHeight = chart.panes()[0]?.getHeight() || 470;
       const zones = momentum.zones.filter((zone) => zone.active !== false).map((zone) => {
         const setting = momentumSettings.zones[zone.key] || momentumDefaults.zones[zone.key];
         const top = series.priceToCoordinate(Number(zone.top));
         const bottom = series.priceToCoordinate(Number(zone.bottom));
         if (!setting.visible || top == null || bottom == null) return null;
+        const unclippedTop = Math.min(top, bottom);
+        const unclippedBottom = Math.max(top, bottom);
+        const clippedTop = Math.max(0, Math.min(mainPaneHeight, unclippedTop));
+        const clippedBottom = Math.max(0, Math.min(mainPaneHeight, unclippedBottom));
+        if (clippedBottom <= clippedTop) return null;
         return {
           key: zone.key,
           left,
           width: Math.max(0, right - left),
-          top: Math.min(top, bottom),
-          height: Math.max(2, Math.abs(bottom - top)),
+          top: clippedTop,
+          height: Math.max(2, clippedBottom - clippedTop),
           color: setting.color,
           name: isArabic ? zone.nameAr : zone.nameEn,
           topPrice: zone.top,
