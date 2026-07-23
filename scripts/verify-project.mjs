@@ -50,13 +50,17 @@ assert.match(marketRead, /Main-market catalog mismatch/, "an incomplete verified
 
 const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIngestion/function.jsonc", import.meta.url), "utf8"));
 assert.equal(schedule.name, "marketIngestion");
-assert.equal(schedule.automations.length, 2);
-assert.deepEqual(schedule.automations.map((item) => item.cron_expression), ["*/15 7-12 * * 0-4", "0 13 * * 0-4"]);
-assert.ok(schedule.automations.every((item) => item.function_args?.batch_size === 270));
+const marketQuarterHour = JSON.parse(await readFile(new URL("../base44/workflows/MarketQuarterHour.jsonc", import.meta.url), "utf8"));
+const marketClose = JSON.parse(await readFile(new URL("../base44/workflows/MarketCloseReconciliation.jsonc", import.meta.url), "utf8"));
+assert.deepEqual([marketQuarterHour.trigger.config.cron_expression, marketClose.trigger.config.cron_expression], ["*/15 10-15 * * 0-4", "0 16 * * 0-4"]);
+assert.equal(marketQuarterHour.trigger.config.timezone, "Asia/Riyadh");
+assert.equal(marketClose.trigger.config.timezone, "Asia/Riyadh");
+assert.equal(marketQuarterHour.definition.do[0].refresh_market.with.args.batch_size, 270);
+assert.equal(marketClose.definition.do[0].reconcile_close.with.args.batch_size, 270);
 
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
-const entityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc"));
-assert.equal(entityFiles.length, 31, "all 31 custom Base44 entity schemas must be present");
+const entityFiles = (await readdir(entityDirectory)).filter((name) => /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/.test(name));
+assert.equal(entityFiles.length, 32, "all 32 canonical Base44 entity schemas must be present");
 const entityNames = new Set();
 for (const name of entityFiles) {
   assert.match(name, /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/, `entity filename is not kebab-case: ${name}`);
@@ -71,8 +75,9 @@ for (const name of entityFiles) {
   }
 }
 assert.ok(!entityNames.has("User"), "built-in Base44 User fields and permissions must not be redefined");
-for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "CandleChunk", "ActiveDeviceSession", "Subscription"]) {
-  assert.ok(entityNames.has(required), `required entity is missing: ${required}`);
+const entityNamesLower = new Set([...entityNames].map((name) => name.toLowerCase()));
+for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing"]) {
+  assert.ok(entityNamesLower.has(required.toLowerCase()), `required entity is missing: ${required}`);
 }
 const customerProfile = JSON.parse(await readFile(new URL("../base44/entities/customer-profile.jsonc", import.meta.url), "utf8"));
 assert.ok(!customerProfile.required.includes("phone_e164"), "admin migration must not fabricate a phone number");
@@ -80,7 +85,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 14, "all 14 backend functions must be present");
+assert.equal(functionNames.length, 15, "all 15 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -95,7 +100,7 @@ for (const name of (await readdir(sharedDirectory)).filter((item) => item.endsWi
   const source = await readFile(join(sharedDirectory, name), "utf8");
   for (const match of source.matchAll(/entities\.([A-Za-z0-9]+)/g)) referencedEntities.add(match[1]);
 }
-for (const entity of referencedEntities) assert.ok(entityNames.has(entity), `backend references missing entity schema: ${entity}`);
+for (const entity of referencedEntities) assert.ok(entityNamesLower.has(entity.toLowerCase()), `backend references missing entity schema: ${entity}`);
 
 const marketService = await readFile(new URL("../src/services/marketService.js", import.meta.url), "utf8");
 assert.match(marketService, /name_ar:\s*company\.nameAr/);
@@ -128,6 +133,33 @@ assert.match(companyChart, /momentumSettings\.zones/);
 assert.match(companyChart, /className=\{["']ohlc-strip ["'] \+ \(hovered \? ["']["'] : ["']invisible["']\)\}/, "the OHLC strip must reserve its height so pane hover cannot shake the chart");
 assert.match(companyChart, /interactionEvents = \[[^\]]*["']wheel["'][^\]]*["']pointermove["']/, "zone geometry must follow price-scale wheel and drag interactions");
 assert.match(companyChart, /sameZoneGeometry\(current, zones\)/, "zone synchronization must avoid redundant React layout updates");
+assert.match(companyChart, /showMomentumCard/, "momentum price card must have its own visibility state");
+assert.doesNotMatch(companyChart, /showMomentum\s*&&\s*showMomentumCard/, "momentum price card must not depend on the zone overlay visibility");
+assert.match(companyChart, /ChartDrawingTools/, "the verified chart must mount the drawing layer");
+
+const chartDrawingsFunction = await readFile(new URL("../base44/functions/chartDrawings/entry.ts", import.meta.url), "utf8");
+assert.match(chartDrawingsFunction, /requireActiveSession\(base44, profile, body\.session_id\)/, "drawing storage must require the verified KMY session");
+assert.match(chartDrawingsFunction, /row\.customer_id !== profile\.id/, "drawing mutations must enforce object ownership");
+assert.match(chartDrawingsFunction, /DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED/, "a drawing with an alert must not be deleted without explicit confirmation");
+assert.match(chartDrawingsFunction, /"trend_line", "ray", "horizontal_line"/, "drawing alerts must be restricted to supported line geometry");
+
+const drawingTools = await readFile(new URL("../src/components/market/ChartDrawingTools.jsx", import.meta.url), "utf8");
+for (const tool of ["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure"]) {
+  assert.match(drawingTools, new RegExp(tool), `drawing tool is missing: ${tool}`);
+}
+assert.match(drawingTools, /deleteChartDrawing\(symbol, selected, force\)/, "drawing deletion must use the protected backend service");
+
+const { drawingSegments, drawingHitTest } = await import(new URL("../src/components/market/chartDrawingModel.js", import.meta.url));
+const modelWidth = 800;
+const modelHeight = 500;
+const horizontalPoints = [{ x: 120, y: 220 }];
+const rectanglePoints = [{ x: 100, y: 100 }, { x: 300, y: 260 }];
+const channelPoints = [{ x: 80, y: 120 }, { x: 330, y: 170 }, { x: 110, y: 240 }];
+assert.equal(drawingSegments("horizontal_line", horizontalPoints, modelWidth, modelHeight).length, 1, "horizontal line geometry must be deterministic");
+assert.equal(drawingSegments("rectangle", rectanglePoints, modelWidth, modelHeight).length, 4, "rectangle must retain all four anchored sides");
+assert.equal(drawingSegments("parallel_channel", channelPoints, modelWidth, modelHeight).length, 2, "parallel channel must retain both parallel boundaries");
+assert.equal(drawingHitTest("horizontal_line", horizontalPoints, { x: 620, y: 222 }, modelWidth, modelHeight).hit, true, "extended horizontal line must remain selectable after chart navigation");
+assert.equal(drawingHitTest("rectangle", rectanglePoints, { x: 180, y: 101 }, modelWidth, modelHeight).hit, true, "rectangle border must be selectable without filling the price pane");
 
 const sharedSecurity = await readFile(new URL("../base44/shared/security.ts", import.meta.url), "utf8");
 assert.match(sharedSecurity, /profile\?\.acquisition_source === "platform_owner_bootstrap"/, "owner access must be rooted in the server-managed platform owner marker");
@@ -136,6 +168,8 @@ assert.doesNotMatch(sharedSecurity, /if \(profile\.role !== "admin"/, "administr
 const authLoginFunction = await readFile(new URL("../base44/functions/authLogin/entry.ts", import.meta.url), "utf8");
 assert.match(authLoginFunction, /acquisition_source === "platform_owner_bootstrap"/, "the deployed authLogin function must reconcile the trusted owner");
 assert.match(authLoginFunction, /role:\s*owner \? "owner" : "admin"/, "the deployed authLogin function must not downgrade the owner");
+assert.match(loginPage, /base44\.auth\.setToken\(login\.access_token,true\)/, "Base44 authentication must persist across same-origin tabs");
+assert.match(loginPage, /kmy_device_id/, "all tabs on one browser device must share a stable device identity");
 for (const fileName of ["adminCustomers", "adminSubscriptions"]) {
   const deployed = await readFile(new URL(`../base44/functions/${fileName}/entry.ts`, import.meta.url), "utf8");
   assert.match(deployed, /const role = resolvedRole\(user, profile\)/, `${fileName} must enforce the trusted owner marker on the backend`);

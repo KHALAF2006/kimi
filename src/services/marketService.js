@@ -100,6 +100,8 @@ export async function invokeAppFunction(functionName, payload = {}) {
     const message = error?.response?.data?.error || error?.message;
     if (message === "Active device session required") {
       localStorage.removeItem("kmy_session_id");
+      localStorage.removeItem("kmy_session_expires_at");
+      window.dispatchEvent(new Event("kmy-auth-changed"));
       if (window.location.pathname !== "/login") window.location.assign("/login");
     }
     throw error;

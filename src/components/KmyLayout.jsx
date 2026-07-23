@@ -26,7 +26,7 @@ export default function KmyLayout() {
         <div className="ms-auto flex items-center gap-1">
           <button className="icon-button" onClick={toggleLanguage} title={isArabic ? "English" : "العربية"}><Languages size={17} /></button>
           <button className="icon-button" onClick={toggleTheme} title={isArabic ? "تغيير المظهر" : "Change theme"}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button>
-          <button aria-label={isArabic ? "تسجيل الخروج" : "Sign out"} onClick={() => { localStorage.removeItem("kmy_session_id"); base44.auth.logout("/"); }} className="icon-button"><LogOut size={17} /></button>
+          <button aria-label={isArabic ? "تسجيل الخروج" : "Sign out"} onClick={() => { localStorage.removeItem("kmy_session_id"); localStorage.removeItem("kmy_session_expires_at"); window.dispatchEvent(new Event("kmy-auth-changed")); base44.auth.logout("/"); }} className="icon-button"><LogOut size={17} /></button>
         </div>
       </div>
     </header>

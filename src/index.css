@@ -155,10 +155,40 @@
   .momentum-zone-overlay { @apply pointer-events-none absolute inset-0 z-[2] overflow-hidden; }
   .momentum-zone-box { @apply absolute border-y; }
   .momentum-zone-box > span { @apply absolute end-1 top-1/2 -translate-y-1/2 whitespace-nowrap rounded px-1.5 py-0.5 text-[9px] font-black text-white opacity-100 shadow-sm; }
-  .momentum-price-panel { @apply pointer-events-none absolute start-2 top-2 z-[3] max-w-[min(430px,calc(100%-88px))] overflow-hidden rounded-xl border border-slate-300 bg-white/95 text-[9px] shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
+  .momentum-price-panel { @apply absolute left-2 top-24 z-[8] max-w-[min(430px,calc(100%-88px))] overflow-hidden rounded-xl border border-slate-300 bg-white/95 text-[9px] shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
   .momentum-price-panel > div { @apply grid grid-cols-[minmax(90px,1.4fr)_repeat(3,minmax(55px,0.8fr))] items-center gap-1 border-b border-slate-100 px-2 py-1.5 last:border-b-0 dark:border-slate-800; }
   .momentum-price-panel > div > span, .momentum-price-panel > div > b { @apply truncate text-center; }
   .momentum-price-head { @apply bg-slate-900 font-black text-white dark:bg-slate-800; }
+  .momentum-card-eye { @apply flex w-full items-center gap-1.5 border-b border-slate-200 bg-white px-2 py-1.5 text-[10px] font-black text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900; }
+  .momentum-price-panel-collapsed { @apply w-auto min-w-0; }
+  .momentum-price-panel-collapsed .momentum-card-eye { @apply border-b-0; }
+  .drawing-tools-bar { @apply absolute end-2 top-2 z-[10] flex max-w-[calc(100%-16px)] flex-wrap items-center justify-end gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
+  .drawing-tools-bar button { @apply grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white; }
+  .drawing-tools-bar button.active { @apply bg-slate-950 text-amber-400 dark:bg-amber-400 dark:text-slate-950; }
+  .drawing-tools-separator { @apply mx-1 h-6 w-px bg-slate-200 dark:bg-slate-700; }
+  .chart-drawing-canvas { @apply pointer-events-none absolute inset-x-0 top-0 z-[5] w-full touch-none; }
+  .chart-drawing-canvas-active { @apply pointer-events-auto cursor-crosshair; }
+  .drawing-selection-toolbar { @apply absolute end-2 top-24 z-[9] flex max-w-[calc(100%-16px)] flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 text-[10px] shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
+  .drawing-selection-toolbar > b { @apply px-2 text-slate-700 dark:text-slate-200; }
+  .drawing-selection-toolbar button { @apply grid h-8 min-w-8 place-items-center rounded-lg px-1.5 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800; }
+  .drawing-selection-toolbar button.danger { @apply text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40; }
+  .drawing-selection-toolbar input[type="color"] { @apply h-8 w-9 cursor-pointer rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900; }
+  .drawing-selection-toolbar select { @apply h-8 rounded-lg border border-slate-200 bg-white px-1.5 text-[10px] dark:border-slate-700 dark:bg-slate-900; }
+  .drawing-selection-toolbar label { @apply flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2 font-bold dark:border-slate-700; }
+  .drawing-selection-toolbar label input { @apply accent-amber-500; }
+  .drawing-status { @apply mt-2 flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300; }
+  .drawing-status button { @apply rounded p-1 hover:bg-slate-200 dark:hover:bg-slate-800; }
+  .drawing-alert-backdrop { @apply fixed inset-0 z-[100] grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm; }
+  .drawing-alert-dialog { @apply w-full max-w-md space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-950; }
+  .drawing-alert-dialog > div:first-child { @apply flex items-center justify-between; }
+  .drawing-alert-dialog > div:first-child b { @apply text-base font-black; }
+  .drawing-alert-dialog > p { @apply text-xs leading-6 text-slate-500 dark:text-slate-400; }
+  .drawing-alert-dialog > label { @apply grid gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300; }
+  .drawing-alert-dialog select, .drawing-alert-dialog input { @apply h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900; }
+  .drawing-alert-actions { @apply flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4 dark:border-slate-800; }
+  .drawing-alert-actions button { @apply rounded-lg border border-slate-200 px-3 py-2 text-xs font-black dark:border-slate-700; }
+  .drawing-alert-actions button.primary { @apply border-slate-950 bg-slate-950 text-white dark:border-amber-400 dark:bg-amber-400 dark:text-slate-950; }
+  .drawing-alert-actions button.danger { @apply me-auto border-red-200 text-red-600 dark:border-red-900 dark:text-red-400; }
   .ohlc-strip { @apply mt-3 flex flex-wrap gap-3 rounded-xl bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-600 dark:bg-slate-950/50 dark:text-slate-300; }
   .chart-message { @apply mt-3 rounded-xl bg-slate-50 px-4 py-8 text-center text-xs text-slate-500 dark:bg-slate-950/50; }
 

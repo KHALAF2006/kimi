@@ -15,7 +15,7 @@ const sourceEntries = (await readdir(sourceRoot, { withFileTypes: true }))
   .map((item) => item.name)
   .sort();
 
-assert.equal(sourceEntries.length, 14, "expected 14 Base44 backend functions");
+assert.equal(sourceEntries.length, 15, "expected 15 Base44 backend functions");
 await mkdir(outputRoot, { recursive: true });
 
 const expectedFiles = new Set();

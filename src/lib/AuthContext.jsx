@@ -28,6 +28,25 @@ export const AuthProvider = ({ children }) => {
     checkAppState();
   }, []);
 
+  useEffect(() => {
+    if (referencePreview) return undefined;
+    const syncAuthentication = (event) => {
+      if (event.key && !["base44_access_token", "kmy_session_id"].includes(event.key)) return;
+      if (!localStorage.getItem("kmy_session_id")) {
+        setIsAuthenticated(false);
+        setAuthChecked(true);
+        return;
+      }
+      checkUserAuth();
+    };
+    window.addEventListener("storage", syncAuthentication);
+    window.addEventListener("kmy-auth-changed", syncAuthentication);
+    return () => {
+      window.removeEventListener("storage", syncAuthentication);
+      window.removeEventListener("kmy-auth-changed", syncAuthentication);
+    };
+  }, [referencePreview]);
+
   const checkAppState = async () => {
     try {
       setIsLoadingPublicSettings(true);
@@ -48,8 +67,9 @@ export const AuthProvider = ({ children }) => {
         const publicSettings = await appClient.get(`/prod/public-settings/by-id/${appParams.appId}`);
         setAppPublicSettings(publicSettings);
         
-        // If we got the app public settings successfully, check if user is authenticated
-        if (appParams.token) {
+        // Ask the SDK for the current token state instead of relying on the
+        // module-load snapshot. This keeps same-origin tabs in one session.
+        if (await base44.auth.isAuthenticated()) {
           await checkUserAuth();
         } else {
           setIsLoadingAuth(false);

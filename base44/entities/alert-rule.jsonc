@@ -20,7 +20,10 @@
         "crosses_above",
         "crosses_below",
         "enters_zone",
-        "exits_zone"
+        "exits_zone",
+        "crosses_drawing",
+        "crosses_drawing_above",
+        "crosses_drawing_below"
       ]
     },
     "threshold": {
@@ -28,6 +31,16 @@
     },
     "zone_key": {
       "type": "string"
+    },
+    "drawing_id": {
+      "type": "string"
+    },
+    "drawing_type": {
+      "type": "string"
+    },
+    "drawing_points": {
+      "type": "array",
+      "items": { "type": "object" }
     },
     "frequency": {
       "type": "string",
@@ -47,6 +60,10 @@
       "type": "number"
     },
     "last_observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_triggered_at": {
       "type": "string",
       "format": "date-time"
     }

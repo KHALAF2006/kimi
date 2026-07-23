@@ -1,0 +1,21 @@
+{
+  "name": "ChartDrawing",
+  "type": "object",
+  "properties": {
+    "customer_id": { "type": "string" },
+    "instrument_id": { "type": "string" },
+    "symbol": { "type": "string", "pattern": "^[0-9]{4}$" },
+    "client_id": { "type": "string" },
+    "interval_scope": { "type": "string" },
+    "drawing_type": { "type": "string", "enum": ["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure"] },
+    "points": { "type": "array", "items": { "type": "object", "properties": { "time": { "type": "number" }, "logical": { "type": "number" }, "price": { "type": "number" } }, "required": ["price"] } },
+    "options": { "type": "object" },
+    "locked": { "type": "boolean" },
+    "visible": { "type": "boolean" },
+    "z_index": { "type": "number" },
+    "alert_rule_id": { "type": "string" },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["customer_id", "instrument_id", "symbol", "client_id", "interval_scope", "drawing_type", "points", "options", "locked", "visible", "z_index", "revision"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

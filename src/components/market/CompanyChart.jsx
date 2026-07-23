@@ -4,6 +4,7 @@ import { BarChart3, ChevronDown, Eye, EyeOff, Layers3, Maximize2, Minus, Plus, R
 import { invokeAppFunction } from "@/services/marketService";
 import { calculateMomentumSnapshot, calculateRsiSeries, formatNumber, MOMENTUM_ZONE_DEFINITIONS, normalizeMomentum } from "@/lib/market";
 import { usePreferences } from "@/lib/preferences";
+import ChartDrawingTools from "@/components/market/ChartDrawingTools";
 
 const intervalOptions = [
   { value: "15m", ar: "15 د", en: "15m", defaultRange: "5d" },
@@ -140,6 +141,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
   const [error, setError] = useState("");
   const [hovered, setHovered] = useState(null);
   const [showMomentum, setShowMomentum] = useState(() => localStorage.getItem("kmy_show_momentum") !== "false");
+  const [showMomentumCard, setShowMomentumCard] = useState(() => localStorage.getItem("kmy_show_momentum_card") !== "false");
   const [showVolume, setShowVolume] = useState(() => localStorage.getItem("kmy_show_volume") !== "false");
   const [showRsi, setShowRsi] = useState(() => localStorage.getItem("kmy_show_rsi") !== "false");
   const [settingsPanel, setSettingsPanel] = useState("");
@@ -156,6 +158,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
     };
   });
   const [zoneGeometry, setZoneGeometry] = useState([]);
+  const [, setChartRevision] = useState(0);
 
   const orderedCandles = useMemo(() => normalizeCandles(candles), [candles]);
   const rsiData = useMemo(() => calculateRsiSeries(orderedCandles, rsiSettings.length, rsiSettings.source), [orderedCandles, rsiSettings.length, rsiSettings.source]);
@@ -203,9 +206,10 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
 
   useEffect(() => {
     localStorage.setItem("kmy_show_momentum", String(showMomentum));
+    localStorage.setItem("kmy_show_momentum_card", String(showMomentumCard));
     localStorage.setItem("kmy_show_volume", String(showVolume));
     localStorage.setItem("kmy_show_rsi", String(showRsi));
-  }, [showMomentum, showVolume, showRsi]);
+  }, [showMomentum, showMomentumCard, showVolume, showRsi]);
 
   useEffect(() => { localStorage.setItem("kmy_rsi_settings", JSON.stringify(rsiSettings)); }, [rsiSettings]);
   useEffect(() => { localStorage.setItem("kmy_momentum_settings", JSON.stringify(momentumSettings)); }, [momentumSettings]);
@@ -266,6 +270,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
 
     chartRef.current = chart;
     candleSeriesRef.current = candlesSeries;
+    setChartRevision((value) => value + 1);
     volumeSeriesRef.current = null;
     rsiSeriesRef.current = null;
     window.requestAnimationFrame(() => {
@@ -501,7 +506,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
         <label className="settings-check"><input type="checkbox" checked={momentumSettings.showPeakLine} onChange={(event) => setMomentumSettings((value) => ({ ...value, showPeakLine: event.target.checked }))} /><span>{isArabic ? "إظهار خط القمة" : "Show peak line"}</span></label>
         <label className="settings-check"><input type="checkbox" checked={momentumSettings.showZones} onChange={(event) => setMomentumSettings((value) => ({ ...value, showZones: event.target.checked }))} /><span>{isArabic ? "إظهار المناطق" : "Show zones"}</span></label>
         <label className="settings-check"><input type="checkbox" checked={momentumSettings.showStopLines} onChange={(event) => setMomentumSettings((value) => ({ ...value, showStopLines: event.target.checked }))} /><span>{isArabic ? "إظهار خطوط الوقف" : "Show stop lines"}</span></label>
-        <label className="settings-check"><input type="checkbox" checked={momentumSettings.showInfoPanel} onChange={(event) => setMomentumSettings((value) => ({ ...value, showInfoPanel: event.target.checked }))} /><span>{isArabic ? "إظهار لوحة الأسعار" : "Show price panel"}</span></label>
+        <label className="settings-check"><input type="checkbox" checked={showMomentumCard} onChange={(event) => setShowMomentumCard(event.target.checked)} /><span>{isArabic ? "إظهار بطاقة أسعار المناطق" : "Show zone price card"}</span></label>
       </div>
       <div className="momentum-zone-settings">{MOMENTUM_ZONE_DEFINITIONS.map((zone) => {
         const setting = momentumSettings.zones[zone.key];
@@ -523,9 +528,11 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
     <div className={candles.length ? "chart-canvas-wrap" : "h-0"} style={candles.length ? { height: chartHeight } : undefined}>
       <div ref={containerRef} className="absolute inset-0" />
       <div className="momentum-zone-overlay" aria-hidden="true">{zoneGeometry.map((zone) => <div key={zone.key} className="momentum-zone-box" style={{ left: zone.left, width: zone.width, top: zone.top, height: zone.height, borderColor: zone.color, backgroundColor: colorWithOpacity(zone.color, Math.max(0.05, (100 - momentumSettings.zoneOpacity) / 100)) }}><span style={{ backgroundColor: zone.color }}>{zone.name} · {formatNumber(zone.topPrice, "en")}–{formatNumber(zone.bottomPrice, "en")}</span></div>)}</div>
-      {showMomentum && momentumSettings.showInfoPanel && momentum?.zones?.length > 0 && <div className="momentum-price-panel">
-        <div className="momentum-price-head"><span>{isArabic ? "المنطقة" : "Zone"}</span><span>{isArabic ? "من" : "From"}</span><span>{isArabic ? "إلى" : "To"}</span><span>{isArabic ? "الوقف" : "Stop"}</span></div>
-        {momentum.zones.map((zone) => <div key={zone.key} className={zone.active === false ? "opacity-45" : ""}><b style={{ color: momentumSettings.zones[zone.key]?.color }}>{isArabic ? zone.nameAr : zone.nameEn}</b><span>{zone.active === false ? (isArabic ? "بانتظار" : "Waiting") : formatNumber(zone.top, "en")}</span><span>{zone.active === false ? "—" : formatNumber(zone.bottom, "en")}</span><span className="text-red-500">{zone.active === false ? "—" : formatNumber(zone.stop, "en")}</span></div>)}
+      {chartRef.current && candleSeriesRef.current && <ChartDrawingTools chart={chartRef.current} series={candleSeriesRef.current} symbol={symbol} interval={interval} mainPaneHeight={470} isArabic={isArabic} />}
+      {momentum?.zones?.length > 0 && <div className={"momentum-price-panel " + (!showMomentumCard ? "momentum-price-panel-collapsed" : "")}>
+        <button type="button" className="momentum-card-eye" onClick={() => setShowMomentumCard((value) => !value)} title={showMomentumCard ? (isArabic ? "إخفاء بطاقة أسعار المناطق" : "Hide zone price card") : (isArabic ? "إظهار بطاقة أسعار المناطق" : "Show zone price card")} aria-expanded={showMomentumCard}>{showMomentumCard ? <EyeOff size={14} /> : <Eye size={14} />}<span>{isArabic ? "أسعار مناطق الزخم" : "Momentum zone prices"}</span></button>
+        {showMomentumCard && <><div className="momentum-price-head"><span>{isArabic ? "المنطقة" : "Zone"}</span><span>{isArabic ? "من" : "From"}</span><span>{isArabic ? "إلى" : "To"}</span><span>{isArabic ? "الوقف" : "Stop"}</span></div>
+        {momentum.zones.map((zone) => <div key={zone.key} className={zone.active === false ? "opacity-45" : ""}><b style={{ color: momentumSettings.zones[zone.key]?.color }}>{isArabic ? zone.nameAr : zone.nameEn}</b><span>{zone.active === false ? (isArabic ? "بانتظار" : "Waiting") : formatNumber(zone.top, "en")}</span><span>{zone.active === false ? "—" : formatNumber(zone.bottom, "en")}</span><span className="text-red-500">{zone.active === false ? "—" : formatNumber(zone.stop, "en")}</span></div>)}</>}
       </div>}
     </div>
   </div>;

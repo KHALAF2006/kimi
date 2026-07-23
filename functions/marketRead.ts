@@ -1,9 +1,7 @@
-// GENERATED from base44/functions/marketIngestion/entry.ts — do not edit directly.
+// GENERATED from base44/functions/marketRead/entry.ts — do not edit directly.
 
-// base44/functions/marketIngestion/entry.ts
+// base44/functions/marketRead/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
-
-// base44/data/official-main-market-catalog-2026-07-21.json
 var official_main_market_catalog_2026_07_21_default = {
   source: "Saudi Exchange",
   sourceUrl: "https://www.saudiexchange.sa/Resources/Reports-v2/DetailedDaily_en.html",
@@ -5149,8 +5147,6 @@ var official_main_market_catalog_2026_07_21_default = {
     }
   ]
 };
-
-// base44/shared/security.ts
 async function requireUser(base44) {
   const user = await base44.auth.me();
   if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
@@ -5160,12 +5156,11 @@ async function profileFor(base44, user) {
   const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
   return rows[0] || null;
 }
-async function requireRole(base44, roles) {
-  const user = await requireUser(base44);
-  const profile = await profileFor(base44, user);
-  const role = profile?.role || user.role;
-  if (!roles.includes(role)) throw Object.assign(new Error("Forbidden"), { status: 403 });
-  return { user, profile, role };
+async function requireActiveSession(base44, profile, sessionId) {
+  if (!profile || !sessionId) throw Object.assign(new Error("Active device session required"), { status: 403 });
+  const session = await base44.asServiceRole.entities.ActiveDeviceSession.get(sessionId);
+  if (!session || session.customer_id !== profile.id || session.revoked_at || new Date(session.expires_at) <= /* @__PURE__ */ new Date()) throw Object.assign(new Error("Active device session required"), { status: 403 });
+  return session;
 }
 function replyError(error) {
   const status = Number(error?.status) || 500;
@@ -5175,206 +5170,78 @@ function replyError(error) {
     code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
   }, { status });
 }
-
-// base44/shared/momentum.ts
-var MOMENTUM_FORMULA_VERSION = "momentum-zones-v1";
-var LOOKBACK_DAYS = 20;
-var HISTORY_BARS = 500;
-var FIXED_STOP_PERCENT = 0.03;
-var ZONE_DEFINITIONS = [
-  { key: "zone1", nameAr: "\u0627\u0644\u0627\u0631\u062A\u062F\u0627\u062F", nameEn: "Rebound", colorNameAr: "\u0623\u062E\u0636\u0631", colorNameEn: "Green", light: "#16a34a", dark: "#22c55e", topPercent: 0.075, bottomPercent: 0.1 },
-  { key: "zone2", nameAr: "\u0642\u0627\u0639 \u0623\u0633\u0628\u0648\u0639\u064A/\u0634\u0647\u0631\u064A", nameEn: "Weekly / Monthly Base", colorNameAr: "\u0628\u0631\u062A\u0642\u0627\u0644\u064A", colorNameEn: "Orange", light: "#d97706", dark: "#f59e0b", topPercent: 0.2, bottomPercent: 0.24 },
-  { key: "zone3", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0645\u0646\u062E\u0641\u0636", nameEn: "Low-Risk Investment", colorNameAr: "\u0623\u0632\u0631\u0642", colorNameEn: "Blue", light: "#2563eb", dark: "#60a5fa", topPercent: 0.32, bottomPercent: 0.36 },
-  { key: "zone4", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0631\u0628\u0639 \u0633\u0646\u0648\u064A", nameEn: "Quarterly Investment", colorNameAr: "\u0628\u0646\u0641\u0633\u062C\u064A", colorNameEn: "Purple", light: "#7c3aed", dark: "#a78bfa", topPercent: 0.48, bottomPercent: 0.52 },
-  { key: "zone5", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0633\u0646\u0648\u064A", nameEn: "Annual Investment", colorNameAr: "\u0641\u064A\u0631\u0648\u0632\u064A", colorNameEn: "Teal", light: "#0d9488", dark: "#2dd4bf", topPercent: 0.58, bottomPercent: 0.65 }
-];
-function buildMomentumZones(referencePeak, zone4Active = false, zone5Active = false) {
-  return ZONE_DEFINITIONS.map((definition, index) => {
-    const top = referencePeak * (1 - definition.topPercent);
-    const bottom = referencePeak * (1 - definition.bottomPercent);
-    return {
-      ...definition,
-      top,
-      bottom,
-      stop: bottom * (1 - FIXED_STOP_PERCENT),
-      active: index < 3 || index === 3 && zone4Active || index === 4 && zone5Active
-    };
-  });
+var YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart";
+var ALLOWED_INTERVALS = /* @__PURE__ */ new Set(["15m", "1h", "1d", "1wk", "1mo"]);
+var ALLOWED_RANGES = /* @__PURE__ */ new Set(["5d", "1mo", "3mo", "1y", "2y", "5y", "10y", "max"]);
+var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
+function entityRows(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (Array.isArray(value?.data)) return value.data.filter(Boolean);
+  if (Array.isArray(value?.items)) return value.items.filter(Boolean);
+  return [];
 }
-function crossedUnder(current, threshold, previous, previousThreshold) {
-  return previous !== null && previousThreshold !== null && current < threshold && previous >= previousThreshold;
-}
-function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, historyBars = HISTORY_BARS) {
-  const bars = inputBars.map((bar) => ({
-    time: String(bar.time || ""),
-    high: Number(bar.high),
-    close: Number(bar.close)
-  })).filter((bar) => bar.time && Number.isFinite(bar.high) && Number.isFinite(bar.close) && bar.high > 0 && bar.close > 0).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()).slice(-historyBars);
-  if (bars.length < 2) return null;
-  let referencePeak = null;
-  let referenceTime = null;
-  let lastBrokenPeak = null;
-  let zone4Active = false;
-  let zone5Active = false;
-  let previousClose = null;
-  let previousZone3Stop = null;
-  let previousZone4Stop = null;
-  for (let index = 0; index < bars.length; index += 1) {
-    let candidatePeak = null;
-    let candidateTime = null;
-    for (let offset = 1; offset <= lookbackDays; offset += 1) {
-      const candidate = bars[index - offset];
-      if (!candidate) continue;
-      if (candidatePeak === null || candidate.high > candidatePeak) {
-        candidatePeak = candidate.high;
-        candidateTime = candidate.time;
-      }
-    }
-    const bar = bars[index];
-    if (referencePeak !== null && bar.high > referencePeak) {
-      lastBrokenPeak = referencePeak;
-      referencePeak = null;
-      referenceTime = null;
-      zone4Active = false;
-      zone5Active = false;
-    }
-    if (referencePeak === null && candidatePeak !== null && (lastBrokenPeak === null || candidatePeak !== lastBrokenPeak)) {
-      referencePeak = candidatePeak;
-      referenceTime = candidateTime;
-      zone4Active = false;
-      zone5Active = false;
-    }
-    if (referencePeak !== null) {
-      const zones = buildMomentumZones(referencePeak, zone4Active, zone5Active);
-      if (crossedUnder(bar.close, zones[2].stop, previousClose, previousZone3Stop)) zone4Active = true;
-      if (zone4Active && crossedUnder(bar.close, zones[3].stop, previousClose, previousZone4Stop)) zone5Active = true;
-      previousZone3Stop = zones[2].stop;
-      previousZone4Stop = zones[3].stop;
-    } else {
-      previousZone3Stop = null;
-      previousZone4Stop = null;
-    }
-    previousClose = bar.close;
+async function optionalRows(operation, label) {
+  try {
+    return entityRows(await operation());
+  } catch (error) {
+    console.warn(`KMY optional ${label} query failed`, error?.message || error);
+    return [];
   }
-  if (referencePeak === null) return null;
+}
+function stateFor(value, source, now = Date.now()) {
+  const age = value ? now - new Date(value).getTime() : Number.POSITIVE_INFINITY;
   return {
-    referencePeak,
-    referenceTime,
-    lookbackDays,
-    historyBars,
-    formulaVersion: MOMENTUM_FORMULA_VERSION,
-    zone4Active,
-    zone5Active,
-    zones: buildMomentumZones(referencePeak, zone4Active, zone5Active)
+    label: age > 36 * 60 * 60 * 1e3 ? "\u0645\u062A\u0642\u0627\u062F\u0645\u0629" : source?.source_type === "official" ? "\u0645\u0631\u062C\u0639\u064A\u0629" : "\u0645\u062A\u0623\u062E\u0631\u0629",
+    stale: age > 36 * 60 * 60 * 1e3
   };
 }
-
-// base44/functions/marketIngestion/entry.ts
-var YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart";
-var SAUDI_PROFILE = "https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/company-profile-main?companySymbol=";
-var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
-async function source(base44, code, data) {
-  const rows = await base44.asServiceRole.entities.DataSource.filter({ code });
-  return rows[0] ? await base44.asServiceRole.entities.DataSource.update(rows[0].id, data) : await base44.asServiceRole.entities.DataSource.create({ code, ...data });
+async function requireMarketAccess(base44, body) {
+  const user = await requireUser(base44);
+  const profile = await profileFor(base44, user);
+  await requireActiveSession(base44, profile, body.session_id);
+  if (!profile || ["suspended", "banned", "closed"].includes(profile.account_status)) {
+    throw Object.assign(new Error("Forbidden"), { status: 403 });
+  }
+  if (!["admin", "owner"].includes(profile.role)) {
+    const subscriptions = await base44.asServiceRole.entities.Subscription.filter({ customer_id: profile.id, status: "active" });
+    const active = subscriptions.some((item) => new Date(item.ends_at) > /* @__PURE__ */ new Date());
+    if (!active) throw Object.assign(new Error("Active subscription required"), { status: 403 });
+  }
+  return { user, profile };
+}
+async function instrumentFor(base44, body) {
+  const symbol = String(body.symbol || "").trim();
+  if (symbol) {
+    if (!/^\d{4}$/.test(symbol)) throw Object.assign(new Error("Invalid Saudi market symbol"), { status: 400 });
+    const rows = await base44.asServiceRole.entities.Instrument.filter({ symbol });
+    if (!rows[0]) throw Object.assign(new Error("Instrument not found"), { status: 404 });
+    return rows[0];
+  }
+  if (!body.instrument_id) throw Object.assign(new Error("symbol or instrument_id is required"), { status: 400 });
+  const instrument = await base44.asServiceRole.entities.Instrument.get(String(body.instrument_id));
+  if (!instrument) throw Object.assign(new Error("Instrument not found"), { status: 404 });
+  return instrument;
 }
 async function checksum(value) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
   return Array.from(new Uint8Array(bytes)).map((item) => item.toString(16).padStart(2, "0")).join("");
-}
-async function upsertMany(base44, entity, rows, keyFields) {
-  if (!rows.length) return;
-  const existing = await base44.asServiceRole.entities[entity].list("-updated_date", 5e3);
-  const key = (row) => keyFields.map((field) => row[field]).join("|");
-  const byKey = new Map(existing.map((row) => [key(row), row]));
-  const creates = rows.filter((row) => !byKey.has(key(row)));
-  const updates = rows.filter((row) => byKey.has(key(row))).map((row) => ({ id: byKey.get(key(row)).id, ...row }));
-  if (creates.length) await base44.asServiceRole.entities[entity].bulkCreate(creates);
-  if (updates.length) await base44.asServiceRole.entities[entity].bulkUpdate(updates);
-}
-function riyadhClock(now = /* @__PURE__ */ new Date()) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Riyadh",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23"
-  }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, weekday: parts.weekday, hour: Number(parts.hour), minute: Number(parts.minute) };
-}
-async function shouldRunScheduled(base44, body) {
-  if (!String(body.source || "").startsWith("scheduled") || body.force === true) return { run: true };
-  const clock = riyadhClock();
-  if (!["Sun", "Mon", "Tue", "Wed", "Thu"].includes(clock.weekday)) return { run: false, reason: "non_trading_weekday", clock };
-  if (clock.hour < 10 || clock.hour > 16 || clock.hour === 16 && clock.minute > 0) return { run: false, reason: "outside_market_window", clock };
-  const holidays = await base44.asServiceRole.entities.MarketHoliday.filter({ holiday_date: clock.date });
-  if (holidays.length) return { run: false, reason: "official_market_holiday", clock };
-  return { run: true, clock };
-}
-function exactInstrument(row) {
-  return {
-    symbol: row.symbol,
-    name_ar: row.nameAr,
-    name_en: row.nameEn,
-    sector_ar: row.sectorAr,
-    sector_en: row.sectorEn,
-    market: "Saudi Main Market",
-    currency: "SAR",
-    status: "active",
-    official_url: SAUDI_PROFILE + row.symbol
-  };
-}
-function officialQuote(row, instrumentId, sourceId) {
-  const last = Number(row.officialQuote?.lastPrice);
-  const percent = Number(row.officialQuote?.changePercent || 0);
-  const previous = percent === -100 ? null : last / (1 + percent / 100);
-  return {
-    instrument_id: instrumentId,
-    symbol: row.symbol,
-    last_price: last,
-    previous_close: previous,
-    change_value: previous == null ? null : last - previous,
-    change_percent: percent,
-    open: Number(row.officialQuote?.openPrice),
-    high: Number(row.officialQuote?.highPrice),
-    low: Number(row.officialQuote?.lowPrice),
-    volume: Number(row.officialQuote?.volume || 0),
-    trade_count: Number(row.officialQuote?.tradeCount || 0),
-    traded_value: Number(row.officialQuote?.tradedValue || 0),
-    market_cap: Number(row.officialQuote?.marketCap || 0),
-    source_id: sourceId,
-    quote_time: official_main_market_catalog_2026_07_21_default.quoteTime,
-    quality_status: "verified"
-  };
-}
-function lossClassification(row, instrumentId, sourceId) {
-  const level = row.warningFlag || "none";
-  const labels = {
-    none: ["\u0644\u0627 \u064A\u0648\u062C\u062F \u062A\u0635\u0646\u064A\u0641 \u062E\u0633\u0627\u0626\u0631 \u0645\u062A\u0631\u0627\u0643\u0645\u0629", "No accumulated-loss flag"],
-    yellow: ["\u062E\u0633\u0627\u0626\u0631 \u0645\u062A\u0631\u0627\u0643\u0645\u0629 \u0645\u0646 20% \u0625\u0644\u0649 \u0623\u0642\u0644 \u0645\u0646 35%", "Accumulated losses from 20% to below 35%"],
-    orange: ["\u062E\u0633\u0627\u0626\u0631 \u0645\u062A\u0631\u0627\u0643\u0645\u0629 \u0645\u0646 35% \u0625\u0644\u0649 \u0623\u0642\u0644 \u0645\u0646 50%", "Accumulated losses from 35% to below 50%"],
-    red: ["\u062E\u0633\u0627\u0626\u0631 \u0645\u062A\u0631\u0627\u0643\u0645\u0629 50% \u0641\u0623\u0643\u062B\u0631", "Accumulated losses of 50% or more"]
-  };
-  return { instrument_id: instrumentId, level, label_ar: labels[level][0], label_en: labels[level][1], source_id: sourceId, as_of: official_main_market_catalog_2026_07_21_default.quoteTime };
 }
 function yahooPrice(value) {
   if (value === null || value === void 0 || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
-async function yahooHistory(instrument, yahooSourceId) {
-  const response = await fetch(`${YAHOO_CHART}/${instrument.symbol}.SR?interval=1d&range=2y&events=div%2Csplits`, {
+async function yahooCandles(symbol, interval, range) {
+  const response = await fetch(`${YAHOO_CHART}/${symbol}.SR?interval=${interval}&range=${range}&events=div%2Csplits`, {
     headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 KMY-Saudi-Market/2.0" }
   });
-  if (!response.ok) throw new Error(`Yahoo chart ${response.status}`);
+  if (!response.ok) throw Object.assign(new Error(`Market chart source unavailable (${response.status})`), { status: 502 });
   const result = (await response.json())?.chart?.result?.[0];
-  if (!result?.timestamp?.length) throw new Error("Yahoo chart returned no timestamps");
+  if (!result?.timestamp?.length) throw Object.assign(new Error("Market chart source returned no candles"), { status: 502 });
   const values = result.indicators?.quote?.[0] || {};
   const lastIndex = result.timestamp.length - 1;
   const regularMarketPrice = yahooPrice(result.meta?.regularMarketPrice);
-  const bars = result.timestamp.map((timestamp, index) => {
+  const candles = result.timestamp.map((timestamp, index) => {
     const open = yahooPrice(values.open?.[index]);
     const high = yahooPrice(values.high?.[index]);
     const low = yahooPrice(values.low?.[index]);
@@ -5384,203 +5251,122 @@ async function yahooHistory(instrument, yahooSourceId) {
     const volume = rawVolume === null || rawVolume === void 0 || rawVolume === "" ? 0 : Number(rawVolume);
     return { time: new Date(timestamp * 1e3).toISOString(), open, high, low, close: reconciledClose, volume };
   }).filter((bar) => [bar.open, bar.high, bar.low, bar.close].every((value) => value !== null && Number.isFinite(value)) && bar.high >= Math.max(bar.open, bar.close) && bar.low <= Math.min(bar.open, bar.close) && Number.isFinite(bar.volume) && bar.volume >= 0);
-  if (bars.length < 2) throw new Error("Yahoo chart returned insufficient valid bars");
-  const meta = result.meta || {};
-  const last = bars[bars.length - 1];
-  const previous = bars[bars.length - 2];
-  const previousClose = previous.close;
+  if (!candles.length) throw Object.assign(new Error("Market chart source returned no valid candles"), { status: 502 });
   const rawLastTime = new Date(result.timestamp[lastIndex] * 1e3).toISOString();
-  const acceptedLatestBar = last.time === rawLastTime;
-  const quoteTime = acceptedLatestBar && meta.regularMarketTime ? new Date(meta.regularMarketTime * 1e3).toISOString() : last.time;
-  const momentum = calculateMomentumZones(bars);
-  return {
-    quote: {
-      instrument_id: instrument.id,
-      symbol: instrument.symbol,
-      last_price: last.close,
-      previous_close: previousClose,
-      change_value: last.close - previousClose,
-      change_percent: previousClose ? (last.close - previousClose) / previousClose * 100 : 0,
-      open: last.open,
-      high: last.high,
-      low: last.low,
-      volume: last.volume,
-      week52_high: Number(meta.fiftyTwoWeekHigh),
-      week52_low: Number(meta.fiftyTwoWeekLow),
-      source_id: yahooSourceId,
-      quote_time: quoteTime,
-      quality_status: "verified"
-    },
-    candle: {
-      instrument_id: instrument.id,
-      symbol: instrument.symbol,
-      interval: "1d",
-      chunk_key: `${instrument.symbol}-1d-2y`,
-      start_time: bars[0].time,
-      end_time: last.time,
-      bars,
-      bar_count: bars.length,
-      checksum: await checksum(bars),
-      source_id: yahooSourceId,
-      quality_status: "verified"
-    },
-    indicator: momentum ? {
-      instrument_id: instrument.id,
-      symbol: instrument.symbol,
-      indicator_key: "momentum_zones",
-      timeframe: "1d",
-      values: momentum,
-      source_as_of: quoteTime,
-      calculated_at: (/* @__PURE__ */ new Date()).toISOString(),
-      formula_version: MOMENTUM_FORMULA_VERSION
-    } : null
-  };
+  const acceptedLatestBar = candles[candles.length - 1].time === rawLastTime;
+  const lastTimestamp = acceptedLatestBar && result.meta?.regularMarketTime ? result.meta.regularMarketTime : new Date(candles[candles.length - 1].time).getTime() / 1e3;
+  return { candles, asOf: new Date(lastTimestamp * 1e3).toISOString() };
 }
-
-function drawingLevel(points, observedAt) {
-  if (!Array.isArray(points) || !points.length) return null;
-  const first = points[0];
-  if (points.length === 1 || !Number.isFinite(Number(points[1]?.time)) || Number(points[1].time) === Number(first.time)) return Number(first.price);
-  const second = points[1];
-  const ratio = (new Date(observedAt).getTime() / 1e3 - Number(first.time)) / (Number(second.time) - Number(first.time));
-  return Number(first.price) + (Number(second.price) - Number(first.price)) * ratio;
-}
-
-async function evaluateDrawingAlerts(base44, quotes) {
-  const bySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
-  const rules = (await base44.asServiceRole.entities.AlertRule.list("-updated_date", 5e3)).filter((rule) => rule.enabled && String(rule.condition || "").startsWith("crosses_drawing"));
-  let triggered = 0;
-  for (const rule of rules) {
-    const quote = bySymbol.get(rule.symbol);
-    if (!quote || !Number.isFinite(Number(quote.last_price))) continue;
-    const currentLevel = drawingLevel(rule.drawing_points, quote.quote_time);
-    const previousLevel = drawingLevel(rule.drawing_points, rule.last_observed_at || quote.quote_time);
-    const previousPrice = Number(rule.last_observed_price);
-    const currentPrice = Number(quote.last_price);
-    let crossedAbove = false;
-    let crossedBelow = false;
-    if (Number.isFinite(previousPrice) && Number.isFinite(currentLevel) && Number.isFinite(previousLevel)) {
-      crossedAbove = previousPrice <= previousLevel && currentPrice > currentLevel;
-      crossedBelow = previousPrice >= previousLevel && currentPrice < currentLevel;
-    }
-    const matches = rule.condition === "crosses_drawing_above" ? crossedAbove : rule.condition === "crosses_drawing_below" ? crossedBelow : crossedAbove || crossedBelow;
-    const cooldownMs = Math.max(15, Number(rule.cooldown_minutes) || 15) * 60 * 1e3;
-    const cooldownPassed = !rule.last_triggered_at || new Date(quote.quote_time).getTime() - new Date(rule.last_triggered_at).getTime() >= cooldownMs;
-    const update: Record<string, unknown> = { last_observed_price: currentPrice, last_observed_at: quote.quote_time };
-    if (matches && cooldownPassed) {
-      const destinations = await base44.asServiceRole.entities.AlertDestination.filter({ customer_id: rule.customer_id, active: true });
-      for (const destination of destinations) {
-        const raw = `${rule.id}:${destination.id}:${quote.quote_time}`;
-        const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
-        const dedupeKey = Array.from(new Uint8Array(bytes)).map((value) => value.toString(16).padStart(2, "0")).join("");
-        const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: dedupeKey });
-        if (!existing.length) await base44.asServiceRole.entities.DeliveryEvent.create({ alert_rule_id: rule.id, destination_id: destination.id, dedupe_key: dedupeKey, channel: destination.channel, status: "pending", attempt_count: 0 });
-      }
-      update.last_triggered_at = quote.quote_time;
-      if (rule.frequency === "once") update.enabled = false;
-      triggered += 1;
-    }
-    await base44.asServiceRole.entities.AlertRule.update(rule.id, update);
+async function chartResponse(base44, body, sources) {
+  const instrument = await instrumentFor(base44, body);
+  const interval = String(body.interval || "1d");
+  const range = String(body.range || "3mo");
+  if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range)) {
+    throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
-  return { evaluated: rules.length, triggered };
-}
-Deno.serve(async (req) => {
-  try {
-    const base44 = createClientFromRequest(req);
-    const requestBody = await req.json();
-    const body = { ...requestBody, ...requestBody.args || {} };
-    let user = null;
-    try {
-      user = await base44.auth.me();
-    } catch {
-      user = null;
-    }
-    if (user) {
-      await requireRole(base44, ["admin", "owner"]);
-    } else {
-      const serviceAuthorization = req.headers.get("Base44-Service-Authorization");
-      const scheduledSources = /* @__PURE__ */ new Set(["scheduled_reference_sync", "scheduled_close_reconciliation"]);
-      if (!serviceAuthorization || !scheduledSources.has(String(body.source || ""))) {
-        throw Object.assign(new Error("Unauthorized"), { status: 401 });
-      }
-      const recentRuns = await base44.asServiceRole.entities.IngestionRun.list("-started_at", 5);
-      const lastScheduled = recentRuns.find((row) => String(row.run_type || "").startsWith("scheduled"));
-      if (lastScheduled && Date.now() - new Date(lastScheduled.started_at).getTime() < 12 * 60 * 1e3) {
-        return Response.json({ status: "skipped", reason: "scheduled_run_already_recent" });
-      }
-    }
-    const startedAt = (/* @__PURE__ */ new Date()).toISOString();
-    const schedule = await shouldRunScheduled(base44, body);
-    if (!schedule.run) return Response.json({ status: "skipped", reason: schedule.reason, clock: schedule.clock });
-    const officialSource = await source(base44, "SAUDI_EXCHANGE_DAILY_REFERENCE", {
-      name: "\u062A\u062F\u0627\u0648\u0644 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u2014 \u0627\u0644\u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u064A\u0648\u0645\u064A \u0627\u0644\u062A\u0641\u0635\u064A\u0644\u064A",
-      source_type: "official",
-      license_status: "restricted",
-      base_url: official_main_market_catalog_2026_07_21_default.sourceUrl,
-      last_verified_at: official_main_market_catalog_2026_07_21_default.quoteTime
-    });
-    const yahooSource = await source(base44, "YAHOO_FINANCE_SA_DELAYED", {
+  let yahoo = sources.find((item) => item.code === "YAHOO_FINANCE_SA_DELAYED");
+  if (!yahoo) {
+    yahoo = await base44.asServiceRole.entities.DataSource.create({
+      code: "YAHOO_FINANCE_SA_DELAYED",
       name: "Yahoo Finance \u2014 Saudi delayed chart",
       source_type: "reference",
       license_status: "restricted",
       base_url: "https://finance.yahoo.com/",
       last_verified_at: (/* @__PURE__ */ new Date()).toISOString()
     });
-    await upsertMany(base44, "Instrument", official_main_market_catalog_2026_07_21_default.companies.map(exactInstrument), ["symbol"]);
-    const instruments = (await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((row) => MAIN_MARKET_SYMBOLS.has(row.symbol));
-    const bySymbol = new Map(instruments.map((row) => [row.symbol, row]));
-    if (instruments.length !== MAIN_MARKET_SYMBOLS.size) {
-      throw new Error(`Verified main-market catalog is incomplete: ${instruments.length}/${MAIN_MARKET_SYMBOLS.size}`);
-    }
-    const officialQuotes = [];
-    const lossRows = [];
-    for (const row of official_main_market_catalog_2026_07_21_default.companies) {
-      const instrument = bySymbol.get(row.symbol);
-      if (!instrument) continue;
-      officialQuotes.push(officialQuote(row, instrument.id, officialSource.id));
-      lossRows.push(lossClassification(row, instrument.id, officialSource.id));
-    }
-    await upsertMany(base44, "QuoteLatest", officialQuotes, ["instrument_id"]);
-    await upsertMany(base44, "LossClassification", lossRows, ["instrument_id"]);
-    const batchSize = Math.min(Math.max(Number(body.batch_size || 270), 1), 500);
-    const selected = instruments.slice(0, batchSize);
-    const successes = [];
-    const failures = [];
-    for (let index = 0; index < selected.length; index += 12) {
-      const group = selected.slice(index, index + 12);
-      const settled = await Promise.allSettled(group.map((instrument) => yahooHistory(instrument, yahooSource.id)));
-      settled.forEach((result, offset) => {
-        if (result.status === "fulfilled") successes.push(result.value);
-        else failures.push({ symbol: group[offset].symbol, error: result.reason?.message || "Yahoo history failed" });
+  }
+  const result = await yahooCandles(instrument.symbol, interval, range);
+  const chunkKey = `${instrument.symbol}-${interval}-${range}`;
+  const row = {
+    instrument_id: instrument.id,
+    symbol: instrument.symbol,
+    interval,
+    chunk_key: chunkKey,
+    start_time: result.candles[0].time,
+    end_time: result.candles[result.candles.length - 1].time,
+    bars: result.candles,
+    bar_count: result.candles.length,
+    checksum: await checksum(result.candles),
+    source_id: yahoo.id,
+    quality_status: "verified"
+  };
+  const existing = await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrument.id, interval, chunk_key: chunkKey });
+  if (existing[0]) await base44.asServiceRole.entities.CandleChunk.update(existing[0].id, row);
+  else await base44.asServiceRole.entities.CandleChunk.create(row);
+  return {
+    candles: result.candles,
+    source: yahoo,
+    as_of: result.asOf,
+    data_state: stateFor(result.asOf, yahoo)
+  };
+}
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+    const body = await req.json();
+    await requireMarketAccess(base44, body);
+    const sources = await optionalRows(
+      () => base44.asServiceRole.entities.DataSource.list("-last_verified_at", 20),
+      "data-source"
+    );
+    const sourceById = new Map(sources.map((item) => [item.id, item]));
+    if (body.action === "chart") return Response.json(await chartResponse(base44, body, sources));
+    if (body.symbol || body.instrument_id) {
+      const instrument = await instrumentFor(base44, body);
+      const [quotes2, indicators2, financials, actions, shareholders, losses2] = await Promise.all([
+        base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: instrument.id }),
+        base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: instrument.id }),
+        base44.asServiceRole.entities.CompanyFinancial.filter({ instrument_id: instrument.id }),
+        base44.asServiceRole.entities.CorporateAction.filter({ instrument_id: instrument.id }),
+        base44.asServiceRole.entities.MajorShareholder.filter({ instrument_id: instrument.id }),
+        base44.asServiceRole.entities.LossClassification.filter({ instrument_id: instrument.id })
+      ]);
+      const quote = quotes2.sort((a, b) => new Date(b.quote_time).getTime() - new Date(a.quote_time).getTime())[0] || null;
+      const source = quote ? sourceById.get(quote.source_id) : null;
+      return Response.json({
+        instrument: { ...instrument, warning_flag: losses2[0]?.level === "none" ? null : losses2[0]?.level },
+        quote: quote ? { ...quote, data_state: stateFor(quote.quote_time, source), source } : null,
+        indicators: indicators2,
+        financials,
+        actions,
+        shareholders,
+        loss_classification: losses2[0] || null,
+        notice: "\u0628\u064A\u0627\u0646\u0627\u062A \u062D\u0642\u064A\u0642\u064A\u0629 \u0645\u0631\u062C\u0639\u064A\u0629 \u0645\u062A\u0623\u062E\u0631\u0629 \u2014 \u0627\u0644\u0645\u0635\u062F\u0631 \u0648\u0627\u0644\u0648\u0642\u062A \u0645\u0648\u0636\u062D\u0627\u0646"
       });
     }
-    await upsertMany(base44, "QuoteLatest", successes.map((item) => item.quote), ["instrument_id"]);
-    await upsertMany(base44, "CandleChunk", successes.map((item) => item.candle), ["instrument_id", "interval", "chunk_key"]);
-    await upsertMany(base44, "IndicatorSnapshot", successes.map((item) => item.indicator).filter(Boolean), ["instrument_id", "indicator_key", "timeframe"]);
-    const drawingAlerts = await evaluateDrawingAlerts(base44, successes.map((item) => item.quote));
-    const status = failures.length ? successes.length ? "partial" : "failed" : "success";
-    await base44.asServiceRole.entities.IngestionRun.create({
-      run_type: body.source || "manual_verified_sync",
-      started_at: startedAt,
-      finished_at: (/* @__PURE__ */ new Date()).toISOString(),
-      total_records: selected.length,
-      success_count: successes.length,
-      failed_count: failures.length,
-      status,
-      source_id: yahooSource.id,
-      notes: JSON.stringify({ catalog_count: instruments.length, official_catalog_date: official_main_market_catalog_2026_07_21_default.marketDate, yahoo_failures: failures.slice(0, 30) })
-    });
+    const limit = Math.min(Math.max(Number(body.limit || 500), 1), 500);
+    const instruments = entityRows(await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((item) => MAIN_MARKET_SYMBOLS.has(item.symbol));
+    const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
+    const [indicators, losses] = await Promise.all([
+      body.mode === "screener" ? optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.list("-source_as_of", 500), "indicator-snapshot") : Promise.resolve([]),
+      optionalRows(() => base44.asServiceRole.entities.LossClassification.list("-as_of", 500), "loss-classification")
+    ]);
+    if (instruments.length !== MAIN_MARKET_SYMBOLS.size) {
+      throw Object.assign(new Error(`Main-market catalog mismatch: ${instruments.length}/${MAIN_MARKET_SYMBOLS.size}`), { status: 503 });
+    }
+    const quoteByInstrument = /* @__PURE__ */ new Map();
+    for (const quote of quotes) if (!quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
+    const indicatorByInstrument = new Map(indicators.map((item) => [item.instrument_id, item]));
+    const lossByInstrument = new Map(losses.map((item) => [item.instrument_id, item]));
+    const query = String(body.query || "").trim().toLocaleLowerCase("ar");
+    const sector = String(body.sector || "").trim();
+    let rows = instruments.map((instrument) => {
+      const quote = quoteByInstrument.get(instrument.id) || null;
+      const source = quote ? sourceById.get(quote.source_id) : null;
+      const loss = lossByInstrument.get(instrument.id) || null;
+      return {
+        ...instrument,
+        warning_flag: loss?.level === "none" ? null : loss?.level,
+        quote: quote ? { ...quote, data_state: stateFor(quote.quote_time, source), source } : null,
+        indicator: indicatorByInstrument.get(instrument.id) || null
+      };
+    }).filter((item) => !query || `${item.symbol} ${item.name_ar} ${item.name_en} ${item.sector_ar} ${item.sector_en}`.toLocaleLowerCase("ar").includes(query)).filter((item) => !sector || item.sector_ar === sector || item.sector_en === sector);
+    if (body.mode === "movers") rows.sort((a, b) => Number(b.quote?.change_percent || 0) - Number(a.quote?.change_percent || 0));
     return Response.json({
-      status,
-      catalog_count: instruments.length,
-      exact_names_source: official_main_market_catalog_2026_07_21_default.sourceUrl,
-      official_catalog_date: official_main_market_catalog_2026_07_21_default.marketDate,
-      yahoo_success_count: successes.length,
-      yahoo_failure_count: failures.length,
-      drawing_alerts: drawingAlerts,
-      failures: failures.slice(0, 30),
-      mode: "verified_delayed_reference",
-      last_updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      instruments: rows.slice(0, limit),
+      total: MAIN_MARKET_SYMBOLS.size,
+      sources,
+      notice: "\u0628\u064A\u0627\u0646\u0627\u062A \u062D\u0642\u064A\u0642\u064A\u0629 \u0645\u0631\u062C\u0639\u064A\u0629 \u0645\u062A\u0623\u062E\u0631\u0629 \u2014 \u0627\u0644\u0645\u0635\u062F\u0631 \u0648\u0627\u0644\u0648\u0642\u062A \u0645\u0648\u0636\u062D\u0627\u0646"
     });
   } catch (error) {
     return replyError(error);

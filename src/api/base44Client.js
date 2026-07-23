@@ -13,6 +13,7 @@ function referenceOnlyError() {
 const referenceClient = {
   auth: {
     me: async () => ({ id: "reference-preview", role: "owner" }),
+    isAuthenticated: async () => true,
     logout: () => {
       localStorage.removeItem("base44_access_token");
       window.location.assign("/");

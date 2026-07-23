@@ -14,6 +14,16 @@ const copy = {
   en: { title: "Sign in", intro: "Secure access to your account", otpIntro: "Enter the code sent to your email", verifiedIntro: "Complete two-factor verification for your account", verified: "Your account is verified by Base44", sendTo: "We will send a new sign-in code to", email: "Email address", password: "Password", remember: "Remember me on this device", forgot: "Forgot your password?", otp: "Verification code", next: "Continue", sendCode: "Send verification code", confirm: "Confirm sign in", loading: "Please wait…", noAccount: "Don't have an account?", register: "Create account", error: "Unable to sign in" },
 };
 
+function deviceId() {
+  const key = "kmy_device_id";
+  let value = localStorage.getItem(key);
+  if (!value) {
+    value = crypto.randomUUID();
+    localStorage.setItem(key, value);
+  }
+  return value;
+}
+
 export default function Login() {
   const { language } = usePreferences();
   const { user, isAuthenticated } = useAuth();
@@ -22,8 +32,8 @@ export default function Login() {
   const [challenge,setChallenge]=useState(null),[error,setError]=useState(""),[loading,setLoading]=useState(false);
   const change=e=>setForm({...form,[e.target.name]:e.target.type==='checkbox'?e.target.checked:e.target.value});
   const submit=async e=>{e.preventDefault();setError("");setLoading(true);try{
-    if(!challenge){if(!isAuthenticated)await base44.auth.loginViaEmailPassword(form.email,form.password);const r=await base44.functions.invoke('authLogin',{action:'start'});setChallenge(r.data.challenge_id);}
-    else{const r=await base44.functions.invoke('authLogin',{action:'verify',challenge_id:challenge,otp:form.otp,remember_me:form.remember_me,device_id:navigator.userAgent});localStorage.setItem('kmy_session_id',r.data.session_id);window.location.href='/dashboard';}
+    if(!challenge){if(!isAuthenticated){const login=await base44.auth.loginViaEmailPassword(form.email,form.password);if(login&&typeof login==='object'&&'access_token'in login&&login.access_token)base44.auth.setToken(login.access_token,true);}const r=await base44.functions.invoke('authLogin',{action:'start'});setChallenge(r.data.challenge_id);}
+    else{const r=await base44.functions.invoke('authLogin',{action:'verify',challenge_id:challenge,otp:form.otp,remember_me:form.remember_me,device_id:deviceId()});localStorage.setItem('kmy_session_id',r.data.session_id);localStorage.setItem('kmy_session_expires_at',r.data.expires_at);window.dispatchEvent(new Event('kmy-auth-changed'));window.location.href='/dashboard';}
   }catch(err){setError(err.response?.data?.error||err.message||t.error);}finally{setLoading(false)}};
   return <AuthLayout icon={LogIn} title={t.title} subtitle={challenge?t.otpIntro:isAuthenticated?t.verifiedIntro:t.intro} footer={<span>{t.noAccount} <Link to="/register" className="font-bold text-amber-600 dark:text-amber-400">{t.register}</Link></span>}>
     {error&&<div className="mb-4 rounded-lg bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">{error}</div>}
