@@ -1,32 +1,59 @@
+// GENERATED from base44/functions/chartDrawings/entry.ts — do not edit directly.
+
+// base44/functions/chartDrawings/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
-import { audit, profileFor, replyError, requireActiveSession, requireUser } from "../../shared/security.ts";
 
-const TYPES = new Set(["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure"]);
-const ALERT_TYPES = new Set(["trend_line", "ray", "horizontal_line"]);
-const INTERVALS = new Set(["all", "15m", "1h", "1d", "1wk", "1mo"]);
-const LINE_STYLES = new Set(["solid", "dashed", "dotted"]);
+// base44/shared/security.ts
+async function requireUser(base44) {
+  const user = await base44.auth.me();
+  if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
+  return user;
+}
+async function profileFor(base44, user) {
+  const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
+  return rows[0] || null;
+}
+async function requireActiveSession(base44, profile, sessionId) {
+  if (!profile || !sessionId) throw Object.assign(new Error("Active device session required"), { status: 403 });
+  const session = await base44.asServiceRole.entities.ActiveDeviceSession.get(sessionId);
+  if (!session || session.customer_id !== profile.id || session.revoked_at || new Date(session.expires_at) <= /* @__PURE__ */ new Date()) throw Object.assign(new Error("Active device session required"), { status: 403 });
+  return session;
+}
+function replyError(error) {
+  const status = Number(error?.status) || 500;
+  if (status >= 500) console.error("KMY backend error", error);
+  return Response.json({
+    error: status >= 500 ? "Backend operation failed" : error?.message || "Request failed",
+    code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
+  }, { status });
+}
+async function audit(base44, userId, action, entityType, entityId, result, reason = "") {
+  return await base44.asServiceRole.entities.AuditLog.create({ actor_user_id: userId, action, entity_type: entityType, entity_id: entityId || "system", reason, before: {}, after: {}, result, ip_hash: "server-managed" });
+}
 
+// base44/functions/chartDrawings/entry.ts
+var TYPES = /* @__PURE__ */ new Set(["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure"]);
+var ALERT_TYPES = /* @__PURE__ */ new Set(["trend_line", "ray", "horizontal_line"]);
+var INTERVALS = /* @__PURE__ */ new Set(["all", "15m", "1h", "1d", "1wk", "1mo"]);
+var LINE_STYLES = /* @__PURE__ */ new Set(["solid", "dashed", "dotted"]);
 function bad(message, code = "INVALID_DRAWING") {
   throw Object.assign(new Error(message), { status: 400, code });
 }
-
 function cleanColor(value, fallback) {
   const color = String(value || fallback);
   return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : fallback;
 }
-
 function cleanPoint(value) {
   const price = Number(value?.price);
   const time = Number(value?.time);
   const logical = Number(value?.logical);
-  if (!Number.isFinite(price) || price <= 0 || (!Number.isFinite(time) && !Number.isFinite(logical))) bad("Every point requires a positive price and a valid chart position");
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(time) && !Number.isFinite(logical)) bad("Every point requires a positive price and a valid chart position");
   return {
-    ...(Number.isFinite(time) ? { time } : {}),
-    ...(Number.isFinite(logical) ? { logical } : {}),
-    price,
+    ...Number.isFinite(time) ? { time } : {},
+    ...Number.isFinite(logical) ? { logical } : {},
+    price
   };
 }
-
 function cleanDrawing(value) {
   const type = String(value?.type || "");
   if (!TYPES.has(type)) bad("Unsupported drawing type");
@@ -43,7 +70,7 @@ function cleanDrawing(value) {
     lineStyle: LINE_STYLES.has(raw.lineStyle) ? raw.lineStyle : "solid",
     extendLeft: Boolean(raw.extendLeft),
     extendRight: Boolean(raw.extendRight),
-    showLabel: raw.showLabel !== false,
+    showLabel: raw.showLabel !== false
   };
   return {
     client_id: clientId,
@@ -52,17 +79,15 @@ function cleanDrawing(value) {
     options,
     locked: Boolean(value?.locked),
     visible: value?.visible !== false,
-    z_index: Math.max(-10000, Math.min(10000, Number(value?.zIndex ?? value?.z_index) || 0)),
+    z_index: Math.max(-1e4, Math.min(1e4, Number(value?.zIndex ?? value?.z_index) || 0))
   };
 }
-
 async function instrumentFor(base44, symbol) {
   if (!/^\d{4}$/.test(symbol)) bad("Valid four-digit symbol required", "INVALID_SYMBOL");
   const instruments = await base44.asServiceRole.entities.Instrument.filter({ symbol });
   if (!instruments[0]) throw Object.assign(new Error("Instrument not found"), { status: 404, code: "INSTRUMENT_NOT_FOUND" });
   return instruments[0];
 }
-
 async function ownedDrawing(base44, profile, body) {
   let row = null;
   if (body.drawing_id) row = await base44.asServiceRole.entities.ChartDrawing.get(String(body.drawing_id));
@@ -73,7 +98,6 @@ async function ownedDrawing(base44, profile, body) {
   if (!row || row.customer_id !== profile.id) throw Object.assign(new Error("Drawing not found"), { status: 404, code: "DRAWING_NOT_FOUND" });
   return row;
 }
-
 function responseDrawing(row) {
   return {
     serverId: row.id,
@@ -85,10 +109,9 @@ function responseDrawing(row) {
     visible: row.visible,
     zIndex: row.z_index,
     alert_rule_id: row.alert_rule_id || null,
-    revision: row.revision,
+    revision: row.revision
   };
 }
-
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -97,14 +120,12 @@ Deno.serve(async (req) => {
     if (!profile) throw Object.assign(new Error("Profile not found"), { status: 404 });
     const body = await req.json();
     await requireActiveSession(base44, profile, body.session_id);
-
     if (body.action === "list") {
       const symbol = String(body.symbol || "").trim();
       await instrumentFor(base44, symbol);
       const rows = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, symbol });
       return Response.json({ drawings: rows.map(responseDrawing) });
     }
-
     if (body.action === "save") {
       const symbol = String(body.symbol || "").trim();
       const instrument = await instrumentFor(base44, symbol);
@@ -119,15 +140,12 @@ Deno.serve(async (req) => {
         symbol,
         interval_scope: interval,
         ...clean,
-        revision: Number(existing?.revision || 0) + 1,
+        revision: Number(existing?.revision || 0) + 1
       };
-      const row = existing
-        ? await base44.asServiceRole.entities.ChartDrawing.update(existing.id, payload)
-        : await base44.asServiceRole.entities.ChartDrawing.create(payload);
+      const row = existing ? await base44.asServiceRole.entities.ChartDrawing.update(existing.id, payload) : await base44.asServiceRole.entities.ChartDrawing.create(payload);
       await audit(base44, user.id, existing ? "drawing.update" : "drawing.create", "ChartDrawing", row.id, "success");
       return Response.json({ drawing: responseDrawing(row) });
     }
-
     if (body.action === "save_alert") {
       const drawing = await ownedDrawing(base44, profile, body);
       if (!ALERT_TYPES.has(drawing.drawing_type)) bad("Alerts are supported for trend lines, rays, and horizontal lines", "DRAWING_ALERT_UNSUPPORTED");
@@ -147,16 +165,13 @@ Deno.serve(async (req) => {
         drawing_points: drawing.points,
         frequency,
         cooldown_minutes: cooldown,
-        enabled: true,
+        enabled: true
       };
-      rule = rule && rule.customer_id === profile.id
-        ? await base44.asServiceRole.entities.AlertRule.update(rule.id, payload)
-        : await base44.asServiceRole.entities.AlertRule.create(payload);
+      rule = rule && rule.customer_id === profile.id ? await base44.asServiceRole.entities.AlertRule.update(rule.id, payload) : await base44.asServiceRole.entities.AlertRule.create(payload);
       await base44.asServiceRole.entities.ChartDrawing.update(drawing.id, { alert_rule_id: rule.id });
       await audit(base44, user.id, "drawing.alert.save", "AlertRule", rule.id, "success");
       return Response.json({ rule });
     }
-
     if (body.action === "delete_alert") {
       const drawing = await ownedDrawing(base44, profile, body);
       if (drawing.alert_rule_id) {
@@ -167,7 +182,6 @@ Deno.serve(async (req) => {
       await audit(base44, user.id, "drawing.alert.delete", "ChartDrawing", drawing.id, "success");
       return Response.json({ removed: true });
     }
-
     if (body.action === "delete") {
       const drawing = await ownedDrawing(base44, profile, body);
       if (drawing.alert_rule_id && body.confirm_alert_delete !== true) {
@@ -181,7 +195,6 @@ Deno.serve(async (req) => {
       await audit(base44, user.id, "drawing.delete", "ChartDrawing", drawing.id, "success", drawing.alert_rule_id ? "alert_deleted_with_drawing" : "");
       return Response.json({ removed: true });
     }
-
     return Response.json({ error: "Unsupported action" }, { status: 400 });
   } catch (error) {
     return replyError(error);

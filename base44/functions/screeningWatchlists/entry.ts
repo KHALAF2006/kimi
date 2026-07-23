@@ -2,8 +2,6 @@
 
 // base44/functions/screeningWatchlists/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
-
-// base44/shared/security.ts
 async function requireUser(base44) {
   const user = await base44.auth.me();
   if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
@@ -30,8 +28,6 @@ function replyError(error) {
 async function audit(base44, userId, action, entityType, entityId, result, reason = "") {
   return await base44.asServiceRole.entities.AuditLog.create({ actor_user_id: userId, action, entity_type: entityType, entity_id: entityId || "system", reason, before: {}, after: {}, result, ip_hash: "server-managed" });
 }
-
-// base44/functions/screeningWatchlists/entry.ts
 function cleanName(value) {
   const name = String(value || "").trim();
   if (name.length < 2 || name.length > 80) throw Object.assign(new Error("Name must be 2-80 characters"), { status: 400 });

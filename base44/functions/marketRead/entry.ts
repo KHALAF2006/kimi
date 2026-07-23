@@ -2,8 +2,6 @@
 
 // base44/functions/marketRead/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
-
-// base44/data/official-main-market-catalog-2026-07-21.json
 var official_main_market_catalog_2026_07_21_default = {
   source: "Saudi Exchange",
   sourceUrl: "https://www.saudiexchange.sa/Resources/Reports-v2/DetailedDaily_en.html",
@@ -5149,8 +5147,6 @@ var official_main_market_catalog_2026_07_21_default = {
     }
   ]
 };
-
-// base44/shared/security.ts
 async function requireUser(base44) {
   const user = await base44.auth.me();
   if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
@@ -5174,8 +5170,6 @@ function replyError(error) {
     code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
   }, { status });
 }
-
-// base44/functions/marketRead/entry.ts
 var YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart";
 var ALLOWED_INTERVALS = /* @__PURE__ */ new Set(["15m", "1h", "1d", "1wk", "1mo"]);
 var ALLOWED_RANGES = /* @__PURE__ */ new Set(["5d", "1mo", "3mo", "1y", "2y", "5y", "10y", "max"]);

@@ -2,8 +2,6 @@
 
 // base44/functions/alertEvaluation/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
-
-// base44/shared/security.ts
 async function requireUser(base44) {
   const user = await base44.auth.me();
   if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
@@ -28,8 +26,6 @@ function replyError(error) {
     code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
   }, { status });
 }
-
-// base44/functions/alertEvaluation/entry.ts
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);

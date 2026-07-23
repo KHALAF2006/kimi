@@ -2,8 +2,6 @@
 
 // base44/functions/marketIngestion/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
-
-// base44/data/official-main-market-catalog-2026-07-21.json
 var official_main_market_catalog_2026_07_21_default = {
   source: "Saudi Exchange",
   sourceUrl: "https://www.saudiexchange.sa/Resources/Reports-v2/DetailedDaily_en.html",
@@ -5149,8 +5147,6 @@ var official_main_market_catalog_2026_07_21_default = {
     }
   ]
 };
-
-// base44/shared/security.ts
 async function requireUser(base44) {
   const user = await base44.auth.me();
   if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
@@ -5175,8 +5171,6 @@ function replyError(error) {
     code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
   }, { status });
 }
-
-// base44/shared/momentum.ts
 var MOMENTUM_FORMULA_VERSION = "momentum-zones-v1";
 var LOOKBACK_DAYS = 20;
 var HISTORY_BARS = 500;
@@ -5268,8 +5262,6 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
     zones: buildMomentumZones(referencePeak, zone4Active, zone5Active)
   };
 }
-
-// base44/functions/marketIngestion/entry.ts
 var YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart";
 var SAUDI_PROFILE = "https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/company-profile-main?companySymbol=";
 var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
@@ -5436,7 +5428,6 @@ async function yahooHistory(instrument, yahooSourceId) {
     } : null
   };
 }
-
 function drawingLevel(points, observedAt) {
   if (!Array.isArray(points) || !points.length) return null;
   const first = points[0];
@@ -5445,7 +5436,6 @@ function drawingLevel(points, observedAt) {
   const ratio = (new Date(observedAt).getTime() / 1e3 - Number(first.time)) / (Number(second.time) - Number(first.time));
   return Number(first.price) + (Number(second.price) - Number(first.price)) * ratio;
 }
-
 async function evaluateDrawingAlerts(base44, quotes) {
   const bySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
   const rules = (await base44.asServiceRole.entities.AlertRule.list("-updated_date", 5e3)).filter((rule) => rule.enabled && String(rule.condition || "").startsWith("crosses_drawing"));
@@ -5466,7 +5456,7 @@ async function evaluateDrawingAlerts(base44, quotes) {
     const matches = rule.condition === "crosses_drawing_above" ? crossedAbove : rule.condition === "crosses_drawing_below" ? crossedBelow : crossedAbove || crossedBelow;
     const cooldownMs = Math.max(15, Number(rule.cooldown_minutes) || 15) * 60 * 1e3;
     const cooldownPassed = !rule.last_triggered_at || new Date(quote.quote_time).getTime() - new Date(rule.last_triggered_at).getTime() >= cooldownMs;
-    const update: Record<string, unknown> = { last_observed_price: currentPrice, last_observed_at: quote.quote_time };
+    const update = { last_observed_price: currentPrice, last_observed_at: quote.quote_time };
     if (matches && cooldownPassed) {
       const destinations = await base44.asServiceRole.entities.AlertDestination.filter({ customer_id: rule.customer_id, active: true });
       for (const destination of destinations) {
