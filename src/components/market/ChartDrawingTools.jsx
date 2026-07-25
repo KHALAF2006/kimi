@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowUpRight, BellOff, BellPlus, BringToFront, Copy, Eye, EyeOff, GitCommitHorizontal,
-  Lock, MousePointer2, MoveHorizontal, MoveVertical, Paintbrush, PenLine, Redo2, Route,
-  Ruler, SendToBack, Spline, Square, Trash2, TrendingUp, Undo2, Unlock, X,
+  ArrowUpRight, BellOff, BellPlus, BringToFront, ChevronDown, ChevronRight, Copy, Eye, EyeOff, GitCommitHorizontal,
+  Grip, LayoutList, Lock, MousePointer2, MoveHorizontal, MoveVertical, Paintbrush, PanelLeftClose, PanelTopClose,
+  PenLine, Redo2, Route, Ruler, SendToBack, Spline, Square, Trash2, TrendingUp, Undo2, Unlock, X,
 } from "lucide-react";
 import {
   cloneDrawings, createDrawing, DRAWING_TYPES, drawingHitTest, drawingSegments, lineStyleDash,
@@ -24,6 +24,19 @@ const icons = {
   brush: Paintbrush,
   measure: Ruler,
 };
+const ALERT_TYPES = new Set(["trend_line", "ray", "horizontal_line"]);
+const TOOLBAR_STORAGE_KEY = "si_drawing_toolbar_layout";
+
+function storedToolbarLayout() {
+  try {
+    const value = JSON.parse(localStorage.getItem(TOOLBAR_STORAGE_KEY) || "null");
+    return value && typeof value === "object"
+      ? { x: Number(value.x), y: Number(value.y), orientation: value.orientation === "vertical" ? "vertical" : "horizontal", collapsed: Boolean(value.collapsed), hidden: Boolean(value.hidden) }
+      : { x: null, y: 8, orientation: "horizontal", collapsed: false, hidden: false };
+  } catch {
+    return { x: null, y: 8, orientation: "horizontal", collapsed: false, hidden: false };
+  }
+}
 
 function displayError(error, isArabic) {
   const code = error?.response?.data?.code;
@@ -147,6 +160,8 @@ function renderDrawing(context, drawing, points, width, height, selected, isArab
 export default function ChartDrawingTools({ chart, series, symbol, interval, mainPaneHeight = 470, isArabic }) {
   const instanceRef = useRef(crypto.randomUUID());
   const canvasRef = useRef(null);
+  const toolbarRef = useRef(null);
+  const toolbarDragRef = useRef(null);
   const interactionRef = useRef(null);
   const draftRef = useRef(null);
   const drawingsRef = useRef([]);
@@ -158,10 +173,22 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   const [redoStack, setRedoStack] = useState([]);
   const [status, setStatus] = useState("");
   const [showAlertEditor, setShowAlertEditor] = useState(false);
+  const [showDrawingList, setShowDrawingList] = useState(false);
+  const [toolbarLayout, setToolbarLayout] = useState(storedToolbarLayout);
   const [alertForm, setAlertForm] = useState({ condition: "crosses", frequency: "repeat", cooldown_minutes: 15 });
   drawingsRef.current = drawings;
   draftRef.current = draft;
   const selected = drawings.find((drawing) => drawing.clientId === selectedId) || null;
+  const toolbarStyle = toolbarLayout.x == null ? { top: toolbarLayout.y, insetInlineEnd: 8 } : { top: toolbarLayout.y, left: toolbarLayout.x };
+
+  useEffect(() => {
+    localStorage.setItem(TOOLBAR_STORAGE_KEY, JSON.stringify(toolbarLayout));
+  }, [toolbarLayout]);
+
+  useEffect(() => {
+    const buttons = [...(toolbarRef.current?.querySelectorAll("button:not(:disabled)") || [])];
+    buttons.forEach((button, index) => { button.tabIndex = index === 0 ? 0 : -1; });
+  }, [toolbarLayout, activeTool, undoStack.length, redoStack.length]);
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -357,22 +384,26 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     persist(nextDrawing);
   }
 
-  async function removeSelected(force = false) {
-    if (!selected) return;
-    if (selected.alert && !force) {
+  async function removeDrawing(drawing, force = false) {
+    if (!drawing) return;
+    if (drawing.alert && !force) {
       const confirmed = window.confirm(isArabic ? "هذا الرسم مرتبط بتنبيه. هل تريد حذف الرسم والتنبيه معًا؟" : "This drawing has an alert. Delete both the drawing and alert?");
       if (!confirmed) return;
       force = true;
     }
     try {
-      await deleteChartDrawing(symbol, selected, force);
-      replaceDrawings(drawingsRef.current.filter((item) => item.clientId !== selected.clientId));
-      setSelectedId("");
+      await deleteChartDrawing(symbol, drawing, force);
+      replaceDrawings(drawingsRef.current.filter((item) => item.clientId !== drawing.clientId));
+      setSelectedId((value) => value === drawing.clientId ? "" : value);
       setStatus(isArabic ? "تم حذف الرسم." : "Drawing deleted.");
     } catch (error) {
-      if (error?.response?.data?.code === "DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED" && !force) return removeSelected(true);
+      if (error?.response?.data?.code === "DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED" && !force) return removeDrawing(drawing, true);
       setStatus(displayError(error, isArabic));
     }
+  }
+
+  function removeSelected(force = false) {
+    return removeDrawing(selected, force);
   }
 
   function duplicateSelected() {
@@ -414,10 +445,76 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     } catch (error) { setStatus(displayError(error, isArabic)); }
   }
 
+  function beginToolbarDrag(event) {
+    const toolbar = toolbarRef.current;
+    const boundary = canvasRef.current?.parentElement;
+    if (!toolbar || !boundary) return;
+    const toolbarRect = toolbar.getBoundingClientRect();
+    const boundaryRect = boundary.getBoundingClientRect();
+    toolbarDragRef.current = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - toolbarRect.left,
+      offsetY: event.clientY - toolbarRect.top,
+      boundaryRect,
+      width: toolbarRect.width,
+      height: toolbarRect.height,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveToolbar(event) {
+    const drag = toolbarDragRef.current;
+    if (!drag) return;
+    const x = Math.max(4, Math.min(drag.boundaryRect.width - drag.width - 4, event.clientX - drag.boundaryRect.left - drag.offsetX));
+    const y = Math.max(4, Math.min(mainPaneHeight - drag.height - 4, event.clientY - drag.boundaryRect.top - drag.offsetY));
+    setToolbarLayout((value) => ({ ...value, x, y }));
+  }
+
+  function finishToolbarDrag(event) {
+    if (!toolbarDragRef.current) return;
+    toolbarDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  function toggleDrawingVisibility(drawing) {
+    const next = { ...drawing, visible: !drawing.visible };
+    replaceDrawings(drawingsRef.current.map((item) => item.clientId === drawing.clientId ? next : item));
+    persist(next);
+  }
+
+  function toggleDrawingLock(drawing) {
+    const next = { ...drawing, locked: !drawing.locked };
+    replaceDrawings(drawingsRef.current.map((item) => item.clientId === drawing.clientId ? next : item));
+    persist(next);
+  }
+
+  function toolbarKeyDown(event) {
+    const horizontal = toolbarLayout.orientation === "horizontal";
+    const forward = horizontal ? "ArrowRight" : "ArrowDown";
+    const backward = horizontal ? "ArrowLeft" : "ArrowUp";
+    if (![forward, backward, "Home", "End"].includes(event.key)) return;
+    const buttons = [...event.currentTarget.querySelectorAll("button:not(:disabled)")];
+    if (!buttons.length) return;
+    const index = Math.max(0, buttons.indexOf(event.target.closest("button")));
+    const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : event.key === forward ? (index + 1) % buttons.length : (index - 1 + buttons.length) % buttons.length;
+    buttons.forEach((button, buttonIndex) => { button.tabIndex = buttonIndex === nextIndex ? 0 : -1; });
+    buttons[nextIndex].focus();
+    event.preventDefault();
+  }
+
   const selectedType = useMemo(() => DRAWING_TYPES.find((item) => item.id === selected?.type), [selected]);
 
   return <>
-    <div className="drawing-tools-bar" data-drawing-instance={instanceRef.current} data-active-tool={activeTool || ""} role="toolbar" aria-label={isArabic ? "أدوات الرسم" : "Drawing tools"}>
+    {toolbarLayout.hidden && <button type="button" className="drawing-tools-restore" onClick={() => setToolbarLayout((value) => ({ ...value, hidden: false }))} title={isArabic ? "إظهار أدوات الرسم" : "Show drawing tools"}><PenLine size={16} /><Eye size={14} /></button>}
+    {!toolbarLayout.hidden && <div ref={toolbarRef} style={toolbarStyle} onKeyDown={toolbarKeyDown} className={"drawing-tools-bar " + (toolbarLayout.orientation === "vertical" ? "drawing-tools-vertical" : "drawing-tools-horizontal") + (toolbarLayout.collapsed ? " drawing-tools-collapsed" : "")} data-drawing-instance={instanceRef.current} data-active-tool={activeTool || ""} role="toolbar" aria-orientation={toolbarLayout.orientation} aria-label={isArabic ? "أدوات الرسم" : "Drawing tools"}>
+      <button type="button" className="drawing-toolbar-drag-handle" onPointerDown={beginToolbarDrag} onPointerMove={moveToolbar} onPointerUp={finishToolbarDrag} onPointerCancel={finishToolbarDrag} title={isArabic ? "اسحب لتحريك شريط الأدوات" : "Drag to move toolbar"}><Grip size={16} /></button>
+      <div className="drawing-toolbar-controls">
+        <button type="button" onClick={() => setToolbarLayout((value) => ({ ...value, orientation: value.orientation === "horizontal" ? "vertical" : "horizontal" }))} title={isArabic ? "تبديل اتجاه الشريط" : "Change toolbar orientation"}>{toolbarLayout.orientation === "horizontal" ? <PanelLeftClose size={15} /> : <PanelTopClose size={15} />}</button>
+        <button type="button" onClick={() => setToolbarLayout((value) => ({ ...value, collapsed: !value.collapsed }))} title={toolbarLayout.collapsed ? (isArabic ? "توسيع الأدوات" : "Expand tools") : (isArabic ? "تصغير الأدوات" : "Collapse tools")}>{toolbarLayout.collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>
+        <button type="button" onClick={() => setShowDrawingList((value) => !value)} className={showDrawingList ? "active" : ""} title={isArabic ? "قائمة الرسومات" : "Object tree"}><LayoutList size={15} /></button>
+        <button type="button" onClick={() => { setShowDrawingList(false); setToolbarLayout((value) => ({ ...value, hidden: true })); }} title={isArabic ? "إخفاء شريط الأدوات" : "Hide toolbar"}><EyeOff size={15} /></button>
+      </div>
+      {!toolbarLayout.collapsed && <div className="drawing-toolbar-tools">
       <button type="button" className={activeTool === "select" ? "active" : ""} onClick={() => setActiveTool(activeTool === "select" ? null : "select")} title={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"}><MousePointer2 size={16} /></button>
       {DRAWING_TYPES.map((tool) => {
         const Icon = icons[tool.id];
@@ -426,7 +523,22 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       <span className="drawing-tools-separator" />
       <button type="button" onClick={undo} disabled={!undoStack.length} title={isArabic ? "تراجع" : "Undo"}><Undo2 size={16} /></button>
       <button type="button" onClick={redo} disabled={!redoStack.length} title={isArabic ? "إعادة" : "Redo"}><Redo2 size={16} /></button>
-    </div>
+      </div>}
+    </div>}
+
+    {showDrawingList && <aside className="drawing-object-tree" aria-label={isArabic ? "قائمة الرسومات" : "Drawing object tree"}>
+      <header><b>{isArabic ? "قائمة الرسومات" : "Drawings"}</b><button type="button" onClick={() => setShowDrawingList(false)}><X size={14} /></button></header>
+      {!drawings.length && <p>{isArabic ? "لا توجد رسومات محفوظة." : "No saved drawings."}</p>}
+      {drawings.slice().sort((a, b) => Number(b.zIndex || 0) - Number(a.zIndex || 0)).map((drawing) => {
+        const type = DRAWING_TYPES.find((item) => item.id === drawing.type);
+        return <div key={drawing.clientId} className={drawing.clientId === selectedId ? "active" : ""}>
+          <button type="button" className="drawing-object-select" onClick={() => { setSelectedId(drawing.clientId); setActiveTool("select"); }}>{isArabic ? type?.ar : type?.en}</button>
+          <button type="button" onClick={() => toggleDrawingVisibility(drawing)} title={drawing.visible ? (isArabic ? "إخفاء" : "Hide") : (isArabic ? "إظهار" : "Show")}>{drawing.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
+          <button type="button" onClick={() => toggleDrawingLock(drawing)} title={drawing.locked ? (isArabic ? "فتح القفل" : "Unlock") : (isArabic ? "قفل" : "Lock")}>{drawing.locked ? <Lock size={14} /> : <Unlock size={14} />}</button>
+          <button type="button" className="danger" onClick={() => removeDrawing(drawing)} title={isArabic ? "حذف" : "Delete"}><Trash2 size={14} /></button>
+        </div>;
+      })}
+    </aside>}
 
     {status && <div className="drawing-status" role="status"><span>{status}</span><button type="button" onClick={() => setStatus("")}><X size={13} /></button></div>}
 
@@ -445,12 +557,14 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     {selected && <div className="drawing-selection-toolbar" role="toolbar" aria-label={isArabic ? "خصائص الرسم المحدد" : "Selected drawing properties"}>
       <b>{isArabic ? selectedType?.ar : selectedType?.en}</b>
       <input type="color" value={selected.options.color} onChange={(event) => updateSelected({ options: { color: event.target.value } })} title={isArabic ? "لون الخط" : "Line color"} />
+      {["rectangle", "parallel_channel"].includes(selected.type) && <><input type="color" value={selected.options.fillColor || selected.options.color} onChange={(event) => updateSelected({ options: { fillColor: event.target.value } })} title={isArabic ? "لون التعبئة" : "Fill color"} /><label><span>{isArabic ? "شفافية" : "Opacity"}</span><input type="range" min="0" max="100" value={selected.options.fillOpacity} onChange={(event) => updateSelected({ options: { fillOpacity: Number(event.target.value) } })} /></label></>}
       <select value={selected.options.lineWidth} onChange={(event) => updateSelected({ options: { lineWidth: Number(event.target.value) } })} aria-label={isArabic ? "سماكة الخط" : "Line width"}><option value="1">1px</option><option value="2">2px</option><option value="3">3px</option><option value="4">4px</option></select>
       <select value={selected.options.lineStyle} onChange={(event) => updateSelected({ options: { lineStyle: event.target.value } })} aria-label={isArabic ? "نمط الخط" : "Line style"}><option value="solid">{isArabic ? "متصل" : "Solid"}</option><option value="dashed">{isArabic ? "متقطع" : "Dashed"}</option><option value="dotted">{isArabic ? "منقط" : "Dotted"}</option></select>
       {["trend_line", "ray"].includes(selected.type) && <><label><input type="checkbox" checked={selected.options.extendLeft} onChange={(event) => updateSelected({ options: { extendLeft: event.target.checked } })} />{isArabic ? "امتداد يسار" : "Extend left"}</label><label><input type="checkbox" checked={selected.options.extendRight || selected.type === "ray"} disabled={selected.type === "ray"} onChange={(event) => updateSelected({ options: { extendRight: event.target.checked } })} />{isArabic ? "امتداد يمين" : "Extend right"}</label></>}
+      {selected.type === "measure" && <label><input type="checkbox" checked={selected.options.showLabel !== false} onChange={(event) => updateSelected({ options: { showLabel: event.target.checked } })} />{isArabic ? "إظهار القياس" : "Show measurement"}</label>}
       <button type="button" onClick={() => updateSelected({ locked: !selected.locked })} title={selected.locked ? (isArabic ? "فتح القفل" : "Unlock") : (isArabic ? "قفل الرسم" : "Lock")}>{selected.locked ? <Lock size={15} /> : <Unlock size={15} />}</button>
       <button type="button" onClick={() => updateSelected({ visible: !selected.visible })} title={selected.visible ? (isArabic ? "إخفاء" : "Hide") : (isArabic ? "إظهار" : "Show")}>{selected.visible ? <Eye size={15} /> : <EyeOff size={15} />}</button>
-      <button type="button" onClick={() => setShowAlertEditor(true)} title={isArabic ? "تنبيه الرسم" : "Drawing alert"}>{selected.alert ? <BellOff size={15} /> : <BellPlus size={15} />}</button>
+      <button type="button" disabled={!ALERT_TYPES.has(selected.type)} onClick={() => setShowAlertEditor(true)} title={!ALERT_TYPES.has(selected.type) ? (isArabic ? "التنبيه متاح للخطوط السعرية فقط" : "Alerts are available for price lines") : (isArabic ? "تنبيه الرسم" : "Drawing alert")}>{selected.alert ? <BellOff size={15} /> : <BellPlus size={15} />}</button>
       <button type="button" onClick={duplicateSelected} title={isArabic ? "نسخ" : "Duplicate"}><Copy size={15} /></button>
       <button type="button" onClick={() => orderSelected("front")} title={isArabic ? "إلى الأمام" : "Bring to front"}><BringToFront size={15} /></button>
       <button type="button" onClick={() => orderSelected("back")} title={isArabic ? "إلى الخلف" : "Send to back"}><SendToBack size={15} /></button>
@@ -469,3 +583,4 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     </div>}
   </>;
 }
+
