@@ -44,6 +44,7 @@
   .app-nav a { @apply flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-white; }
   .app-nav a.active { @apply bg-slate-950 text-white shadow-sm dark:bg-white dark:text-slate-950; }
   .icon-button { @apply inline-flex h-9 min-w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-amber-400 hover:text-slate-950 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-amber-400 dark:hover:text-white; }
+  .language-switch { @apply text-sm font-black; }
   .primary-button { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-black text-slate-950 shadow-lg shadow-amber-500/20 transition hover:-translate-y-0.5 hover:bg-amber-400; }
   .secondary-button { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 transition hover:border-amber-400 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-amber-400 dark:hover:text-white; }
   .eyebrow, .section-kicker { @apply inline-flex items-center gap-2 rounded-full border border-amber-300/60 bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300; }
@@ -58,9 +59,14 @@
   .market-ticker-track { @apply flex w-max items-center; animation: kmy-ticker 140s linear infinite; }
   .market-ticker:hover .market-ticker-track, .market-ticker:focus-within .market-ticker-track { animation-play-state: paused; }
   .market-ticker-item { @apply flex h-11 items-center gap-2 border-e border-white/10 px-4 text-xs text-slate-300 transition hover:bg-white/10 hover:text-white; }
-  .market-ticker-item b, .market-ticker-item .font-black { @apply text-white; }
+  .market-ticker-item .font-black { @apply text-white; }
+  .market-ticker-item b.market-up { @apply text-emerald-400; }
+  .market-ticker-item b.market-down { @apply text-red-400; }
+  .market-ticker-item b.market-flat { @apply text-slate-300; }
 
   .summary-card { @apply flex min-h-24 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-[#0d192a]; }
+  .summary-card-button { @apply text-start transition hover:-translate-y-0.5 hover:border-amber-400 hover:shadow-md; }
+  .summary-card-active { @apply border-amber-500 ring-2 ring-amber-200 dark:ring-amber-500/20; }
   .summary-card p { @apply text-xs font-bold text-slate-500 dark:text-slate-400; }
   .summary-card b { @apply mt-1 block text-xl font-black; }
   .summary-icon { @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-xl; }
@@ -80,6 +86,11 @@
   .filter-chip span { @apply rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] dark:bg-slate-800; }
   .filter-chip-active { @apply border-amber-500 bg-amber-500 text-slate-950 hover:border-amber-500 dark:bg-amber-500 dark:text-slate-950; }
   .filter-chip-active span { @apply bg-slate-950/10; }
+  .sector-groups { @apply grid gap-3; }
+  .sector-all-chip { @apply w-fit; }
+  .sector-group { @apply grid gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-950/30; }
+  .sector-group > b { @apply text-[10px] font-black text-slate-400; }
+  .sector-group > div { @apply flex flex-wrap gap-2; }
   .filter-toggle { @apply inline-flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300; }
   .filter-toggle input { @apply h-4 w-4 accent-amber-500; }
   .price-filter { @apply inline-flex items-center gap-2 text-xs font-bold text-slate-500; }
@@ -101,6 +112,11 @@
   .company-panel-empty h2 { @apply mt-4 text-lg font-black text-slate-800 dark:text-white; }
   .company-panel-empty p { @apply mt-2 max-w-sm text-sm leading-7; }
   .company-hero-card { @apply rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-[#0d192a]; }
+  .company-navigation { @apply grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2; }
+  .company-navigation > button:not(.secondary-button) { @apply flex min-h-12 min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 text-start transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-35 dark:border-slate-700 dark:bg-slate-900; }
+  .company-navigation > button span { @apply min-w-0; }
+  .company-navigation > button small { @apply block text-[9px] font-bold text-slate-400; }
+  .company-navigation > button b { @apply block truncate text-[11px] font-black; }
   .metric-card { @apply rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/50; }
   .metric-card > span { @apply block text-[11px] font-bold text-slate-500 dark:text-slate-400; }
   .metric-card > b { @apply mt-1 block text-sm font-black; }
@@ -116,6 +132,18 @@
   .zone-color { @apply h-10 w-1.5 shrink-0 rounded-full; }
   .zone-row p { @apply mt-1 text-[11px] text-slate-500; }
   .info-line { @apply mt-3 border-t border-slate-100 pt-3 text-xs leading-6 text-slate-600 first:border-t-0 dark:border-slate-800 dark:text-slate-300; }
+  .announcement-item { @apply mt-3 grid gap-1 border-t border-slate-100 pt-3 first:border-t-0 dark:border-slate-800; }
+  .announcement-item time { @apply text-[10px] font-bold text-slate-400; }
+  .announcement-item b { @apply text-xs leading-6; }
+  .announcement-item p { @apply text-[11px] leading-6 text-slate-500 dark:text-slate-400; }
+  .financial-list { @apply mt-4 grid gap-3; }
+  .financial-item { @apply rounded-2xl border border-slate-100 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-900/60; }
+  .financial-item > div { @apply flex items-center justify-between gap-3; }
+  .financial-item small { @apply text-[10px] text-slate-400; }
+  .financial-item dl { @apply mt-3 grid grid-cols-2 gap-2; }
+  .financial-item dl div { @apply rounded-xl bg-white p-2 dark:bg-slate-950; }
+  .financial-item dt { @apply text-[10px] text-slate-400; }
+  .financial-item dd { @apply mt-1 text-xs font-black; }
 
   .chart-shell { @apply rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-[#0d192a]; }
   .chart-shell:fullscreen { @apply overflow-auto bg-white p-5 dark:bg-[#07111f]; }
@@ -162,10 +190,27 @@
   .momentum-card-eye { @apply flex w-full items-center gap-1.5 border-b border-slate-200 bg-white px-2 py-1.5 text-[10px] font-black text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900; }
   .momentum-price-panel-collapsed { @apply w-auto min-w-0; }
   .momentum-price-panel-collapsed .momentum-card-eye { @apply border-b-0; }
-  .drawing-tools-bar { @apply absolute end-2 top-2 z-[10] flex max-w-[calc(100%-16px)] flex-wrap items-center justify-end gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
+  .drawing-tools-bar { @apply absolute z-[10] flex max-w-[calc(100%-16px)] items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
+  .drawing-tools-horizontal { @apply w-[360px] max-w-[calc(100%-16px)] flex-row; }
+  .drawing-tools-vertical { @apply flex-col; }
+  .drawing-toolbar-controls, .drawing-toolbar-tools { @apply flex items-center gap-1; }
+  .drawing-tools-horizontal .drawing-toolbar-tools { @apply min-w-0 flex-1 flex-wrap; }
+  .drawing-tools-vertical .drawing-toolbar-controls, .drawing-tools-vertical .drawing-toolbar-tools { @apply flex-col; }
+  .drawing-tools-collapsed { @apply p-1; }
   .drawing-tools-bar button { @apply grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white; }
   .drawing-tools-bar button.active { @apply bg-slate-950 text-amber-400 dark:bg-amber-400 dark:text-slate-950; }
+  .drawing-toolbar-drag-handle { @apply cursor-move touch-none bg-slate-100 dark:bg-slate-800; }
   .drawing-tools-separator { @apply mx-1 h-6 w-px bg-slate-200 dark:bg-slate-700; }
+  .drawing-tools-vertical .drawing-tools-separator { @apply my-1 h-px w-6; }
+  .drawing-tools-restore { @apply absolute end-2 top-2 z-[10] flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white/95 px-2 text-slate-600 shadow-lg backdrop-blur hover:border-amber-400 dark:border-slate-700 dark:bg-slate-950/95 dark:text-slate-300; }
+  .drawing-object-tree { @apply absolute end-2 top-14 z-[11] w-64 overflow-hidden rounded-xl border border-slate-200 bg-white/95 text-[11px] shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
+  .drawing-object-tree header { @apply flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800; }
+  .drawing-object-tree header button, .drawing-object-tree > div > button:not(.drawing-object-select) { @apply grid h-7 w-7 place-items-center rounded-md hover:bg-slate-100 dark:hover:bg-slate-800; }
+  .drawing-object-tree > p { @apply p-4 text-center text-slate-400; }
+  .drawing-object-tree > div { @apply grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-1 border-b border-slate-100 px-2 py-1.5 last:border-b-0 dark:border-slate-800; }
+  .drawing-object-tree > div.active { @apply bg-amber-50 dark:bg-amber-400/10; }
+  .drawing-object-select { @apply truncate rounded-md px-2 py-1.5 text-start font-bold hover:bg-slate-100 dark:hover:bg-slate-800; }
+  .drawing-object-tree .danger { @apply text-red-600 dark:text-red-400; }
   .chart-drawing-canvas { @apply pointer-events-none absolute inset-x-0 top-0 z-[5] w-full touch-none; }
   .chart-drawing-canvas-active { @apply pointer-events-auto cursor-crosshair; }
   .drawing-selection-toolbar { @apply absolute end-2 top-24 z-[9] flex max-w-[calc(100%-16px)] flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 text-[10px] shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
@@ -190,6 +235,7 @@
   .drawing-alert-actions button.primary { @apply border-slate-950 bg-slate-950 text-white dark:border-amber-400 dark:bg-amber-400 dark:text-slate-950; }
   .drawing-alert-actions button.danger { @apply me-auto border-red-200 text-red-600 dark:border-red-900 dark:text-red-400; }
   .ohlc-strip { @apply mt-3 flex flex-wrap gap-3 rounded-xl bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-600 dark:bg-slate-950/50 dark:text-slate-300; }
+  .ohlc-strip time { @apply font-black text-slate-950 dark:text-white; }
   .chart-message { @apply mt-3 rounded-xl bg-slate-50 px-4 py-8 text-center text-xs text-slate-500 dark:bg-slate-950/50; }
 
   .landing-page { @apply min-h-screen overflow-hidden bg-white text-slate-950 dark:bg-[#060e19] dark:text-white; }
@@ -265,3 +311,4 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
 }
+
