@@ -5180,6 +5180,13 @@ function entityRows(value) {
   if (Array.isArray(value?.items)) return value.items.filter(Boolean);
   return [];
 }
+function usableQuote(value) {
+  const last = Number(value?.last_price);
+  const previous = Number(value?.previous_close);
+  return Number.isFinite(last) && last > 0
+    && (!Number.isFinite(previous) || previous > 0)
+    && value?.quality_status !== "quarantined";
+}
 async function optionalRows(operation, label) {
   try {
     return entityRows(await operation());
@@ -5322,7 +5329,7 @@ Deno.serve(async (req) => {
         base44.asServiceRole.entities.MajorShareholder.filter({ instrument_id: instrument.id }),
         base44.asServiceRole.entities.LossClassification.filter({ instrument_id: instrument.id })
       ]);
-      const quote = quotes2.sort((a, b) => new Date(b.quote_time).getTime() - new Date(a.quote_time).getTime())[0] || null;
+      const quote = quotes2.filter(usableQuote).sort((a, b) => new Date(b.quote_time).getTime() - new Date(a.quote_time).getTime())[0] || null;
       const source = quote ? sourceById.get(quote.source_id) : null;
       return Response.json({
         instrument: { ...instrument, warning_flag: losses2[0]?.level === "none" ? null : losses2[0]?.level },
@@ -5347,7 +5354,7 @@ Deno.serve(async (req) => {
       throw Object.assign(new Error(`Main-market catalog mismatch: ${instruments.length}/${MAIN_MARKET_SYMBOLS.size}`), { status: 503 });
     }
     const quoteByInstrument = /* @__PURE__ */ new Map();
-    for (const quote of quotes) if (!quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
+    for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
     const indicatorByInstrument = new Map(indicators.map((item) => [item.instrument_id, item]));
     const lossByInstrument = new Map(losses.map((item) => [item.instrument_id, item]));
     const query = String(body.query || "").trim().toLocaleLowerCase("ar");

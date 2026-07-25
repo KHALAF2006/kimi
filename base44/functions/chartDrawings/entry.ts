@@ -146,6 +146,36 @@ Deno.serve(async (req) => {
       await audit(base44, user.id, existing ? "drawing.update" : "drawing.create", "ChartDrawing", row.id, "success");
       return Response.json({ drawing: responseDrawing(row) });
     }
+    if (body.action === "duplicate") {
+      const drawing = await ownedDrawing(base44, profile, body);
+      const clientId = String(body.new_client_id || "").trim();
+      if (!/^[a-zA-Z0-9-]{8,80}$/.test(clientId)) bad("Invalid duplicate drawing identifier");
+      const conflicts = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, client_id: clientId });
+      if (conflicts[0]) throw Object.assign(new Error("Drawing identifier conflict"), { status: 409, code: "DRAWING_ID_CONFLICT" });
+      const siblings = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, symbol: drawing.symbol });
+      const maxZIndex = Math.max(0, ...siblings.map((item) => Number(item.z_index || 0)));
+      const points = (drawing.points || []).map((point) => ({
+        ...point,
+        ...(Number.isFinite(Number(point.logical)) ? { logical: Number(point.logical) + 1 } : {}),
+      }));
+      const copy = await base44.asServiceRole.entities.ChartDrawing.create({
+        customer_id: profile.id,
+        instrument_id: drawing.instrument_id,
+        symbol: drawing.symbol,
+        interval_scope: drawing.interval_scope || "all",
+        client_id: clientId,
+        drawing_type: drawing.drawing_type,
+        points,
+        options: drawing.options,
+        locked: false,
+        visible: true,
+        z_index: maxZIndex + 1,
+        alert_rule_id: null,
+        revision: 1,
+      });
+      await audit(base44, user.id, "drawing.duplicate", "ChartDrawing", copy.id, "success", `source:${drawing.id}`);
+      return Response.json({ drawing: responseDrawing(copy) });
+    }
     if (body.action === "save_alert") {
       const drawing = await ownedDrawing(base44, profile, body);
       if (!ALERT_TYPES.has(drawing.drawing_type)) bad("Alerts are supported for trend lines, rays, and horizontal lines", "DRAWING_ALERT_UNSUPPORTED");

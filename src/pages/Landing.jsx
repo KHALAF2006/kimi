@@ -17,7 +17,7 @@ export default function Landing() {
   const Icon = item.icon;
   const Arrow = isArabic ? ArrowLeft : ArrowRight;
   const workflowSteps = [
-    { icon: Database, title: isArabic ? "جلب" : "Ingest", body: isArabic ? "المصدر والوقت والجودة" : "Source, timestamp and quality" },
+    { icon: Database, title: isArabic ? "جلب" : "Ingest", body: isArabic ? "الوقت والجودة والتحقق" : "Timestamp, quality and validation" },
     { icon: LineChart, title: isArabic ? "حساب" : "Calculate", body: isArabic ? "معادلات حتمية ثابتة الإصدار" : "Versioned deterministic formulas" },
     { icon: Target, title: isArabic ? "مطابقة" : "Match", body: isArabic ? "شروط المستخدم المحفوظة" : "Saved user conditions" },
     { icon: BellRing, title: isArabic ? "تسليم" : "Deliver", body: isArabic ? "منع تكرار وسجل نتيجة" : "Deduplication and result log" },
@@ -51,6 +51,6 @@ export default function Landing() {
 
       <section id="security" className="landing-section"><div className="cta-panel"><div><span className="section-kicker"><ShieldCheck size={16} />{isArabic ? "منصة اشتراكات كاملة" : "Complete subscription platform"}</span><h2>{isArabic ? "رؤية دقيقة، ووصول مضبوط." : "Precise insight, controlled access."}</h2><p>{isArabic ? "أنشئ حسابك، فعّل اشتراكك، وابدأ ببناء قوائمك واستراتيجياتك وتنبيهاتك." : "Create your account, activate a plan, then build your watchlists, strategies and alerts."}</p></div><Link to="/register" className="primary-button">{isArabic ? "إنشاء حساب" : "Create account"}<Arrow size={17} /></Link></div></section>
     </main>
-    <footer className="landing-footer"><div className="brand-lockup"><span className="brand-mark"><BarChart3 size={18} /></span><span>{isArabic ? "المستثمر الذكي" : "Smart Investor"}<small>SI</small></span></div><p>{isArabic ? "المستثمر الذكي أداة معلومات ومراقبة وليست توصية استثمارية." : "Smart Investor is an information and monitoring tool, not investment advice."}</p></footer>
+    <footer className="landing-footer"><div className="brand-lockup"><span className="brand-mark"><BarChart3 size={18} /></span><span>{isArabic ? "المستثمر الذكي" : "Smart Investor"}<small>SI</small></span></div><p>{isArabic ? "المستثمر الذكي أداة معلومات ومراقبة وليست توصية استثمارية." : "Smart Investor is an information and monitoring tool, not investment advice."}</p><a href="/third-party-notices.html">{isArabic ? "إشعارات البرمجيات" : "Software notices"}</a></footer>
   </div>;
 }

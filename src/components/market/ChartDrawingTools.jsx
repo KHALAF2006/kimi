@@ -1,14 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowUpRight, BellOff, BellPlus, BringToFront, ChevronDown, ChevronRight, Copy, Eye, EyeOff, GitCommitHorizontal,
+  ArrowUpRight, BellOff, BellPlus, ChevronDown, ChevronRight, ClipboardPaste, Copy, Eye, EyeOff, GitCommitHorizontal,
   Grip, LayoutList, Lock, MousePointer2, MoveHorizontal, MoveVertical, Paintbrush, PanelLeftClose, PanelTopClose,
-  PenLine, Redo2, Route, Ruler, SendToBack, Spline, Square, Trash2, TrendingUp, Undo2, Unlock, X,
+  PenLine, Redo2, RefreshCcw, Route, Ruler, Spline, Square, Trash2, TrendingUp, Undo2, Unlock, X,
 } from "lucide-react";
 import {
   cloneDrawings, createDrawing, DRAWING_TYPES, drawingHitTest, drawingSegments, lineStyleDash,
 } from "@/components/market/chartDrawingModel";
 import {
-  deleteChartDrawing, deleteDrawingAlert, loadChartDrawings, saveChartDrawing, saveDrawingAlert,
+  deleteChartDrawing, deleteDrawingAlert, duplicateChartDrawing, loadChartDrawings, saveChartDrawing, saveDrawingAlert,
 } from "@/services/drawingService";
 
 const icons = {
@@ -157,11 +157,12 @@ function renderDrawing(context, drawing, points, width, height, selected, isArab
   context.restore();
 }
 
-export default function ChartDrawingTools({ chart, series, symbol, interval, mainPaneHeight = 470, isArabic }) {
+export default function ChartDrawingTools({ chart, series, symbol, interval, mainPaneHeight = 470, isArabic, onResetChart }) {
   const instanceRef = useRef(crypto.randomUUID());
   const canvasRef = useRef(null);
   const toolbarRef = useRef(null);
   const toolbarDragRef = useRef(null);
+  const pendingSavesRef = useRef(new Map());
   const interactionRef = useRef(null);
   const draftRef = useRef(null);
   const drawingsRef = useRef([]);
@@ -174,6 +175,9 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   const [status, setStatus] = useState("");
   const [showAlertEditor, setShowAlertEditor] = useState(false);
   const [showDrawingList, setShowDrawingList] = useState(false);
+  const [clipboardDrawing, setClipboardDrawing] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [busyDrawingId, setBusyDrawingId] = useState("");
   const [toolbarLayout, setToolbarLayout] = useState(storedToolbarLayout);
   const [alertForm, setAlertForm] = useState({ condition: "crosses", frequency: "repeat", cooldown_minutes: 15 });
   drawingsRef.current = drawings;
@@ -243,11 +247,37 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
         setDraft(null); setSelectedId(""); setActiveTool(null);
       } else if ((event.key === "Delete" || event.key === "Backspace") && selectedId && !event.target.closest("input,select,textarea")) {
         event.preventDefault(); removeSelected();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && selectedId && !event.target.closest("input,select,textarea")) {
+        event.preventDefault(); copySelected();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && clipboardDrawing && !event.target.closest("input,select,textarea")) {
+        event.preventDefault(); pasteCopied();
+      } else if (event.altKey && event.key.toLowerCase() === "r") {
+        event.preventDefault(); onResetChart?.();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  });
+  }, [selectedId, clipboardDrawing, onResetChart]);
+
+  useEffect(() => {
+    const boundary = canvasRef.current?.parentElement;
+    if (!boundary) return undefined;
+    const openMenu = (event) => {
+      event.preventDefault();
+      const rect = boundary.getBoundingClientRect();
+      setContextMenu({
+        x: Math.max(6, Math.min(rect.width - 220, event.clientX - rect.left)),
+        y: Math.max(6, Math.min(rect.height - 210, event.clientY - rect.top)),
+      });
+    };
+    const closeMenu = () => setContextMenu(null);
+    boundary.addEventListener("contextmenu", openMenu);
+    window.addEventListener("pointerdown", closeMenu);
+    return () => {
+      boundary.removeEventListener("contextmenu", openMenu);
+      window.removeEventListener("pointerdown", closeMenu);
+    };
+  }, []);
 
   function pushHistory(previous) {
     setUndoStack((stack) => [...stack.slice(-39), cloneDrawings(previous)]);
@@ -260,19 +290,37 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   }
 
   async function persist(drawing) {
-    try {
+    const operation = (async () => {
       const saved = await saveChartDrawing(symbol, interval, drawing);
       if (saved?.serverId) setDrawings((values) => values.map((item) => item.clientId === saved.clientId ? saved : item));
       setStatus(isArabic ? "تم حفظ الرسم." : "Drawing saved.");
+      return saved;
+    })();
+    pendingSavesRef.current.set(drawing.clientId, operation);
+    try {
+      return await operation;
     } catch (error) {
       setStatus(displayError(error, isArabic));
+      throw error;
+    } finally {
+      if (pendingSavesRef.current.get(drawing.clientId) === operation) pendingSavesRef.current.delete(drawing.clientId);
     }
   }
 
   async function persistSnapshot(next, previous) {
     const nextIds = new Set(next.map((item) => item.clientId));
-    await Promise.all(next.map((item) => persist(item)));
-    await Promise.all(previous.filter((item) => !nextIds.has(item.clientId)).map((item) => deleteChartDrawing(symbol, item, true).catch((error) => setStatus(displayError(error, isArabic)))));
+    const saves = await Promise.allSettled(next.map((item) => persist(item)));
+    const failedSave = saves.find((result) => result.status === "rejected");
+    if (failedSave?.status === "rejected") setStatus(displayError(failedSave.reason, isArabic));
+    await Promise.allSettled(previous.filter((item) => !nextIds.has(item.clientId)).map(async (item) => {
+      try {
+        const pending = pendingSavesRef.current.get(item.clientId);
+        const current = pending ? await pending : item;
+        await deleteChartDrawing(symbol, current, true);
+      } catch (error) {
+        setStatus(displayError(error, isArabic));
+      }
+    }));
   }
 
   function undo() {
@@ -282,7 +330,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       const current = cloneDrawings(drawingsRef.current);
       setRedoStack((redoValues) => [...redoValues, current]);
       setDrawings(cloneDrawings(previous));
-      persistSnapshot(previous, current);
+      persistSnapshot(previous, current).catch((error) => setStatus(displayError(error, isArabic)));
       return stack.slice(0, -1);
     });
   }
@@ -294,7 +342,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       const current = cloneDrawings(drawingsRef.current);
       setUndoStack((undoValues) => [...undoValues, current]);
       setDrawings(cloneDrawings(next));
-      persistSnapshot(next, current);
+      persistSnapshot(next, current).catch((error) => setStatus(displayError(error, isArabic)));
       return stack.slice(0, -1);
     });
   }
@@ -306,7 +354,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     setDraft(null);
     setSelectedId(value.clientId);
     setActiveTool("select");
-    persist(value);
+    persist(value).catch(() => {});
   }
 
   function pointerDown(event) {
@@ -373,7 +421,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     else if (interaction && ["move", "handle"].includes(interaction.mode)) {
       const changed = drawingsRef.current.find((item) => item.clientId === interaction.original.clientId);
       pushHistory(interaction.before);
-      if (changed) persist(changed);
+      if (changed) persist(changed).catch(() => {});
     }
   }
 
@@ -381,7 +429,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     if (!selected || selected.locked && !Object.hasOwn(patch, "locked")) return;
     const nextDrawing = { ...selected, ...patch, options: patch.options ? { ...selected.options, ...patch.options } : selected.options };
     replaceDrawings(drawingsRef.current.map((item) => item.clientId === selected.clientId ? nextDrawing : item));
-    persist(nextDrawing);
+    persist(nextDrawing).catch(() => {});
   }
 
   async function removeDrawing(drawing, force = false) {
@@ -392,13 +440,29 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       force = true;
     }
     try {
-      await deleteChartDrawing(symbol, drawing, force);
+      setBusyDrawingId(drawing.clientId);
+      const pending = pendingSavesRef.current.get(drawing.clientId);
+      let current = drawing;
+      if (pending) {
+        try {
+          current = await pending;
+        } catch (saveError) {
+          if (drawing.serverId) throw saveError;
+          replaceDrawings(drawingsRef.current.filter((item) => item.clientId !== drawing.clientId));
+          setSelectedId((value) => value === drawing.clientId ? "" : value);
+          setStatus(isArabic ? "حُذف الرسم غير المحفوظ محليًا." : "Unsaved local drawing removed.");
+          return;
+        }
+      }
+      await deleteChartDrawing(symbol, current, force);
       replaceDrawings(drawingsRef.current.filter((item) => item.clientId !== drawing.clientId));
       setSelectedId((value) => value === drawing.clientId ? "" : value);
       setStatus(isArabic ? "تم حذف الرسم." : "Drawing deleted.");
     } catch (error) {
       if (error?.response?.data?.code === "DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED" && !force) return removeDrawing(drawing, true);
       setStatus(displayError(error, isArabic));
+    } finally {
+      setBusyDrawingId("");
     }
   }
 
@@ -406,12 +470,29 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     return removeDrawing(selected, force);
   }
 
-  function duplicateSelected() {
+  function copySelected() {
     if (!selected) return;
-    const copy = { ...cloneDrawings([selected])[0], clientId: crypto.randomUUID(), serverId: null, alert: null, zIndex: Math.max(0, ...drawingsRef.current.map((item) => item.zIndex || 0)) + 1 };
-    replaceDrawings([...drawingsRef.current, copy]);
-    setSelectedId(copy.clientId);
-    persist(copy);
+    setClipboardDrawing(cloneDrawings([selected])[0]);
+    setStatus(isArabic ? "تم نسخ الرسم. استخدم لصق أو Ctrl+V." : "Drawing copied. Use Paste or Ctrl+V.");
+  }
+
+  async function pasteCopied() {
+    if (!clipboardDrawing) return;
+    try {
+      setBusyDrawingId(clipboardDrawing.clientId);
+      let source = clipboardDrawing;
+      const pending = pendingSavesRef.current.get(source.clientId);
+      if (pending) source = await pending;
+      const copy = await duplicateChartDrawing(symbol, source, crypto.randomUUID());
+      replaceDrawings([...drawingsRef.current, copy]);
+      setSelectedId(copy.clientId);
+      setActiveTool("select");
+      setStatus(isArabic ? "تم لصق نسخة مستقلة من الرسم." : "An independent drawing copy was pasted.");
+    } catch (error) {
+      setStatus(displayError(error, isArabic));
+    } finally {
+      setBusyDrawingId("");
+    }
   }
 
   function orderSelected(direction) {
@@ -479,13 +560,13 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   function toggleDrawingVisibility(drawing) {
     const next = { ...drawing, visible: !drawing.visible };
     replaceDrawings(drawingsRef.current.map((item) => item.clientId === drawing.clientId ? next : item));
-    persist(next);
+    persist(next).catch(() => {});
   }
 
   function toggleDrawingLock(drawing) {
     const next = { ...drawing, locked: !drawing.locked };
     replaceDrawings(drawingsRef.current.map((item) => item.clientId === drawing.clientId ? next : item));
-    persist(next);
+    persist(next).catch(() => {});
   }
 
   function toolbarKeyDown(event) {
@@ -506,7 +587,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
 
   return <>
     {toolbarLayout.hidden && <button type="button" className="drawing-tools-restore" onClick={() => setToolbarLayout((value) => ({ ...value, hidden: false }))} title={isArabic ? "إظهار أدوات الرسم" : "Show drawing tools"}><PenLine size={16} /><Eye size={14} /></button>}
-    {!toolbarLayout.hidden && <div ref={toolbarRef} style={toolbarStyle} onKeyDown={toolbarKeyDown} className={"drawing-tools-bar " + (toolbarLayout.orientation === "vertical" ? "drawing-tools-vertical" : "drawing-tools-horizontal") + (toolbarLayout.collapsed ? " drawing-tools-collapsed" : "")} data-drawing-instance={instanceRef.current} data-active-tool={activeTool || ""} role="toolbar" aria-orientation={toolbarLayout.orientation} aria-label={isArabic ? "أدوات الرسم" : "Drawing tools"}>
+    {!toolbarLayout.hidden && <div ref={toolbarRef} style={toolbarStyle} onKeyDown={toolbarKeyDown} className={"drawing-tools-bar " + (toolbarLayout.orientation === "vertical" ? "drawing-tools-vertical" : "drawing-tools-horizontal") + (toolbarLayout.collapsed ? " drawing-tools-collapsed" : "")} data-drawing-instance={instanceRef.current} data-active-tool={activeTool || ""} role="toolbar" aria-orientation={toolbarLayout.orientation === "vertical" ? "vertical" : "horizontal"} aria-label={isArabic ? "أدوات الرسم" : "Drawing tools"}>
       <button type="button" className="drawing-toolbar-drag-handle" onPointerDown={beginToolbarDrag} onPointerMove={moveToolbar} onPointerUp={finishToolbarDrag} onPointerCancel={finishToolbarDrag} title={isArabic ? "اسحب لتحريك شريط الأدوات" : "Drag to move toolbar"}><Grip size={16} /></button>
       <div className="drawing-toolbar-controls">
         <button type="button" onClick={() => setToolbarLayout((value) => ({ ...value, orientation: value.orientation === "horizontal" ? "vertical" : "horizontal" }))} title={isArabic ? "تبديل اتجاه الشريط" : "Change toolbar orientation"}>{toolbarLayout.orientation === "horizontal" ? <PanelLeftClose size={15} /> : <PanelTopClose size={15} />}</button>
@@ -542,6 +623,13 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
 
     {status && <div className="drawing-status" role="status"><span>{status}</span><button type="button" onClick={() => setStatus("")}><X size={13} /></button></div>}
 
+    {contextMenu && <div className="chart-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} role="menu" onPointerDown={(event) => event.stopPropagation()}>
+      <button type="button" role="menuitem" onClick={() => { onResetChart?.(); setContextMenu(null); }}><RefreshCcw size={15} />{isArabic ? "إعادة الرسم للوضع الطبيعي" : "Reset chart view"}<kbd>Alt+R</kbd></button>
+      <button type="button" role="menuitem" disabled={!selected} onClick={() => { copySelected(); setContextMenu(null); }}><Copy size={15} />{isArabic ? "نسخ الرسم المحدد" : "Copy selected drawing"}<kbd>Ctrl+C</kbd></button>
+      <button type="button" role="menuitem" disabled={!clipboardDrawing} onClick={() => { pasteCopied(); setContextMenu(null); }}><ClipboardPaste size={15} />{isArabic ? "لصق الرسم" : "Paste drawing"}<kbd>Ctrl+V</kbd></button>
+      <button type="button" role="menuitem" disabled={!selected || busyDrawingId === selected?.clientId} className="danger" onClick={() => { removeSelected(); setContextMenu(null); }}><Trash2 size={15} />{isArabic ? "حذف الرسم المحدد" : "Delete selected drawing"}<kbd>Del</kbd></button>
+    </div>}
+
     <canvas
       ref={canvasRef}
       className={"chart-drawing-canvas " + (activeTool ? "chart-drawing-canvas-active" : "")}
@@ -565,10 +653,14 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       <button type="button" onClick={() => updateSelected({ locked: !selected.locked })} title={selected.locked ? (isArabic ? "فتح القفل" : "Unlock") : (isArabic ? "قفل الرسم" : "Lock")}>{selected.locked ? <Lock size={15} /> : <Unlock size={15} />}</button>
       <button type="button" onClick={() => updateSelected({ visible: !selected.visible })} title={selected.visible ? (isArabic ? "إخفاء" : "Hide") : (isArabic ? "إظهار" : "Show")}>{selected.visible ? <Eye size={15} /> : <EyeOff size={15} />}</button>
       <button type="button" disabled={!ALERT_TYPES.has(selected.type)} onClick={() => setShowAlertEditor(true)} title={!ALERT_TYPES.has(selected.type) ? (isArabic ? "التنبيه متاح للخطوط السعرية فقط" : "Alerts are available for price lines") : (isArabic ? "تنبيه الرسم" : "Drawing alert")}>{selected.alert ? <BellOff size={15} /> : <BellPlus size={15} />}</button>
-      <button type="button" onClick={duplicateSelected} title={isArabic ? "نسخ" : "Duplicate"}><Copy size={15} /></button>
-      <button type="button" onClick={() => orderSelected("front")} title={isArabic ? "إلى الأمام" : "Bring to front"}><BringToFront size={15} /></button>
-      <button type="button" onClick={() => orderSelected("back")} title={isArabic ? "إلى الخلف" : "Send to back"}><SendToBack size={15} /></button>
-      <button type="button" className="danger" onClick={() => removeSelected()} title={isArabic ? "حذف" : "Delete"}><Trash2 size={15} /></button>
+      <button type="button" onClick={copySelected} title={isArabic ? "نسخ الرسم إلى الحافظة" : "Copy drawing"}><Copy size={15} /></button>
+      <button type="button" disabled={!clipboardDrawing || Boolean(busyDrawingId)} onClick={pasteCopied} title={isArabic ? "لصق نسخة مستقلة" : "Paste independent copy"}><ClipboardPaste size={15} /></button>
+      {drawings.length > 1 && <select defaultValue="" onChange={(event) => { if (event.target.value) orderSelected(event.target.value); event.target.value = ""; }} aria-label={isArabic ? "ترتيب طبقة الرسم" : "Drawing layer order"}>
+        <option value="" disabled>{isArabic ? "ترتيب الطبقة" : "Layer order"}</option>
+        <option value="front">{isArabic ? "إحضار إلى الأمام" : "Bring to front"}</option>
+        <option value="back">{isArabic ? "إرسال إلى الخلف" : "Send to back"}</option>
+      </select>}
+      <button type="button" disabled={busyDrawingId === selected.clientId} className="danger" onClick={() => removeSelected()} title={isArabic ? "حذف الرسم" : "Delete"}><Trash2 size={15} /></button>
     </div>}
 
     {showAlertEditor && selected && <div className="drawing-alert-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowAlertEditor(false)}>

@@ -1,6 +1,6 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
 
-const MODES = new Set(["daily", "financials"]);
+const MODES = new Set(["daily", "financials", "bootstrap"]);
 const OFFICIAL_HOST = /(^|\.)saudiexchange\.sa$/i;
 
 function fail(message, status = 400, code = "COMPANY_INTELLIGENCE_INVALID") {
@@ -82,7 +82,14 @@ async function fetchBatch(symbols, mode) {
   const response = await fetch(feedUrl, {
     method: "POST",
     headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "Accept": "application/json" },
-    body: JSON.stringify({ symbols, include: mode === "financials" ? ["financials"] : ["announcements", "major_shareholders"] }),
+    body: JSON.stringify({
+      symbols,
+      include: mode === "financials"
+        ? ["financials"]
+        : mode === "bootstrap"
+          ? ["announcements", "major_shareholders", "corporate_actions", "financials"]
+          : ["announcements", "major_shareholders", "corporate_actions"],
+    }),
   });
   if (!response.ok) fail(`Official company feed returned ${response.status}`, 502, "OFFICIAL_COMPANY_FEED_UNAVAILABLE");
   const payload = await response.json();
@@ -120,12 +127,13 @@ Deno.serve(async (req) => {
     const announcements = [];
     const shareholders = [];
     const financials = [];
+    const corporateActions = [];
 
     for (const company of companies) {
       const symbol = String(company.symbol || "");
       const instrument = bySymbol.get(symbol);
       if (!instrument) continue;
-      if (mode === "daily") {
+      if (mode === "daily" || mode === "bootstrap") {
         for (const item of rows(company.announcements)) {
           const sourceUrl = officialUrl(item.source_url);
           const normalized = {
@@ -158,7 +166,7 @@ Deno.serve(async (req) => {
             instrument_id: instrument.id,
             shareholder_key: key,
             shareholder_name_ar: nameAr,
-            shareholder_name_en: nameEn,
+            shareholder_name_en: nameEn || nameAr,
             ownership_percent: ownership,
             previous_ownership_percent: finite(item.previous_ownership_percent),
             change_percent: finite(item.change_percent),
@@ -167,7 +175,37 @@ Deno.serve(async (req) => {
             as_of: now,
           });
         }
-      } else {
+        for (const item of rows(company.corporate_actions)) {
+          const sourceUrl = officialUrl(item.source_url);
+          const announceDate = item.announce_date ? new Date(item.announce_date) : null;
+          const exDate = item.ex_date ? new Date(item.ex_date) : null;
+          const recordDate = item.record_date ? new Date(item.record_date) : null;
+          if (![announceDate, exDate, recordDate].every((date) => date && Number.isFinite(date.getTime()))) continue;
+          const eventType = ["dividend", "split", "rights_issue", "bonus", "other"].includes(item.event_type) ? item.event_type : "other";
+          const status = ["announced", "confirmed", "completed", "cancelled"].includes(item.status) ? item.status : "announced";
+          const descriptionAr = cleanText(item.description_ar, 2000);
+          const descriptionEn = cleanText(item.description_en, 2000);
+          if (!descriptionAr && !descriptionEn) continue;
+          corporateActions.push({
+            instrument_id: instrument.id,
+            event_type: eventType,
+            announce_date: announceDate.toISOString().slice(0, 10),
+            ex_date: exDate.toISOString().slice(0, 10),
+            record_date: recordDate.toISOString().slice(0, 10),
+            pay_date: item.pay_date && Number.isFinite(new Date(item.pay_date).getTime()) ? new Date(item.pay_date).toISOString().slice(0, 10) : undefined,
+            amount: finite(item.amount),
+            currency: cleanText(item.currency || "SAR", 12),
+            ratio: finite(item.ratio),
+            status,
+            description_ar: descriptionAr || descriptionEn,
+            description_en: descriptionEn || descriptionAr,
+            source_id: source.id,
+            source_url: sourceUrl,
+            as_of: now,
+          });
+        }
+      }
+      if (mode === "financials" || mode === "bootstrap") {
         for (const item of rows(company.financials)) {
           const sourceUrl = officialUrl(item.source_url);
           const period = cleanText(item.period, 120);
@@ -200,9 +238,17 @@ Deno.serve(async (req) => {
       ? {
           announcements: await upsertMany(base44, "CompanyAnnouncement", announcements, ["instrument_id", "announcement_id"]),
           shareholders: await upsertMany(base44, "MajorShareholder", shareholders, ["instrument_id", "shareholder_key"]),
+          corporate_actions: await upsertMany(base44, "CorporateAction", corporateActions, ["instrument_id", "event_type", "announce_date", "ex_date"]),
         }
-      : { financials: await upsertMany(base44, "CompanyFinancial", financials, ["instrument_id", "period", "statement_type"]) };
-    const total = announcements.length + shareholders.length + financials.length;
+      : mode === "financials"
+        ? { financials: await upsertMany(base44, "CompanyFinancial", financials, ["instrument_id", "period", "statement_type"]) }
+        : {
+            announcements: await upsertMany(base44, "CompanyAnnouncement", announcements, ["instrument_id", "announcement_id"]),
+            shareholders: await upsertMany(base44, "MajorShareholder", shareholders, ["instrument_id", "shareholder_key"]),
+            corporate_actions: await upsertMany(base44, "CorporateAction", corporateActions, ["instrument_id", "event_type", "announce_date", "ex_date"]),
+            financials: await upsertMany(base44, "CompanyFinancial", financials, ["instrument_id", "period", "statement_type"]),
+          };
+    const total = announcements.length + shareholders.length + financials.length + corporateActions.length;
     await base44.asServiceRole.entities.IngestionRun.create({
       run_type: `scheduled_company_intelligence_${mode}`,
       started_at: startedAt,

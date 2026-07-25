@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, LineStyle } from "lightweight-charts";
-import { BarChart3, ChevronDown, Eye, EyeOff, Layers3, Maximize2, Minus, Plus, RotateCcw, Settings2, SlidersHorizontal, Waves } from "lucide-react";
+import { BarChart3, ChevronLeft, ChevronRight, Eye, EyeOff, Layers3, Maximize2, Minus, Plus, RotateCcw, Settings2, Waves } from "lucide-react";
 import { invokeAppFunction } from "@/services/marketService";
 import { calculateMomentumSnapshot, calculateRsiSeries, formatNumber, MOMENTUM_ZONE_DEFINITIONS, normalizeMomentum } from "@/lib/market";
 import { usePreferences } from "@/lib/preferences";
@@ -70,9 +70,9 @@ function formatChartDate(time, locale, includeTime = false) {
   const timestamp = typeof time === "number"
     ? time * 1000
     : Date.UTC(Number(time?.year || 1970), Number(time?.month || 1) - 1, Number(time?.day || 1));
-  const options = includeTime
-    ? { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }
-    : { day: "2-digit", month: "2-digit", year: "2-digit" };
+  const options = /** @type {Intl.DateTimeFormatOptions} */ (includeTime
+    ? { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }
+    : { day: "2-digit", month: "short" });
   return new Intl.DateTimeFormat(locale, options).format(new Date(timestamp));
 }
 
@@ -130,7 +130,7 @@ function ToggleButton({ active, label, icon: Icon, onClick, settings = false, on
   </div>;
 }
 
-export default function CompanyChart({ symbol, momentum: rawMomentum }) {
+export default function CompanyChart({ symbol, momentum: rawMomentum, previousCompany, nextCompany, onSelectCompany, onResetWidth }) {
   const { language, isArabic, theme } = usePreferences();
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -235,6 +235,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
         background: { type: ColorType.Solid, color: dark ? "#091321" : "#ffffff" },
         textColor: dark ? "#cbd5e1" : "#475569",
         fontFamily: "Tajawal",
+        attributionLogo: false,
         panes: { separatorColor: dark ? "#243247" : "#dbe3ee", separatorHoverColor: "#f59e0b", enableResize: true },
       },
       grid: { vertLines: { color: dark ? "#172337" : "#edf1f6" }, horzLines: { color: dark ? "#172337" : "#edf1f6" } },
@@ -457,6 +458,15 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
     scale.setVisibleLogicalRange({ from: center - half, to: center + half });
   }
 
+  function resetChartView() {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.timeScale().resetTimeScale();
+    chart.timeScale().fitContent();
+    chart.priceScale("right").applyOptions({ autoScale: true, scaleMargins: { top: 0.08, bottom: 0.08 } });
+    overlayUpdateRef.current();
+  }
+
   async function toggleFullscreen() {
     if (!wrapperRef.current) return;
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -483,12 +493,17 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
   return <div ref={wrapperRef} className="chart-shell">
     <div className="chart-header-row">
       <div>
-        <h3 className="font-black">{isArabic ? "الرسم البياني الاحترافي" : "Professional chart"}</h3>
+        <h3 className="font-black">{isArabic ? "الرسم البياني" : "Chart"}</h3>
+      </div>
+      <div className="company-navigation chart-company-navigation">
+        <button type="button" disabled={!previousCompany} onClick={() => previousCompany && onSelectCompany?.(previousCompany.symbol)} title={isArabic ? "الشركة السابقة حسب القائمة الحالية" : "Previous company in current list"}><ChevronRight size={16} /><span><small>{isArabic ? "السابق" : "Previous"}</small><b>{previousCompany ? (isArabic ? previousCompany.name_ar : previousCompany.name_en) : "—"}</b></span></button>
+        <button className="secondary-button" onClick={onResetWidth}><RotateCcw size={14} />{isArabic ? "الحجم الطبيعي" : "Reset size"}</button>
+        <button type="button" disabled={!nextCompany} onClick={() => nextCompany && onSelectCompany?.(nextCompany.symbol)} title={isArabic ? "الشركة التالية حسب القائمة الحالية" : "Next company in current list"}><span><small>{isArabic ? "التالي" : "Next"}</small><b>{nextCompany ? (isArabic ? nextCompany.name_ar : nextCompany.name_en) : "—"}</b></span><ChevronLeft size={16} /></button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button className="icon-button" onClick={() => zoom(0.75)} title={isArabic ? "تكبير" : "Zoom in"}><Plus size={17} /></button>
         <button className="icon-button" onClick={() => zoom(1.35)} title={isArabic ? "تصغير" : "Zoom out"}><Minus size={17} /></button>
-        <button className="icon-button" onClick={() => chartRef.current?.timeScale().fitContent()} title={isArabic ? "إعادة ضبط النطاق" : "Reset range"}><RotateCcw size={17} /></button>
+        <button className="icon-button" onClick={resetChartView} title={isArabic ? "إعادة الرسم للوضع الطبيعي" : "Reset chart view"}><RotateCcw size={17} /></button>
         <button className="icon-button" onClick={toggleFullscreen} title={isArabic ? "ملء الشاشة" : "Fullscreen"}><Maximize2 size={17} /></button>
       </div>
     </div>
@@ -501,8 +516,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
     <div className="indicator-toolbar">
       <ToggleButton active={showVolume} label={isArabic ? "أحجام التداول" : "Volume"} icon={BarChart3} onClick={() => setShowVolume((value) => !value)} isArabic={isArabic} />
       <ToggleButton active={showMomentum} label={investorZoneLabel} icon={Layers3} onClick={() => setShowMomentum((value) => !value)} onSettings={() => setSettingsPanel((value) => value === "momentum" ? "" : "momentum")} settings={settingsPanel === "momentum"} isArabic={isArabic} />
-      <ToggleButton active={showRsi} label={isArabic ? "القوة النسبية" : "RSI"} icon={Waves} onClick={() => setShowRsi((value) => !value)} onSettings={() => setSettingsPanel((value) => value === "rsi" ? "" : "rsi")} settings={settingsPanel === "rsi"} isArabic={isArabic} />
-      <button type="button" className="chart-settings-close" onClick={() => setSettingsPanel((value) => value ? "" : "rsi")}><SlidersHorizontal size={15} />{isArabic ? "الإعدادات" : "Settings"}<ChevronDown size={14} className={settingsPanel ? "rotate-180" : ""} /></button>
+      <ToggleButton active={showRsi} label={isArabic ? "مؤشر القوة النسبية" : "RSI"} icon={Waves} onClick={() => setShowRsi((value) => !value)} onSettings={() => setSettingsPanel((value) => value === "rsi" ? "" : "rsi")} settings={settingsPanel === "rsi"} isArabic={isArabic} />
     </div>
 
     {settingsPanel === "rsi" && <section className="indicator-settings-panel">
@@ -550,7 +564,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum }) {
     <div className={candles.length ? "chart-canvas-wrap" : "h-0"} style={candles.length ? { height: chartHeight } : undefined}>
       <div ref={containerRef} className="absolute inset-0" />
       <div className="momentum-zone-overlay" aria-hidden="true">{zoneGeometry.map((zone) => <div key={zone.key} className="momentum-zone-box" style={{ left: zone.left, width: zone.width, top: zone.top, height: zone.height, borderColor: zone.color, backgroundColor: colorWithOpacity(zone.color, Math.max(0.05, (100 - momentumSettings.zoneOpacity) / 100)) }}><span style={{ backgroundColor: zone.color }}>{zone.name} · {formatNumber(zone.topPrice, "en")}–{formatNumber(zone.bottomPrice, "en")}</span></div>)}</div>
-      {chartRef.current && candleSeriesRef.current && <ChartDrawingTools chart={chartRef.current} series={candleSeriesRef.current} symbol={symbol} interval={interval} mainPaneHeight={470} isArabic={isArabic} />}
+      {chartRef.current && candleSeriesRef.current && <ChartDrawingTools chart={chartRef.current} series={candleSeriesRef.current} symbol={symbol} interval={interval} mainPaneHeight={470} isArabic={isArabic} onResetChart={resetChartView} />}
       {momentum?.zones?.length > 0 && <div className={"momentum-price-panel " + (!showMomentumCard ? "momentum-price-panel-collapsed" : "")}>
         <button type="button" className="momentum-card-eye" onClick={() => setShowMomentumCard((value) => !value)} title={showMomentumCard ? (isArabic ? "إخفاء بطاقة أسعار المناطق" : "Hide zone price card") : (isArabic ? "إظهار بطاقة أسعار المناطق" : "Show zone price card")} aria-expanded={showMomentumCard}>{showMomentumCard ? <EyeOff size={14} /> : <Eye size={14} />}<span>{investorZoneLabel}</span></button>
         {showMomentumCard && <><div className="momentum-price-head"><span>{isArabic ? "المنطقة" : "Zone"}</span><span>{isArabic ? "من" : "From"}</span><span>{isArabic ? "إلى" : "To"}</span><span>{isArabic ? "الوقف" : "Stop"}</span></div>

@@ -5321,6 +5321,11 @@ function exactInstrument(row) {
 function officialQuote(row, instrumentId, sourceId) {
   const last = Number(row.officialQuote?.lastPrice);
   const percent = Number(row.officialQuote?.changePercent || 0);
+  const open = Number(row.officialQuote?.openPrice);
+  const high = Number(row.officialQuote?.highPrice);
+  const low = Number(row.officialQuote?.lowPrice);
+  if (![last, open, high, low].every((value) => Number.isFinite(value) && value > 0)
+      || high < Math.max(open, last) || low > Math.min(open, last) || percent <= -100) return null;
   const previous = percent === -100 ? null : last / (1 + percent / 100);
   return {
     instrument_id: instrumentId,
@@ -5329,9 +5334,9 @@ function officialQuote(row, instrumentId, sourceId) {
     previous_close: previous,
     change_value: previous == null ? null : last - previous,
     change_percent: percent,
-    open: Number(row.officialQuote?.openPrice),
-    high: Number(row.officialQuote?.highPrice),
-    low: Number(row.officialQuote?.lowPrice),
+    open,
+    high,
+    low,
     volume: Number(row.officialQuote?.volume || 0),
     trade_count: Number(row.officialQuote?.tradeCount || 0),
     traded_value: Number(row.officialQuote?.tradedValue || 0),
@@ -5527,7 +5532,8 @@ Deno.serve(async (req) => {
     for (const row of official_main_market_catalog_2026_07_21_default.companies) {
       const instrument = bySymbol.get(row.symbol);
       if (!instrument) continue;
-      officialQuotes.push(officialQuote(row, instrument.id, officialSource.id));
+      const quote = officialQuote(row, instrument.id, officialSource.id);
+      if (quote) officialQuotes.push(quote);
       lossRows.push(lossClassification(row, instrument.id, officialSource.id));
     }
     await upsertMany(base44, "QuoteLatest", officialQuotes, ["instrument_id"]);

@@ -58,7 +58,7 @@
   .market-ticker::after { right: 0; background: linear-gradient(-90deg,#020617,transparent); }
   .market-ticker-track { @apply flex w-max items-center; animation: kmy-ticker 140s linear infinite; }
   .market-ticker:hover .market-ticker-track, .market-ticker:focus-within .market-ticker-track { animation-play-state: paused; }
-  .market-ticker-item { @apply flex h-11 items-center gap-2 border-e border-white/10 px-4 text-xs text-slate-300 transition hover:bg-white/10 hover:text-white; }
+  .market-ticker-item { @apply flex h-11 items-center gap-2 border-e border-white/10 px-4 text-xs font-bold text-slate-300 transition hover:bg-white/10 hover:text-white; }
   .market-ticker-item .font-black { @apply text-white; }
   .market-ticker-item b.market-up { @apply text-emerald-400; }
   .market-ticker-item b.market-down { @apply text-red-400; }
@@ -86,7 +86,11 @@
   .filter-chip span { @apply rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] dark:bg-slate-800; }
   .filter-chip-active { @apply border-amber-500 bg-amber-500 text-slate-950 hover:border-amber-500 dark:bg-amber-500 dark:text-slate-950; }
   .filter-chip-active span { @apply bg-slate-950/10; }
-  .sector-groups { @apply grid gap-3; }
+  .sector-groups { @apply grid w-full gap-3 md:grid-cols-2 xl:grid-cols-3; }
+  .sector-all-chip { @apply md:col-span-2 xl:col-span-3; }
+  .sector-group { @apply min-w-0 rounded-xl border border-slate-200 p-3 dark:border-slate-800; }
+  .sector-group > b { @apply block text-[10px] font-black text-slate-400; }
+  .sector-group > div { @apply mt-2 flex flex-wrap gap-2; }
   .sector-all-chip { @apply w-fit; }
   .sector-group { @apply grid gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-950/30; }
   .sector-group > b { @apply text-[10px] font-black text-slate-400; }
@@ -148,6 +152,7 @@
   .chart-shell { @apply rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-[#0d192a]; }
   .chart-shell:fullscreen { @apply overflow-auto bg-white p-5 dark:bg-[#07111f]; }
   .chart-header-row { @apply flex flex-wrap items-start justify-between gap-3; }
+  .chart-company-navigation { @apply min-w-[min(100%,520px)] flex-1; }
   .chart-toolbar-grid { @apply mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-800 dark:bg-slate-950/40 lg:grid-cols-2; }
   .chart-control-group { @apply flex min-w-0 items-start gap-3; }
   .chart-control-group > span { @apply shrink-0 pt-1.5 text-[10px] font-black text-slate-400; }
@@ -223,6 +228,10 @@
   .drawing-selection-toolbar label input { @apply accent-amber-500; }
   .drawing-status { @apply mt-2 flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300; }
   .drawing-status button { @apply rounded p-1 hover:bg-slate-200 dark:hover:bg-slate-800; }
+  .chart-context-menu { @apply absolute z-[30] grid w-[214px] overflow-hidden rounded-xl border border-slate-200 bg-white/95 p-1.5 text-[11px] shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
+  .chart-context-menu button { @apply grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2.5 py-2 text-start font-bold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-35 dark:text-slate-200 dark:hover:bg-slate-800; }
+  .chart-context-menu button.danger { @apply text-red-600 dark:text-red-400; }
+  .chart-context-menu kbd { @apply font-mono text-[9px] text-slate-400; direction:ltr; }
   .drawing-alert-backdrop { @apply fixed inset-0 z-[100] grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm; }
   .drawing-alert-dialog { @apply w-full max-w-md space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-950; }
   .drawing-alert-dialog > div:first-child { @apply flex items-center justify-between; }

@@ -69,7 +69,7 @@ export default function Dashboard() {
       }),
     })).filter((group) => group.items.length);
     const remaining = [...sectors.values()].filter((item) => !used.has(item.ar)).sort((a, b) => a.ar.localeCompare(b.ar, "ar"));
-    if (remaining.length) groups.push({ ar: "قطاعات أخرى", en: "Other sectors", items: remaining });
+    if (remaining.length) groups.push({ ar: "قطاعات أخرى", en: "Other sectors", sectors: [], items: remaining });
     return groups;
   }, [state.rows]);
 
@@ -171,7 +171,7 @@ export default function Dashboard() {
 
         <div className="min-w-0 space-y-4">
           <section className="content-card p-4">
-            <div className="grid gap-3 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.4fr)]">
+            <div className="grid gap-4">
               <label className="search-field"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isArabic ? "ابحث برمز الشركة أو اسمها…" : "Search by symbol or company…"} /></label>
               <div className="sector-groups">
                 <button className={"filter-chip sector-all-chip " + (!sector ? "filter-chip-active" : "")} onClick={() => setSector("")}>{isArabic ? "جميع القطاعات" : "All sectors"}</button>

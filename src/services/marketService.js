@@ -73,7 +73,7 @@ async function referenceMarketRead(payload) {
       actions: company.corporateActions || [],
       shareholders: company.shareholders || [],
       loss_classification: company.warningFlag ? { level: company.warningFlag } : null,
-      notice: "بيانات حقيقية مرجعية متأخرة — المصدر والوقت موضحان",
+      notice: "بيانات سوق حقيقية متأخرة — وقت التحديث موضح",
     };
   }
   const companies = await referenceFetch("/api/companies?limit=500");
@@ -87,7 +87,7 @@ async function referenceMarketRead(payload) {
     instruments: rows.slice(0, Math.min(Number(payload.limit || 500), 500)),
     total: companies.length,
     sources: [],
-    notice: "بيانات حقيقية مرجعية متأخرة — المصدر والوقت موضحان",
+    notice: "بيانات سوق حقيقية متأخرة — وقت التحديث موضح",
   };
 }
 

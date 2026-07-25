@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Building2, ChevronLeft, ChevronRight, Info, Loader2, Megaphone, RotateCcw, TrendingUp } from "lucide-react";
+import { Building2, Info, Loader2, Megaphone, TrendingUp } from "lucide-react";
 import CompanyChart from "@/components/market/CompanyChart";
 import LossFlagBadge from "@/components/market/LossFlagBadge";
 import { formatCompact, formatNumber, normalizeMomentum, quoteDirection } from "@/lib/market";
@@ -14,7 +14,7 @@ function EmptySection({ children }) {
   return <p className="mt-3 text-sm leading-6 text-slate-500">{children}</p>;
 }
 
-export default function CompanyPanel({ symbol, onResetWidth, previousCompany, nextCompany, onSelectCompany }) {
+export default function CompanyPanel({ symbol, onResetWidth = () => {}, previousCompany = null, nextCompany = null, onSelectCompany = () => {} }) {
   const { language, isArabic, theme } = usePreferences();
   const [state, setState] = useState({ loading: false, data: null, error: "" });
 
@@ -32,16 +32,11 @@ export default function CompanyPanel({ symbol, onResetWidth, previousCompany, ne
 
   if (!symbol) return <section className="company-panel-empty"><Building2 size={34} /><h2>{isArabic ? "اختر شركة" : "Select a company"}</h2><p>{isArabic ? "اضغط على أي شركة أو على شريط السوق لعرض السعر والشموع والمعلومات والمؤشر هنا." : "Open any company to view its quote, candles, company information and indicator here."}</p></section>;
   if (state.loading) return <section className="company-panel-empty"><Loader2 className="animate-spin" /><p>{isArabic ? "جارٍ تحميل معلومات الشركة…" : "Loading company information…"}</p></section>;
-  if (state.error || !state.data?.instrument) return <section className="company-panel-empty text-red-600"><Info /><h2>{isArabic ? "تعذر تحميل الشركة" : "Company unavailable"}</h2><p>{isArabic ? "لم نضع بيانات بديلة. أعد المحاولة بعد عودة المصدر." : "No substitute data was shown. Retry when the source returns."}</p></section>;
+  if (state.error || !state.data?.instrument) return <section className="company-panel-empty text-red-600"><Info /><h2>{isArabic ? "تعذر تحميل الشركة" : "Company unavailable"}</h2><p>{isArabic ? "لم نضع بيانات بديلة. أعد المحاولة بعد عودة خدمة البيانات." : "No substitute data was shown. Retry when the data service returns."}</p></section>;
 
   const { instrument, quote = {}, financials = [], actions = [], announcements = [], shareholders = [], loss_classification: loss } = state.data;
   const direction = quoteDirection(quote.change_percent);
   return <div className="space-y-4">
-    <div className="company-navigation">
-      <button type="button" disabled={!previousCompany} onClick={() => previousCompany && onSelectCompany(previousCompany.symbol)} title={isArabic ? "الشركة السابقة حسب القائمة الحالية" : "Previous company in current list"}><ChevronRight size={16} /><span><small>{isArabic ? "السابق" : "Previous"}</small><b>{previousCompany ? (isArabic ? previousCompany.name_ar : previousCompany.name_en) : "—"}</b></span></button>
-      <button className="secondary-button" onClick={onResetWidth}><RotateCcw size={14} />{isArabic ? "الحجم الطبيعي" : "Reset size"}</button>
-      <button type="button" disabled={!nextCompany} onClick={() => nextCompany && onSelectCompany(nextCompany.symbol)} title={isArabic ? "الشركة التالية حسب القائمة الحالية" : "Next company in current list"}><span><small>{isArabic ? "التالي" : "Next"}</small><b>{nextCompany ? (isArabic ? nextCompany.name_ar : nextCompany.name_en) : "—"}</b></span><ChevronLeft size={16} /></button>
-    </div>
     <section className="company-hero-card">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div><span className="eyebrow"><Building2 size={14} />{isArabic ? "ملف الشركة" : "Company profile"}</span><h2 className="mt-3 text-2xl font-black">{instrument.symbol}</h2><p className="mt-1 text-lg font-bold">{isArabic ? instrument.name_ar : instrument.name_en}</p><p className="mt-1 text-sm text-slate-500">{isArabic ? instrument.sector_ar : instrument.sector_en}</p><div className="mt-3"><LossFlagBadge flag={instrument.warning_flag || loss?.level} /></div></div>
@@ -59,7 +54,7 @@ export default function CompanyPanel({ symbol, onResetWidth, previousCompany, ne
       </div>
     </section>
 
-    <CompanyChart symbol={instrument.symbol} momentum={momentum} />
+    <CompanyChart symbol={instrument.symbol} momentum={momentum} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} onResetWidth={onResetWidth} />
 
     <section className="content-card">
       <div className="section-heading"><TrendingUp size={18} /><div><h3>{isArabic ? "مناطق المستثمر" : "Investor zones"}</h3><p>{isArabic ? "حدود سعرية صارمة محسوبة للفاصل المعروض، بأسمائها وألوانها وأسعارها ووقفها." : "Strict price boundaries for the selected interval, with names, colors, prices and stops."}</p></div></div>

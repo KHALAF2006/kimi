@@ -149,12 +149,19 @@ assert.match(chartDrawingsFunction, /requireActiveSession\(base44, profile, body
 assert.match(chartDrawingsFunction, /row\.customer_id !== profile\.id/, "drawing mutations must enforce object ownership");
 assert.match(chartDrawingsFunction, /DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED/, "a drawing with an alert must not be deleted without explicit confirmation");
 assert.match(chartDrawingsFunction, /"trend_line", "ray", "horizontal_line"/, "drawing alerts must be restricted to supported line geometry");
+assert.match(chartDrawingsFunction, /body\.action === "duplicate"/, "copy/paste must create the duplicate through the protected backend");
+assert.match(chartDrawingsFunction, /drawing\.duplicate/, "backend drawing duplication must be audited");
 
 const drawingTools = await readFile(new URL("../src/components/market/ChartDrawingTools.jsx", import.meta.url), "utf8");
 for (const tool of ["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure"]) {
   assert.match(drawingTools, new RegExp(tool), `drawing tool is missing: ${tool}`);
 }
-assert.match(drawingTools, /deleteChartDrawing\(symbol, drawing, force\)/, "drawing deletion must use the protected backend service");
+assert.match(drawingTools, /deleteChartDrawing\(symbol, current, force\)/, "drawing deletion must wait for persistence and use the protected backend service");
+assert.match(drawingTools, /pendingSavesRef/, "drawing deletion must not race an in-flight save");
+assert.match(drawingTools, /duplicateChartDrawing/, "paste must use the protected backend duplication action");
+assert.match(drawingTools, /Ctrl\+V/, "the drawing clipboard must expose a real paste command");
+assert.match(drawingTools, /contextmenu/, "the chart must expose a right-click context menu");
+assert.match(drawingTools, /onResetChart/, "the chart context menu must provide a complete view reset");
 assert.match(drawingTools, /setPointerCapture/, "the drawing toolbar must use pointer capture while it is moved");
 assert.match(drawingTools, /TOOLBAR_STORAGE_KEY/, "the drawing toolbar position must persist");
 assert.match(drawingTools, /aria-orientation/, "the drawing toolbar must expose its orientation");
@@ -169,6 +176,8 @@ assert.match(companyIntelligence, /companies_received/, "company intelligence mu
 assert.match(companyIntelligence, /CompanyAnnouncement/, "company intelligence must persist announcements");
 assert.match(companyIntelligence, /MajorShareholder/, "company intelligence must persist major shareholders");
 assert.match(companyIntelligence, /CompanyFinancial/, "company intelligence must persist financial statements");
+assert.match(companyIntelligence, /CorporateAction/, "company intelligence must persist corporate actions");
+assert.match(companyIntelligence, /"bootstrap"/, "company intelligence must support an owner-controlled initial full import");
 
 const { drawingSegments, drawingHitTest } = await import(new URL("../src/components/market/chartDrawingModel.js", import.meta.url));
 const modelWidth = 800;
