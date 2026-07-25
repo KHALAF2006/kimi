@@ -34,7 +34,8 @@ assert.equal(company4210?.nameAr, "الأبحاث والإعلام");
 assert.equal(company4210?.nameEn, "Saudi Research and Media Group");
 
 const ingestion = await readFile(new URL("../base44/functions/marketIngestion/entry.ts", import.meta.url), "utf8");
-assert.match(ingestion, /official-main-market-catalog-2026-07-21\.json/);
+assert.match(ingestion, /official_main_market_catalog_2026_07_21_default\.companies/, "deployed ingestion must contain the bundled verified catalog");
+assert.match(ingestion, /var MAIN_MARKET_SYMBOLS = new Set/, "deployed ingestion must build a strict main-market allowlist");
 assert.match(ingestion, /name_ar:\s*row\.nameAr/);
 assert.match(ingestion, /name_en:\s*row\.nameEn/);
 assert.match(ingestion, /upsertMany\(base44,\s*["']Instrument["']/);
@@ -43,7 +44,7 @@ assert.match(ingestion, /Base44-Service-Authorization/, "scheduled ingestion mus
 assert.match(ingestion, /MAIN_MARKET_SYMBOLS\.has\(row\.symbol\)/, "ingestion must exclude records outside the verified main-market catalog");
 
 const marketRead = await readFile(new URL("../base44/functions/marketRead/entry.ts", import.meta.url), "utf8");
-assert.match(marketRead, /official-main-market-catalog-2026-07-21\.json/, "market reads must use the verified main-market allowlist");
+assert.match(marketRead, /official_main_market_catalog_2026_07_21_default\.companies/, "deployed reads must contain the bundled verified catalog");
 assert.match(marketRead, /MAIN_MARKET_SYMBOLS\.has\(item\.symbol\)/, "market reads must exclude non-main-market records");
 assert.match(marketRead, /optionalRows/, "optional source metadata must not take down the market catalog");
 assert.match(marketRead, /Main-market catalog mismatch/, "an incomplete verified catalog must fail closed");
@@ -52,15 +53,21 @@ const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIn
 assert.equal(schedule.name, "marketIngestion");
 const marketQuarterHour = JSON.parse(await readFile(new URL("../base44/workflows/MarketQuarterHour.jsonc", import.meta.url), "utf8"));
 const marketClose = JSON.parse(await readFile(new URL("../base44/workflows/MarketCloseReconciliation.jsonc", import.meta.url), "utf8"));
+const companyIntelligenceDaily = JSON.parse(await readFile(new URL("../base44/workflows/CompanyIntelligenceDaily.jsonc", import.meta.url), "utf8"));
+const companyFinancialsTwiceWeekly = JSON.parse(await readFile(new URL("../base44/workflows/CompanyFinancialsTwiceWeekly.jsonc", import.meta.url), "utf8"));
 assert.deepEqual([marketQuarterHour.trigger.config.cron_expression, marketClose.trigger.config.cron_expression], ["*/15 10-15 * * 0-4", "0 16 * * 0-4"]);
 assert.equal(marketQuarterHour.trigger.config.timezone, "Asia/Riyadh");
 assert.equal(marketClose.trigger.config.timezone, "Asia/Riyadh");
 assert.equal(marketQuarterHour.definition.do[0].refresh_market.with.args.batch_size, 270);
 assert.equal(marketClose.definition.do[0].reconcile_close.with.args.batch_size, 270);
+assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
+assert.equal(companyFinancialsTwiceWeekly.trigger.config.cron_expression, "0 16 * * 1,4");
+assert.equal(companyIntelligenceDaily.trigger.config.timezone, "Asia/Riyadh");
+assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh");
 
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
 const entityFiles = (await readdir(entityDirectory)).filter((name) => /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/.test(name));
-assert.equal(entityFiles.length, 32, "all 32 canonical Base44 entity schemas must be present");
+assert.equal(entityFiles.length, 33, "all 33 canonical Base44 entity schemas must be present");
 const entityNames = new Set();
 for (const name of entityFiles) {
   assert.match(name, /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/, `entity filename is not kebab-case: ${name}`);
@@ -76,7 +83,7 @@ for (const name of entityFiles) {
 }
 assert.ok(!entityNames.has("User"), "built-in Base44 User fields and permissions must not be redefined");
 const entityNamesLower = new Set([...entityNames].map((name) => name.toLowerCase()));
-for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing"]) {
+for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement"]) {
   assert.ok(entityNamesLower.has(required.toLowerCase()), `required entity is missing: ${required}`);
 }
 const customerProfile = JSON.parse(await readFile(new URL("../base44/entities/customer-profile.jsonc", import.meta.url), "utf8"));
@@ -85,7 +92,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 15, "all 15 backend functions must be present");
+assert.equal(functionNames.length, 16, "all 16 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -147,7 +154,21 @@ const drawingTools = await readFile(new URL("../src/components/market/ChartDrawi
 for (const tool of ["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure"]) {
   assert.match(drawingTools, new RegExp(tool), `drawing tool is missing: ${tool}`);
 }
-assert.match(drawingTools, /deleteChartDrawing\(symbol, selected, force\)/, "drawing deletion must use the protected backend service");
+assert.match(drawingTools, /deleteChartDrawing\(symbol, drawing, force\)/, "drawing deletion must use the protected backend service");
+assert.match(drawingTools, /setPointerCapture/, "the drawing toolbar must use pointer capture while it is moved");
+assert.match(drawingTools, /TOOLBAR_STORAGE_KEY/, "the drawing toolbar position must persist");
+assert.match(drawingTools, /aria-orientation/, "the drawing toolbar must expose its orientation");
+assert.match(drawingTools, /LayoutList/, "the drawing object tree must be available");
+assert.match(drawingTools, /fillOpacity/, "filled drawings must expose opacity controls");
+assert.match(drawingTools, /ALERT_TYPES/, "alert-capable drawing types must be explicit");
+
+const companyIntelligence = await readFile(new URL("../base44/functions/companyIntelligence/entry.ts", import.meta.url), "utf8");
+assert.match(companyIntelligence, /SAUDI_EXCHANGE_COMPANY_FEED_URL/, "company intelligence must require a configured official feed");
+assert.match(companyIntelligence, /OFFICIAL_HOST/, "company intelligence must restrict provenance to the official host");
+assert.match(companyIntelligence, /companies_received/, "company intelligence must use one batch payload");
+assert.match(companyIntelligence, /CompanyAnnouncement/, "company intelligence must persist announcements");
+assert.match(companyIntelligence, /MajorShareholder/, "company intelligence must persist major shareholders");
+assert.match(companyIntelligence, /CompanyFinancial/, "company intelligence must persist financial statements");
 
 const { drawingSegments, drawingHitTest } = await import(new URL("../src/components/market/chartDrawingModel.js", import.meta.url));
 const modelWidth = 800;
@@ -205,3 +226,4 @@ console.log(JSON.stringify({
   referencedEntities: referencedEntities.size,
   selectedCompany: { symbol: "4210", nameAr: company4210.nameAr, nameEn: company4210.nameEn },
 }, null, 2));
+
