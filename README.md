@@ -92,3 +92,13 @@ npx base44 deploy -y
 `npm test` يتحقق من عدد الشركات، تفرد الرموز، بصمة الملف، الاسم الصحيح للشركة `4210`، ربط ingest بالملف الرسمي، الجدولة، ورفض RLS المباشر لجميع الكيانات.
 
 توثيق تكامل GitHub مع Base44: <https://docs.base44.com/Integrations/Using-GitHub>
+
+### Company intelligence feed
+
+The `companyIntelligence` backend function is fail-closed and never fabricates announcements, major-shareholder ownership, or financial statements. Configure these Base44 secrets before enabling its schedules:
+
+- `SAUDI_EXCHANGE_COMPANY_FEED_URL`: the licensed/authenticated batch endpoint.
+- `SAUDI_EXCHANGE_COMPANY_FEED_TOKEN`: the endpoint bearer token.
+
+The endpoint must return official `https://*.saudiexchange.sa/` provenance URLs for every accepted record. `CompanyIntelligenceDaily` runs after close from Sunday through Thursday; `CompanyFinancialsTwiceWeekly` runs on Monday and Thursday.
+
