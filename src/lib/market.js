@@ -92,7 +92,7 @@ export function calculateRsiSeries(inputBars = [], length = 14, source = "close"
   return result;
 }
 
-/** Port of "مؤشر مناطق الزخم السعرية التحديث الأول" using daily verified bars. */
+/** Strict investor-zone calculation port using verified market bars. */
 export function calculateMomentumSnapshot(inputBars = [], lookbackDays = 20, historyBars = 500, theme = "light") {
   const lookback = Math.min(30, Math.max(6, Math.round(Number(lookbackDays) || 20)));
   const bars = inputBars.map((bar) => ({
@@ -193,3 +193,4 @@ export function marketSummary(rows = []) {
     return result;
   }, { total: 0, up: 0, down: 0, flat: 0, volume: 0, value: 0 });
 }
+
