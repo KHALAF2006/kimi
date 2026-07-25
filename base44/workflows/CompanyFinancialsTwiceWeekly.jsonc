@@ -1,0 +1,41 @@
+{
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "company_financials_twice_weekly",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "refresh_company_financials": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "companyIntelligence",
+            "args": { "mode": "financials" }
+          },
+          "then": "end"
+        }
+      }
+    ]
+  },
+  "description": "يفحص البيانات المالية يومي الاثنين والخميس بعد الإغلاق ويحدّث القيم المتغيرة فقط.",
+  "name": "فحص البيانات المالية مرتين أسبوعيًا",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "0 16 * * 1,4",
+      "one_time_date": null,
+      "timezone": "Asia/Riyadh",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  }
+}

@@ -5313,11 +5313,12 @@ Deno.serve(async (req) => {
     if (body.action === "chart") return Response.json(await chartResponse(base44, body, sources));
     if (body.symbol || body.instrument_id) {
       const instrument = await instrumentFor(base44, body);
-      const [quotes2, indicators2, financials, actions, shareholders, losses2] = await Promise.all([
+      const [quotes2, indicators2, financials, actions, announcements, shareholders, losses2] = await Promise.all([
         base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: instrument.id }),
         base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: instrument.id }),
         base44.asServiceRole.entities.CompanyFinancial.filter({ instrument_id: instrument.id }),
         base44.asServiceRole.entities.CorporateAction.filter({ instrument_id: instrument.id }),
+        base44.asServiceRole.entities.CompanyAnnouncement.filter({ instrument_id: instrument.id }),
         base44.asServiceRole.entities.MajorShareholder.filter({ instrument_id: instrument.id }),
         base44.asServiceRole.entities.LossClassification.filter({ instrument_id: instrument.id })
       ]);
@@ -5327,11 +5328,12 @@ Deno.serve(async (req) => {
         instrument: { ...instrument, warning_flag: losses2[0]?.level === "none" ? null : losses2[0]?.level },
         quote: quote ? { ...quote, data_state: stateFor(quote.quote_time, source), source } : null,
         indicators: indicators2,
-        financials,
-        actions,
-        shareholders,
+        financials: financials.sort((a, b) => String(b.period_end || b.as_of || "").localeCompare(String(a.period_end || a.as_of || ""))),
+        actions: actions.sort((a, b) => String(b.effective_date || b.as_of || "").localeCompare(String(a.effective_date || a.as_of || ""))),
+        announcements: announcements.sort((a, b) => String(b.published_at || "").localeCompare(String(a.published_at || ""))),
+        shareholders: shareholders.sort((a, b) => Number(b.ownership_percent || 0) - Number(a.ownership_percent || 0)),
         loss_classification: losses2[0] || null,
-        notice: "\u0628\u064A\u0627\u0646\u0627\u062A \u062D\u0642\u064A\u0642\u064A\u0629 \u0645\u0631\u062C\u0639\u064A\u0629 \u0645\u062A\u0623\u062E\u0631\u0629 \u2014 \u0627\u0644\u0645\u0635\u062F\u0631 \u0648\u0627\u0644\u0648\u0642\u062A \u0645\u0648\u0636\u062D\u0627\u0646"
+        notice: "\u062A\u0638\u0647\u0631 \u062D\u0627\u0644\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u0648\u0648\u0642\u062A \u0622\u062E\u0631 \u062A\u062D\u062F\u064A\u062B \u062F\u0627\u062E\u0644 \u0627\u0644\u0645\u0646\u0635\u0629"
       });
     }
     const limit = Math.min(Math.max(Number(body.limit || 500), 1), 500);
@@ -5366,7 +5368,7 @@ Deno.serve(async (req) => {
       instruments: rows.slice(0, limit),
       total: MAIN_MARKET_SYMBOLS.size,
       sources,
-      notice: "\u0628\u064A\u0627\u0646\u0627\u062A \u062D\u0642\u064A\u0642\u064A\u0629 \u0645\u0631\u062C\u0639\u064A\u0629 \u0645\u062A\u0623\u062E\u0631\u0629 \u2014 \u0627\u0644\u0645\u0635\u062F\u0631 \u0648\u0627\u0644\u0648\u0642\u062A \u0645\u0648\u0636\u062D\u0627\u0646"
+      notice: "\u062A\u0638\u0647\u0631 \u062D\u0627\u0644\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u0648\u0648\u0642\u062A \u0622\u062E\u0631 \u062A\u062D\u062F\u064A\u062B \u062F\u0627\u062E\u0644 \u0627\u0644\u0645\u0646\u0635\u0629"
     });
   } catch (error) {
     return replyError(error);

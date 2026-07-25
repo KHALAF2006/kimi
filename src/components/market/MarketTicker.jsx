@@ -16,7 +16,7 @@ export default function MarketTicker({ rows = [] }) {
         return <Link key={row.symbol + "-" + index} to={"/dashboard?company=" + row.symbol} className="market-ticker-item" title={language === "ar" ? "افتح " + row.name_ar : "Open " + row.name_en}>
           <span className="font-black">{row.symbol}</span>
           <span>{language === "ar" ? row.name_ar : row.name_en}</span>
-          <b>{formatNumber(row.quote?.last_price, language)}</b>
+          <b className={"market-" + direction}>{formatNumber(row.quote?.last_price, language)}</b>
           <span className={"market-" + direction}>{Number(row.quote?.change_percent || 0) > 0 ? "+" : ""}{formatNumber(row.quote?.change_percent, language)}%</span>
           <LossFlagBadge flag={row.warning_flag || row.loss_classification?.level} compact />
         </Link>;

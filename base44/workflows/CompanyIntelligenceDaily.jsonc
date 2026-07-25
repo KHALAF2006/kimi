@@ -1,0 +1,41 @@
+{
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "company_intelligence_daily",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "refresh_company_intelligence": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "companyIntelligence",
+            "args": { "mode": "daily" }
+          },
+          "then": "end"
+        }
+      }
+    ]
+  },
+  "description": "يفحص إعلانات الشركات وكبار المساهمين بعد إغلاق السوق ويحدّث المتغير فقط.",
+  "name": "فحص معلومات الشركات اليومي",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "10 16 * * 0-4",
+      "one_time_date": null,
+      "timezone": "Asia/Riyadh",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  }
+}

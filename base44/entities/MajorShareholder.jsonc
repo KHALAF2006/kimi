@@ -11,7 +11,16 @@
     "shareholder_name_en": {
       "type": "string"
     },
+    "shareholder_key": {
+      "type": "string"
+    },
     "ownership_percent": {
+      "type": "number"
+    },
+    "previous_ownership_percent": {
+      "type": "number"
+    },
+    "change_percent": {
       "type": "number"
     },
     "source_id": {
