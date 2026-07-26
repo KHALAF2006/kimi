@@ -82,7 +82,12 @@ export async function requireRole(base44, roles) {
 
 export async function requireActiveSession(base44, profile, sessionId) {
   if (!profile || !sessionId) throw Object.assign(new Error("Active device session required"), { status: 403 });
-  const session = await base44.asServiceRole.entities.ActiveDeviceSession.get(sessionId);
+  let session = null;
+  try {
+    session = await base44.asServiceRole.entities.ActiveDeviceSession.get(sessionId);
+  } catch {
+    session = null;
+  }
   if (!session || session.customer_id !== profile.id || session.revoked_at || new Date(session.expires_at) <= new Date()) throw Object.assign(new Error("Active device session required"), { status: 403 });
   return session;
 }

@@ -213,6 +213,7 @@ const sharedSecurity = await readFile(new URL("../base44/shared/security.ts", im
 assert.match(sharedSecurity, /profile\?\.acquisition_source === "platform_owner_bootstrap"/, "owner access must be rooted in the server-managed platform owner marker");
 assert.match(sharedSecurity, /profile\.tags\.includes\("owner"\)/, "owner access must require the server-managed owner tag");
 assert.doesNotMatch(sharedSecurity, /if \(profile\.role !== "admin"/, "administrative login must never downgrade the owner to admin");
+assert.match(sharedSecurity, /try\s*\{\s*session = await base44\.asServiceRole\.entities\.ActiveDeviceSession\.get\(sessionId\);\s*\}\s*catch\s*\{\s*session = null;/, "unknown session identifiers must be normalized to the same authorization denial");
 const authLoginFunction = await readFile(new URL("../base44/functions/authLogin/entry.ts", import.meta.url), "utf8");
 assert.match(authLoginFunction, /acquisition_source === "platform_owner_bootstrap"/, "the deployed authLogin function must reconcile the trusted owner");
 assert.match(authLoginFunction, /role:\s*owner \? "owner" : "admin"/, "the deployed authLogin function must not downgrade the owner");
