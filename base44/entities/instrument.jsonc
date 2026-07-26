@@ -1,5 +1,5 @@
 {
-  "name": "instrument",
+  "name": "Instrument",
   "type": "object",
   "properties": {
     "symbol": {
