@@ -66,8 +66,10 @@ assert.equal(companyIntelligenceDaily.trigger.config.timezone, "Asia/Riyadh");
 assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh");
 
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
-const entityFiles = (await readdir(entityDirectory)).filter((name) => /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/.test(name));
+const allEntityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc")).sort();
+const entityFiles = allEntityFiles.filter((name) => /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/.test(name));
 assert.equal(entityFiles.length, 44, "all 44 canonical Base44 entity schemas must be present");
+assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "legacy duplicate entity schema files must not remain beside the canonical kebab-case files");
 const entityNames = new Set();
 for (const name of entityFiles) {
   assert.match(name, /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/, `entity filename is not kebab-case: ${name}`);
