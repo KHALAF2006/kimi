@@ -2,7 +2,6 @@
 
 // base44/functions/marketIngestion/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
-import { requirePermission } from "../../shared/security.ts";
 var official_main_market_catalog_2026_07_21_default = {
   source: "Saudi Exchange",
   sourceUrl: "https://www.saudiexchange.sa/Resources/Reports-v2/DetailedDaily_en.html",
@@ -5164,6 +5163,17 @@ async function requireRole(base44, roles) {
   if (!roles.includes(role)) throw Object.assign(new Error("Forbidden"), { status: 403 });
   return { user, profile, role };
 }
+async function requireDataIngestionPermission(base44, sessionId) {
+  const response = await base44.functions.invoke("identityContext", {
+    action: "get",
+    session_id: sessionId
+  });
+  const context = response?.data || response;
+  if (!Array.isArray(context?.permissions) || !context.permissions.includes("data.ingestion.run")) {
+    throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
+  }
+  return context;
+}
 function replyError(error) {
   const status = Number(error?.status) || 500;
   if (status >= 500) console.error("KMY backend error", error);
@@ -5512,7 +5522,7 @@ Deno.serve(async (req) => {
       user = null;
     }
     if (user) {
-      await requirePermission(base44, body.session_id, "data.ingestion.run");
+      await requireDataIngestionPermission(base44, body.session_id);
     } else {
       const serviceAuthorization = req.headers.get("Base44-Service-Authorization");
       const scheduledSources = /* @__PURE__ */ new Set(["scheduled_reference_sync", "scheduled_close_reconciliation"]);

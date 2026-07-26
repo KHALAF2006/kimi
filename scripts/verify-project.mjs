@@ -232,7 +232,8 @@ assert.match(adminRolesFunction, /SELF_ASSIGNMENT_DENIED/, "an administrator mus
 assert.match(adminRolesFunction, /RESERVED_ROLE_IMMUTABLE/, "reserved administrative roles must remain immutable");
 assert.match(adminRolesFunction, /REVISION_CONFLICT/, "role updates must reject stale administrative writes");
 const marketIngestionFunction = await readFile(new URL("../base44/functions/marketIngestion/entry.ts", import.meta.url), "utf8");
-assert.match(marketIngestionFunction, /requirePermission\(base44, body\.session_id, "data\.ingestion\.run"\)/, "manual market ingestion must require the dedicated backend permission");
+assert.match(marketIngestionFunction, /base44\.functions\.invoke\("identityContext"/, "manual market ingestion must delegate authorization to the centralized identity context");
+assert.match(marketIngestionFunction, /context\.permissions\.includes\("data\.ingestion\.run"\)/, "manual market ingestion must require the dedicated backend permission");
 
 const { calculateRsiSeries, calculateMomentumSnapshot } = await import(new URL("../src/lib/market.js", import.meta.url));
 const risingBars = Array.from({ length: 40 }, (_, index) => ({
