@@ -5,7 +5,7 @@ import {
   PenLine, Redo2, RefreshCcw, Route, Ruler, Spline, Square, Trash2, TrendingUp, Undo2, Unlock, X,
 } from "lucide-react";
 import {
-  cloneDrawings, createDrawing, DRAWING_TYPES, drawingHitTest, drawingSegments, lineStyleDash,
+  cloneDrawings, createDrawing, DRAWING_TYPES, drawingFillPolygon, drawingHitTest, drawingSegments, lineStyleDash,
 } from "@/components/market/chartDrawingModel";
 import {
   deleteChartDrawing, deleteDrawingAlert, duplicateChartDrawing, loadChartDrawings, saveChartDrawing, saveDrawingAlert,
@@ -22,9 +22,12 @@ const icons = {
   polyline: PenLine,
   curve: Spline,
   brush: Paintbrush,
-  measure: Ruler,
+  price_range: MoveVertical,
+  date_range: MoveHorizontal,
+  date_and_price_range: Ruler,
 };
 const ALERT_TYPES = new Set(["trend_line", "ray", "horizontal_line"]);
+const RANGE_TYPES = new Set(["price_range", "date_range", "date_and_price_range"]);
 const TOOLBAR_STORAGE_KEY = "si_drawing_toolbar_layout";
 
 function storedToolbarLayout() {
@@ -75,6 +78,11 @@ function drawArrowHead(context, start, end, color, width) {
   context.stroke();
 }
 
+function drawDoubleArrow(context, start, end, color, width) {
+  drawArrowHead(context, start, end, color, width);
+  drawArrowHead(context, end, start, color, width);
+}
+
 function fillColor(color, opacity) {
   const value = String(color || "#2563eb").replace("#", "");
   if (!/^[0-9a-f]{6}$/i.test(value)) return "rgba(37,99,235,.12)";
@@ -82,7 +90,39 @@ function fillColor(color, opacity) {
   return `rgba(${r},${g},${b},${Math.max(0, Math.min(100, Number(opacity) || 0)) / 100})`;
 }
 
-function renderDrawing(context, drawing, points, width, height, selected, isArabic) {
+function formatDuration(seconds, isArabic) {
+  const absolute = Math.max(0, Math.round(Math.abs(seconds)));
+  const units = /** @type {Array<[number, string]>} */ ([
+    [31_536_000, isArabic ? "سنة" : "y"],
+    [2_592_000, isArabic ? "شهر" : "mo"],
+    [86_400, isArabic ? "يوم" : "d"],
+    [3_600, isArabic ? "ساعة" : "h"],
+    [60, isArabic ? "دقيقة" : "m"],
+  ]);
+  const [size, label] = units.find(([value]) => absolute >= value) || [1, isArabic ? "ثانية" : "s"];
+  return `${Math.max(1, Math.round(absolute / size)).toLocaleString(isArabic ? "ar-SA" : "en-US")} ${label}`;
+}
+
+function measurementLabel(drawing, isArabic, minMove) {
+  const [start, end] = drawing.points;
+  const parts = [];
+  if (drawing.type !== "date_range") {
+    const priceChange = Number(end.price) - Number(start.price);
+    const percentage = Number(start.price) ? priceChange / Number(start.price) * 100 : 0;
+    const ticks = Math.round(Math.abs(priceChange) / Math.max(Number(minMove) || 0.01, 1e-9));
+    parts.push(`${priceChange >= 0 ? "+" : ""}${priceChange.toFixed(2)} (${percentage >= 0 ? "+" : ""}${percentage.toFixed(2)}%)`);
+    parts.push(`${ticks.toLocaleString(isArabic ? "ar-SA" : "en-US")} ${isArabic ? "خطوة" : "ticks"}`);
+  }
+  if (drawing.type !== "price_range") {
+    const bars = Math.max(0, Math.round(Math.abs(Number(end.logical) - Number(start.logical))));
+    const seconds = Number.isFinite(Number(start.time)) && Number.isFinite(Number(end.time)) ? Number(end.time) - Number(start.time) : 0;
+    parts.push(`${bars.toLocaleString(isArabic ? "ar-SA" : "en-US")} ${isArabic ? "شمعة" : "bars"}`);
+    if (seconds) parts.push(formatDuration(seconds, isArabic));
+  }
+  return parts.join(" · ");
+}
+
+function renderDrawing(context, drawing, points, width, height, selected, isArabic, minMove) {
   if (!drawing.visible || !points.length) return;
   const options = drawing.options || {};
   const color = options.color || "#2563eb";
@@ -95,15 +135,11 @@ function renderDrawing(context, drawing, points, width, height, selected, isArab
   context.lineCap = "round";
   context.lineJoin = "round";
 
-  if (drawing.type === "rectangle" && points[1]) {
-    context.fillRect(points[0].x, points[0].y, points[1].x - points[0].x, points[1].y - points[0].y);
-  } else if (drawing.type === "parallel_channel" && points[2]) {
-    const offset = { x: points[2].x - points[1].x, y: points[2].y - points[1].y };
+  const fillPolygon = drawingFillPolygon(drawing.type, points, width, height, options);
+  if (fillPolygon.length >= 3) {
     context.beginPath();
-    context.moveTo(points[0].x, points[0].y);
-    context.lineTo(points[1].x, points[1].y);
-    context.lineTo(points[1].x + offset.x, points[1].y + offset.y);
-    context.lineTo(points[0].x + offset.x, points[0].y + offset.y);
+    context.moveTo(fillPolygon[0].x, fillPolygon[0].y);
+    fillPolygon.slice(1).forEach((point) => context.lineTo(point.x, point.y));
     context.closePath();
     context.fill();
   }
@@ -114,7 +150,15 @@ function renderDrawing(context, drawing, points, width, height, selected, isArab
     context.quadraticCurveTo(points[1].x, points[1].y, points[2].x, points[2].y);
     context.stroke();
   } else {
-    drawingSegments(drawing.type, points, width, height, options).forEach(([start, end]) => {
+    const segments = drawingSegments(drawing.type, points, width, height, options);
+    segments.forEach(([start, end], index) => {
+      if (drawing.type === "parallel_channel" && index === 2) {
+        context.setLineDash(lineStyleDash(options.medianStyle || "dashed", Math.max(1, lineWidth - 1)));
+        context.globalAlpha = 0.72;
+      } else {
+        context.setLineDash(lineStyleDash(options.lineStyle, lineWidth));
+        context.globalAlpha = 1;
+      }
       context.beginPath();
       context.moveTo(start.x, start.y);
       context.lineTo(end.x, end.y);
@@ -123,10 +167,17 @@ function renderDrawing(context, drawing, points, width, height, selected, isArab
   }
 
   if (drawing.type === "arrow" && points[1]) drawArrowHead(context, points[0], points[1], color, lineWidth);
-  if (drawing.type === "measure" && points[1] && options.showLabel !== false) {
-    const priceChange = drawing.points[1].price - drawing.points[0].price;
-    const percentage = drawing.points[0].price ? priceChange / drawing.points[0].price * 100 : 0;
-    const label = `${priceChange >= 0 ? "+" : ""}${priceChange.toFixed(2)} (${percentage >= 0 ? "+" : ""}${percentage.toFixed(2)}%)`;
+  if (RANGE_TYPES.has(drawing.type) && points[1]) {
+    const segments = drawingSegments(drawing.type, points, width, height, options);
+    if (drawing.type === "price_range") drawDoubleArrow(context, ...segments[2], color, lineWidth);
+    if (drawing.type === "date_range") drawDoubleArrow(context, ...segments[2], color, lineWidth);
+    if (drawing.type === "date_and_price_range") {
+      drawDoubleArrow(context, ...segments.at(-1), color, lineWidth);
+      drawDoubleArrow(context, ...segments.at(-2), color, lineWidth);
+    }
+  }
+  if (RANGE_TYPES.has(drawing.type) && points[1] && options.showLabel !== false) {
+    const label = measurementLabel(drawing, isArabic, minMove);
     context.font = "bold 12px Tajawal";
     const labelWidth = context.measureText(label).width + 14;
     const x = Math.min(width - labelWidth - 4, Math.max(4, (points[0].x + points[1].x) / 2 - labelWidth / 2));
@@ -206,11 +257,12 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     const context = canvas.getContext("2d");
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, rect.width, rect.height);
+    const minMove = Number(series.options?.().priceFormat?.minMove) || 0.01;
     [...drawingsRef.current, ...(draftRef.current ? [draftRef.current] : [])]
       .sort((a, b) => Number(a.zIndex || 0) - Number(b.zIndex || 0))
       .forEach((drawing) => {
         const points = drawing.points.map((point) => toCanvasPoint(point, chart, series)).filter(Boolean);
-        if (points.length === drawing.points.length) renderDrawing(context, drawing, points, rect.width, rect.height, drawing.clientId === selectedId, isArabic);
+        if (points.length === drawing.points.length) renderDrawing(context, drawing, points, rect.width, rect.height, drawing.clientId === selectedId, isArabic, minMove);
       });
   }, [chart, series, selectedId, isArabic]);
 
@@ -218,13 +270,28 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
 
   useEffect(() => {
     if (!chart || !canvasRef.current) return undefined;
-    const handler = () => window.requestAnimationFrame(redraw);
+    let firstFrame = 0;
+    let secondFrame = 0;
+    const handler = () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+      firstFrame = window.requestAnimationFrame(() => {
+        redraw();
+        secondFrame = window.requestAnimationFrame(redraw);
+      });
+    };
     chart.timeScale().subscribeVisibleLogicalRangeChange(handler);
     const observer = new ResizeObserver(handler);
-    observer.observe(canvasRef.current);
+    observer.observe(canvasRef.current.parentElement || canvasRef.current);
+    const interactionTarget = canvasRef.current.parentElement;
+    const interactionEvents = ["wheel", "pointermove", "pointerdown", "pointerup", "touchmove", "dblclick"];
+    interactionEvents.forEach((eventName) => interactionTarget?.addEventListener(eventName, handler, { passive: true }));
     return () => {
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handler);
       observer.disconnect();
+      interactionEvents.forEach((eventName) => interactionTarget?.removeEventListener(eventName, handler));
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
     };
   }, [chart, redraw]);
 
@@ -232,9 +299,9 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     let active = true;
     setSelectedId("");
     setStatus("");
-    loadChartDrawings(symbol).then((values) => active && setDrawings(values)).catch((error) => active && setStatus(displayError(error, isArabic)));
+    loadChartDrawings(symbol, interval).then((values) => active && setDrawings(values)).catch((error) => active && setStatus(displayError(error, isArabic)));
     return () => { active = false; };
-  }, [symbol, isArabic]);
+  }, [symbol, interval, isArabic]);
 
   useEffect(() => {
     const handler = (event) => {
@@ -645,11 +712,12 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     {selected && <div className="drawing-selection-toolbar" role="toolbar" aria-label={isArabic ? "خصائص الرسم المحدد" : "Selected drawing properties"}>
       <b>{isArabic ? selectedType?.ar : selectedType?.en}</b>
       <input type="color" value={selected.options.color} onChange={(event) => updateSelected({ options: { color: event.target.value } })} title={isArabic ? "لون الخط" : "Line color"} />
-      {["rectangle", "parallel_channel"].includes(selected.type) && <><input type="color" value={selected.options.fillColor || selected.options.color} onChange={(event) => updateSelected({ options: { fillColor: event.target.value } })} title={isArabic ? "لون التعبئة" : "Fill color"} /><label><span>{isArabic ? "شفافية" : "Opacity"}</span><input type="range" min="0" max="100" value={selected.options.fillOpacity} onChange={(event) => updateSelected({ options: { fillOpacity: Number(event.target.value) } })} /></label></>}
+      {["rectangle", "parallel_channel", ...RANGE_TYPES].includes(selected.type) && <><input type="color" value={selected.options.fillColor || selected.options.color} onChange={(event) => updateSelected({ options: { fillColor: event.target.value } })} title={isArabic ? "لون التعبئة" : "Fill color"} /><label><span>{isArabic ? "شفافية" : "Opacity"}</span><input type="range" min="0" max="100" value={selected.options.fillOpacity} onChange={(event) => updateSelected({ options: { fillOpacity: Number(event.target.value) } })} /></label></>}
       <select value={selected.options.lineWidth} onChange={(event) => updateSelected({ options: { lineWidth: Number(event.target.value) } })} aria-label={isArabic ? "سماكة الخط" : "Line width"}><option value="1">1px</option><option value="2">2px</option><option value="3">3px</option><option value="4">4px</option></select>
       <select value={selected.options.lineStyle} onChange={(event) => updateSelected({ options: { lineStyle: event.target.value } })} aria-label={isArabic ? "نمط الخط" : "Line style"}><option value="solid">{isArabic ? "متصل" : "Solid"}</option><option value="dashed">{isArabic ? "متقطع" : "Dashed"}</option><option value="dotted">{isArabic ? "منقط" : "Dotted"}</option></select>
-      {["trend_line", "ray"].includes(selected.type) && <><label><input type="checkbox" checked={selected.options.extendLeft} onChange={(event) => updateSelected({ options: { extendLeft: event.target.checked } })} />{isArabic ? "امتداد يسار" : "Extend left"}</label><label><input type="checkbox" checked={selected.options.extendRight || selected.type === "ray"} disabled={selected.type === "ray"} onChange={(event) => updateSelected({ options: { extendRight: event.target.checked } })} />{isArabic ? "امتداد يمين" : "Extend right"}</label></>}
-      {selected.type === "measure" && <label><input type="checkbox" checked={selected.options.showLabel !== false} onChange={(event) => updateSelected({ options: { showLabel: event.target.checked } })} />{isArabic ? "إظهار القياس" : "Show measurement"}</label>}
+      {["trend_line", "ray", "parallel_channel"].includes(selected.type) && <><label><input type="checkbox" checked={selected.options.extendLeft} onChange={(event) => updateSelected({ options: { extendLeft: event.target.checked } })} />{isArabic ? "امتداد يسار" : "Extend left"}</label><label><input type="checkbox" checked={selected.options.extendRight || selected.type === "ray"} disabled={selected.type === "ray"} onChange={(event) => updateSelected({ options: { extendRight: event.target.checked } })} />{isArabic ? "امتداد يمين" : "Extend right"}</label></>}
+      {selected.type === "parallel_channel" && <><label><input type="checkbox" checked={selected.options.showMedian !== false} onChange={(event) => updateSelected({ options: { showMedian: event.target.checked } })} />{isArabic ? "خط المنتصف" : "Median"}</label><select value={selected.options.medianStyle || "dashed"} onChange={(event) => updateSelected({ options: { medianStyle: event.target.value } })} aria-label={isArabic ? "نمط خط المنتصف" : "Median line style"}><option value="solid">{isArabic ? "متصل" : "Solid"}</option><option value="dashed">{isArabic ? "متقطع" : "Dashed"}</option><option value="dotted">{isArabic ? "منقط" : "Dotted"}</option></select></>}
+      {RANGE_TYPES.has(selected.type) && <label><input type="checkbox" checked={selected.options.showLabel !== false} onChange={(event) => updateSelected({ options: { showLabel: event.target.checked } })} />{isArabic ? "إظهار القياس" : "Show measurement"}</label>}
       <button type="button" onClick={() => updateSelected({ locked: !selected.locked })} title={selected.locked ? (isArabic ? "فتح القفل" : "Unlock") : (isArabic ? "قفل الرسم" : "Lock")}>{selected.locked ? <Lock size={15} /> : <Unlock size={15} />}</button>
       <button type="button" onClick={() => updateSelected({ visible: !selected.visible })} title={selected.visible ? (isArabic ? "إخفاء" : "Hide") : (isArabic ? "إظهار" : "Show")}>{selected.visible ? <Eye size={15} /> : <EyeOff size={15} />}</button>
       <button type="button" disabled={!ALERT_TYPES.has(selected.type)} onClick={() => setShowAlertEditor(true)} title={!ALERT_TYPES.has(selected.type) ? (isArabic ? "التنبيه متاح للخطوط السعرية فقط" : "Alerts are available for price lines") : (isArabic ? "تنبيه الرسم" : "Drawing alert")}>{selected.alert ? <BellOff size={15} /> : <BellPlus size={15} />}</button>

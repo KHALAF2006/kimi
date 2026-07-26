@@ -53,6 +53,22 @@
     "source_id": {
       "type": "string"
     },
+    "source_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "received_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "delay_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "license_status": {
+      "type": "string",
+      "enum": ["pending", "approved", "suspended", "expired"]
+    },
     "quote_time": {
       "type": "string",
       "format": "date-time"

@@ -9,6 +9,8 @@ import ScrollToTop from './components/ScrollToTop';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import KmyLayout from '@/components/KmyLayout';
 import { PreferencesProvider } from '@/lib/preferences';
+import { AuthorizationProvider } from '@/lib/AuthorizationContext';
+import PermissionGate from '@/components/PermissionGate';
 
 import { lazy, Suspense } from 'react';
 
@@ -33,6 +35,7 @@ const CustomersAdmin = lazy(() => import('@/pages/CustomersAdmin'));
 const DataQualityAdmin = lazy(() => import('@/pages/DataQualityAdmin'));
 const OperationsAdmin = lazy(() => import('@/pages/OperationsAdmin'));
 const AuditAdmin = lazy(() => import('@/pages/AuditAdmin'));
+const RolesAdmin = lazy(() => import('@/pages/RolesAdmin'));
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -78,12 +81,13 @@ const AuthenticatedApp = () => {
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/destinations" element={<Destinations />} />
           <Route path="/profile" element={<Profile />} />
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/admin/subscriptions" element={<SubscriptionsAdmin />} />
-          <Route path="/admin/customers" element={<CustomersAdmin />} />
-          <Route path="/admin/quality" element={<DataQualityAdmin />} />
-          <Route path="/admin/operations" element={<OperationsAdmin />} />
-          <Route path="/admin/audit" element={<AuditAdmin />} />
+          <Route path="/admin" element={<PermissionGate permission="dashboard.owner.read"><AdminDashboard /></PermissionGate>} />
+          <Route path="/admin/subscriptions" element={<PermissionGate permission="subscriptions.read"><SubscriptionsAdmin /></PermissionGate>} />
+          <Route path="/admin/customers" element={<PermissionGate permission="customers.masked.read"><CustomersAdmin /></PermissionGate>} />
+          <Route path="/admin/quality" element={<PermissionGate permission="data.quality.manage"><DataQualityAdmin /></PermissionGate>} />
+          <Route path="/admin/operations" element={<PermissionGate permission="data.operations.read"><OperationsAdmin /></PermissionGate>} />
+          <Route path="/admin/audit" element={<PermissionGate permission="audit.read"><AuditAdmin /></PermissionGate>} />
+          <Route path="/admin/roles" element={<PermissionGate permission="roles.manage"><RolesAdmin /></PermissionGate>} />
         </Route>
       </Route>
       <Route path="*" element={<PageNotFound />} />
@@ -99,11 +103,13 @@ function App() {
     <PreferencesProvider>
       <AuthProvider>
         <QueryClientProvider client={queryClientInstance}>
-          <Router>
-            <ScrollToTop />
-            <AuthenticatedApp />
-          </Router>
-          <Toaster />
+          <AuthorizationProvider>
+            <Router>
+              <ScrollToTop />
+              <AuthenticatedApp />
+            </Router>
+            <Toaster />
+          </AuthorizationProvider>
         </QueryClientProvider>
       </AuthProvider>
     </PreferencesProvider>

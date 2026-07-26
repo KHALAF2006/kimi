@@ -1,37 +1,40 @@
 import { invokeAppFunction, isReferencePreview } from "@/services/marketService";
 import { normalizedDrawing } from "@/components/market/chartDrawingModel";
 
-function storageKey(symbol) {
-  return `kmy_chart_drawings_${symbol}`;
+function storageKey(symbol, interval = "all") {
+  return `kmy_chart_drawings_${symbol}_${interval}`;
 }
 
-function readLocal(symbol) {
+function readLocal(symbol, interval = "all") {
   try {
-    return (JSON.parse(localStorage.getItem(storageKey(symbol)) || "[]") || []).map(normalizedDrawing).filter(Boolean);
+    const scoped = localStorage.getItem(storageKey(symbol, interval));
+    const legacy = localStorage.getItem(`kmy_chart_drawings_${symbol}`);
+    return (JSON.parse(scoped || legacy || "[]") || []).map(normalizedDrawing).filter(Boolean);
   } catch {
     return [];
   }
 }
 
-function writeLocal(symbol, drawings) {
-  localStorage.setItem(storageKey(symbol), JSON.stringify(drawings));
+function writeLocal(symbol, interval, drawings) {
+  localStorage.setItem(storageKey(symbol, interval), JSON.stringify(drawings));
   return drawings;
 }
 
-export async function loadChartDrawings(symbol) {
-  if (isReferencePreview()) return readLocal(symbol);
-  const result = await invokeAppFunction("chartDrawings", { action: "list", symbol });
+export async function loadChartDrawings(symbol, interval) {
+  if (isReferencePreview()) return readLocal(symbol, interval);
+  const result = await invokeAppFunction("chartDrawings", { action: "list", symbol, interval_scope: interval });
   return (result.drawings || []).map(normalizedDrawing).filter(Boolean);
 }
 
 export async function saveChartDrawing(symbol, interval, drawing) {
   if (isReferencePreview()) {
-    const drawings = readLocal(symbol);
+    const scopedDrawing = { ...drawing, intervalScope: interval };
+    const drawings = readLocal(symbol, interval);
     const index = drawings.findIndex((item) => item.clientId === drawing.clientId);
-    if (index >= 0) drawings[index] = drawing;
-    else drawings.push(drawing);
-    writeLocal(symbol, drawings);
-    return drawing;
+    if (index >= 0) drawings[index] = scopedDrawing;
+    else drawings.push(scopedDrawing);
+    writeLocal(symbol, interval, drawings);
+    return scopedDrawing;
   }
   const result = await invokeAppFunction("chartDrawings", {
     action: "save",
@@ -44,7 +47,8 @@ export async function saveChartDrawing(symbol, interval, drawing) {
 
 export async function deleteChartDrawing(symbol, drawing, confirmAlertDelete = false) {
   if (isReferencePreview()) {
-    writeLocal(symbol, readLocal(symbol).filter((item) => item.clientId !== drawing.clientId));
+    const interval = drawing.intervalScope || "all";
+    writeLocal(symbol, interval, readLocal(symbol, interval).filter((item) => item.clientId !== drawing.clientId));
     return { removed: true };
   }
   return invokeAppFunction("chartDrawings", {
@@ -65,9 +69,10 @@ export async function duplicateChartDrawing(symbol, drawing, clientId) {
       alert: null,
       points: drawing.points.map((point) => ({ ...point, logical: Number(point.logical || 0) + 1 })),
     };
-    const drawings = readLocal(symbol);
+    const interval = drawing.intervalScope || "all";
+    const drawings = readLocal(symbol, interval);
     copy.zIndex = Math.max(0, ...drawings.map((item) => Number(item.zIndex || 0))) + 1;
-    writeLocal(symbol, [...drawings, copy]);
+    writeLocal(symbol, interval, [...drawings, copy]);
     return normalizedDrawing(copy);
   }
   const result = await invokeAppFunction("chartDrawings", {
@@ -83,7 +88,7 @@ export async function duplicateChartDrawing(symbol, drawing, clientId) {
 export async function saveDrawingAlert(symbol, drawing, alert) {
   if (isReferencePreview()) {
     const next = { ...drawing, alert: { id: `local-${drawing.clientId}`, ...alert } };
-    await saveChartDrawing(symbol, "all", next);
+    await saveChartDrawing(symbol, drawing.intervalScope || "all", next);
     return next.alert;
   }
   const result = await invokeAppFunction("chartDrawings", {
@@ -98,7 +103,7 @@ export async function saveDrawingAlert(symbol, drawing, alert) {
 
 export async function deleteDrawingAlert(symbol, drawing) {
   if (isReferencePreview()) {
-    await saveChartDrawing(symbol, "all", { ...drawing, alert: null });
+    await saveChartDrawing(symbol, drawing.intervalScope || "all", { ...drawing, alert: null });
     return { removed: true };
   }
   return invokeAppFunction("chartDrawings", {

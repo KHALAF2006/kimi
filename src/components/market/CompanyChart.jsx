@@ -166,6 +166,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
     };
   });
   const [zoneGeometry, setZoneGeometry] = useState([]);
+  const [mainPaneHeight, setMainPaneHeight] = useState(470);
   const [, setChartRevision] = useState(0);
 
   const orderedCandles = useMemo(() => normalizeCandles(candles), [candles]);
@@ -404,6 +405,8 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
       const chart = chartRef.current;
       const series = candleSeriesRef.current;
       const container = containerRef.current;
+      const measuredMainPaneHeight = chart?.panes?.()[0]?.getHeight?.() || 470;
+      setMainPaneHeight((current) => Math.abs(current - measuredMainPaneHeight) < 0.5 ? current : measuredMainPaneHeight);
       if (!chart || !series || !container || !showMomentum || !momentumSettings.showZones || !momentum?.zones?.length) {
         setZoneGeometry((current) => current.length ? [] : current);
         return;
@@ -413,7 +416,6 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
       const referenceX = Number.isFinite(referenceTime) ? chart.timeScale().timeToCoordinate(referenceTime) : null;
       const left = Math.max(0, referenceX == null ? 0 : referenceX);
       const right = Math.max(left, container.clientWidth - 70);
-      const mainPaneHeight = chart.panes()[0]?.getHeight() || 470;
       const zones = momentum.zones.filter((zone) => zone.active !== false).map((zone) => {
         const setting = momentumSettings.zones[zone.key] || momentumDefaults.zones[zone.key];
         const top = series.priceToCoordinate(Number(zone.top));
@@ -564,7 +566,7 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
     <div className={candles.length ? "chart-canvas-wrap" : "h-0"} style={candles.length ? { height: chartHeight } : undefined}>
       <div ref={containerRef} className="absolute inset-0" />
       <div className="momentum-zone-overlay" aria-hidden="true">{zoneGeometry.map((zone) => <div key={zone.key} className="momentum-zone-box" style={{ left: zone.left, width: zone.width, top: zone.top, height: zone.height, borderColor: zone.color, backgroundColor: colorWithOpacity(zone.color, Math.max(0.05, (100 - momentumSettings.zoneOpacity) / 100)) }}><span style={{ backgroundColor: zone.color }}>{zone.name} · {formatNumber(zone.topPrice, "en")}–{formatNumber(zone.bottomPrice, "en")}</span></div>)}</div>
-      {chartRef.current && candleSeriesRef.current && <ChartDrawingTools chart={chartRef.current} series={candleSeriesRef.current} symbol={symbol} interval={interval} mainPaneHeight={470} isArabic={isArabic} onResetChart={resetChartView} />}
+      {chartRef.current && candleSeriesRef.current && <ChartDrawingTools chart={chartRef.current} series={candleSeriesRef.current} symbol={symbol} interval={interval} mainPaneHeight={mainPaneHeight} isArabic={isArabic} onResetChart={resetChartView} />}
       {momentum?.zones?.length > 0 && <div className={"momentum-price-panel " + (!showMomentumCard ? "momentum-price-panel-collapsed" : "")}>
         <button type="button" className="momentum-card-eye" onClick={() => setShowMomentumCard((value) => !value)} title={showMomentumCard ? (isArabic ? "إخفاء بطاقة أسعار المناطق" : "Hide zone price card") : (isArabic ? "إظهار بطاقة أسعار المناطق" : "Show zone price card")} aria-expanded={showMomentumCard}>{showMomentumCard ? <EyeOff size={14} /> : <Eye size={14} />}<span>{investorZoneLabel}</span></button>
         {showMomentumCard && <><div className="momentum-price-head"><span>{isArabic ? "المنطقة" : "Zone"}</span><span>{isArabic ? "من" : "From"}</span><span>{isArabic ? "إلى" : "To"}</span><span>{isArabic ? "الوقف" : "Stop"}</span></div>

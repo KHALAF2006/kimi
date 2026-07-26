@@ -1,0 +1,13 @@
+{
+  "name": "PlanEntitlement",
+  "type": "object",
+  "properties": {
+    "plan_id": { "type": "string" },
+    "code": { "type": "string" },
+    "enabled": { "type": "boolean", "default": true },
+    "limit_value": { "type": "number" },
+    "config": { "type": "object" }
+  },
+  "required": ["plan_id", "code", "enabled"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

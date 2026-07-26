@@ -52,6 +52,19 @@ async function referenceFetch(path) {
 }
 
 async function referenceMarketRead(payload) {
+  if (payload.action === "markets") {
+    return {
+      markets: [
+        { market_code: "SA_MAIN", country_code: "SA", name_ar: "السوق السعودية الرئيسية", name_en: "Saudi Main Market", currency: "SAR", timezone: "Asia/Riyadh", quote_mode: "delayed", delay_seconds: 900, license_status: "pending", active: true },
+        { market_code: "AE_ADX", country_code: "AE", name_ar: "سوق أبوظبي", name_en: "Abu Dhabi Securities Exchange", currency: "AED", timezone: "Asia/Dubai", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+        { market_code: "AE_DFM", country_code: "AE", name_ar: "سوق دبي", name_en: "Dubai Financial Market", currency: "AED", timezone: "Asia/Dubai", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+        { market_code: "KW_BK", country_code: "KW", name_ar: "بورصة الكويت", name_en: "Boursa Kuwait", currency: "KWD", timezone: "Asia/Kuwait", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+        { market_code: "QA_QE", country_code: "QA", name_ar: "بورصة قطر", name_en: "Qatar Stock Exchange", currency: "QAR", timezone: "Asia/Qatar", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+        { market_code: "BH_BHB", country_code: "BH", name_ar: "بورصة البحرين", name_en: "Bahrain Bourse", currency: "BHD", timezone: "Asia/Bahrain", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+        { market_code: "OM_MSX", country_code: "OM", name_ar: "بورصة مسقط", name_en: "Muscat Stock Exchange", currency: "OMR", timezone: "Asia/Muscat", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+      ],
+    };
+  }
   if (payload.action === "chart") {
     const referenceRanges = { "5d": "1w", "1mo": "1M", "3mo": "3M", "1y": "1y", "5y": "5y" };
     const referenceRange = referenceRanges[payload.range] || "3M";

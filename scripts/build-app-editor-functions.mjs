@@ -13,7 +13,7 @@ const sourceEntries = (await readdir(sourceRoot, { withFileTypes: true }))
   .map((item) => item.name)
   .sort();
 
-assert.equal(sourceEntries.length, 16, "expected 16 Base44 backend functions");
+assert.equal(sourceEntries.length, 18, "expected 18 Base44 backend functions");
 
 for (const functionName of sourceEntries) {
   const entryPoint = join(sourceRoot, functionName, "entry.ts");

@@ -32,7 +32,7 @@ async function audit(base44, userId, action, entityType, entityId, result, reaso
 }
 
 // base44/functions/chartDrawings/entry.ts
-var TYPES = /* @__PURE__ */ new Set(["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure"]);
+var TYPES = /* @__PURE__ */ new Set(["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure", "price_range", "date_range", "date_and_price_range"]);
 var ALERT_TYPES = /* @__PURE__ */ new Set(["trend_line", "ray", "horizontal_line"]);
 var INTERVALS = /* @__PURE__ */ new Set(["all", "15m", "1h", "1d", "1wk", "1mo"]);
 var LINE_STYLES = /* @__PURE__ */ new Set(["solid", "dashed", "dotted"]);
@@ -55,7 +55,8 @@ function cleanPoint(value) {
   };
 }
 function cleanDrawing(value) {
-  const type = String(value?.type || "");
+  const requestedType = String(value?.type || "");
+  const type = requestedType === "measure" ? "date_and_price_range" : requestedType;
   if (!TYPES.has(type)) bad("Unsupported drawing type");
   const clientId = String(value?.clientId || value?.client_id || "").trim();
   if (!/^[a-zA-Z0-9-]{8,80}$/.test(clientId)) bad("Invalid drawing identifier");
@@ -70,7 +71,9 @@ function cleanDrawing(value) {
     lineStyle: LINE_STYLES.has(raw.lineStyle) ? raw.lineStyle : "solid",
     extendLeft: Boolean(raw.extendLeft),
     extendRight: Boolean(raw.extendRight),
-    showLabel: raw.showLabel !== false
+    showLabel: raw.showLabel !== false,
+    showMedian: raw.showMedian !== false,
+    medianStyle: LINE_STYLES.has(raw.medianStyle) ? raw.medianStyle : "dashed"
   };
   return {
     client_id: clientId,
@@ -108,6 +111,7 @@ function responseDrawing(row) {
     locked: row.locked,
     visible: row.visible,
     zIndex: row.z_index,
+    intervalScope: row.interval_scope || "all",
     alert_rule_id: row.alert_rule_id || null,
     revision: row.revision
   };
@@ -124,7 +128,8 @@ Deno.serve(async (req) => {
       const symbol = String(body.symbol || "").trim();
       await instrumentFor(base44, symbol);
       const rows = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, symbol });
-      return Response.json({ drawings: rows.map(responseDrawing) });
+      const interval = INTERVALS.has(body.interval_scope) ? body.interval_scope : "all";
+      return Response.json({ drawings: rows.filter((row) => row.interval_scope === "all" || row.interval_scope === interval).map(responseDrawing) });
     }
     if (body.action === "save") {
       const symbol = String(body.symbol || "").trim();

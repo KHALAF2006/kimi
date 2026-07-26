@@ -5,6 +5,9 @@
     "customer_id": {
       "type": "string"
     },
+    "account_id": {
+      "type": "string"
+    },
     "plan_id": {
       "type": "string"
     },
@@ -39,6 +42,15 @@
     },
     "created_by_user_id": {
       "type": "string"
+    },
+    "activation_method": {
+      "type": "string",
+      "enum": ["manual", "payment", "migration"],
+      "default": "manual"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
     }
   },
   "required": [

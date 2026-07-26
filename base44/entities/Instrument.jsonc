@@ -3,8 +3,17 @@
   "type": "object",
   "properties": {
     "symbol": {
+      "type": "string"
+    },
+    "market_code": {
       "type": "string",
-      "pattern": "^[0-9]{4}$"
+      "default": "SA_MAIN"
+    },
+    "instrument_code": {
+      "type": "string"
+    },
+    "composite_key": {
+      "type": "string"
     },
     "name_ar": {
       "type": "string"
