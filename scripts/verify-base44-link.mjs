@@ -4,7 +4,8 @@ import { readFile } from "node:fs/promises";
 const appFile = new URL("../base44/.app.jsonc", import.meta.url);
 let configuration;
 try {
-  configuration = JSON.parse(await readFile(appFile, "utf8"));
+  const source = await readFile(appFile, "utf8");
+  configuration = JSON.parse(source.replace(/^\s*\/\/.*$/gm, ""));
 } catch {
   throw new Error("Base44 backend is not linked: base44/.app.jsonc is missing. GitHub sync does not deploy entity schemas.");
 }
