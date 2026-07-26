@@ -1,5 +1,7 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 
+const PLATFORM_OWNER_USER_ID = "6a600ea3afc36e37cea9e385";
+
 const CHILD_ENTITIES = {
   QuoteLatest: { source: "quote-latest", fingerprint: (row) => row.instrument_id },
   CandleChunk: { source: "candle-chunk", fingerprint: (row) => `${row.instrument_id}:${row.interval}:${row.chunk_key}` },
@@ -40,13 +42,11 @@ async function bulkCreate(handler, rows) {
 
 async function trustedOwner(base44) {
   const user = await base44.auth.me();
-  if (!user || user.role !== "admin") throw Object.assign(new Error("Forbidden"), { status: 403 });
+  if (!user || user.role !== "admin" || user.id !== PLATFORM_OWNER_USER_ID) {
+    throw Object.assign(new Error("Forbidden"), { status: 403 });
+  }
   const profiles = await base44.asServiceRole.entities["customer-profile"].filter({ auth_user_id: user.id });
   const profile = profiles[0] || null;
-  const trusted = profile?.acquisition_source === "platform_owner_bootstrap"
-    && Array.isArray(profile?.tags)
-    && profile.tags.includes("owner");
-  if (!trusted) throw Object.assign(new Error("Forbidden"), { status: 403 });
   return { user, profile };
 }
 
@@ -66,7 +66,23 @@ async function copyOwner(base44, owner) {
   const target = base44.asServiceRole.entities.CustomerProfile;
   const existing = await target.filter({ auth_user_id: owner.user.id });
   if (existing[0]) return { created: 0, customer_id: existing[0].id };
-  const row = stripServerFields(owner.profile);
+  const now = new Date().toISOString();
+  const sourceTrusted = owner.profile?.acquisition_source === "platform_owner_bootstrap"
+    && Array.isArray(owner.profile?.tags)
+    && owner.profile.tags.includes("owner");
+  const row = sourceTrusted ? stripServerFields(owner.profile) : {
+    customer_number: `KMY-OWNER-${owner.user.id.slice(-8).toUpperCase()}`,
+    auth_user_id: owner.user.id,
+    email_normalized: String(owner.user.email || "").trim().toLowerCase(),
+    full_name: String(owner.user.full_name || owner.user.email || "Platform Owner"),
+    preferred_language: "ar",
+    account_status: "active",
+    role: "owner",
+    acquisition_source: "platform_owner_bootstrap",
+    tags: ["owner", "schema_bridge_bootstrap"],
+    email_verified_at: now,
+    last_seen_at: now,
+  };
   delete row.personal_account_id;
   const created = await target.create(row);
   return { created: 1, customer_id: created.id };

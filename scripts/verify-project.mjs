@@ -237,6 +237,7 @@ assert.match(marketIngestionFunction, /base44\.functions\.invoke\("identityConte
 assert.match(marketIngestionFunction, /context\.permissions\.includes\("data\.ingestion\.run"\)/, "manual market ingestion must require the dedicated backend permission");
 const legacySchemaBridge = await readFile(new URL("../base44/functions/legacySchemaBridge/entry.ts", import.meta.url), "utf8");
 assert.match(legacySchemaBridge, /profile\?\.acquisition_source === "platform_owner_bootstrap"/, "the additive legacy bridge must be restricted to the trusted platform owner");
+assert.match(legacySchemaBridge, /user\.id !== PLATFORM_OWNER_USER_ID/, "the production bridge must require the immutable Base44 owner identity");
 assert.doesNotMatch(legacySchemaBridge, /\.delete\(|deleteMany|updateMany/, "the legacy bridge must never delete or bulk-update production records");
 assert.match(legacySchemaBridge, /Math\.min\(100,/, "legacy migration batches must be bounded");
 
