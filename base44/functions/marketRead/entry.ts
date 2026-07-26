@@ -5174,6 +5174,15 @@ var YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart";
 var ALLOWED_INTERVALS = /* @__PURE__ */ new Set(["15m", "1h", "1d", "1wk", "1mo"]);
 var ALLOWED_RANGES = /* @__PURE__ */ new Set(["5d", "1mo", "3mo", "1y", "2y", "5y", "10y", "max"]);
 var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
+var MARKET_CATALOG = [
+  { market_code: "SA_MAIN", country_code: "SA", name_ar: "\u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629", name_en: "Saudi Main Market", currency: "SAR", timezone: "Asia/Riyadh", quote_mode: "delayed", delay_seconds: 900, license_status: "pending", active: true },
+  { market_code: "AE_ADX", country_code: "AE", name_ar: "\u0633\u0648\u0642 \u0623\u0628\u0648\u0638\u0628\u064A", name_en: "Abu Dhabi Securities Exchange", currency: "AED", timezone: "Asia/Dubai", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+  { market_code: "AE_DFM", country_code: "AE", name_ar: "\u0633\u0648\u0642 \u062F\u0628\u064A", name_en: "Dubai Financial Market", currency: "AED", timezone: "Asia/Dubai", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+  { market_code: "KW_BK", country_code: "KW", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0627\u0644\u0643\u0648\u064A\u062A", name_en: "Boursa Kuwait", currency: "KWD", timezone: "Asia/Kuwait", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+  { market_code: "QA_QE", country_code: "QA", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0642\u0637\u0631", name_en: "Qatar Stock Exchange", currency: "QAR", timezone: "Asia/Qatar", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+  { market_code: "BH_BHB", country_code: "BH", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0627\u0644\u0628\u062D\u0631\u064A\u0646", name_en: "Bahrain Bourse", currency: "BHD", timezone: "Asia/Bahrain", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+  { market_code: "OM_MSX", country_code: "OM", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0645\u0633\u0642\u0637", name_en: "Muscat Stock Exchange", currency: "OMR", timezone: "Asia/Muscat", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false }
+];
 function entityRows(value) {
   if (Array.isArray(value)) return value.filter(Boolean);
   if (Array.isArray(value?.data)) return value.data.filter(Boolean);
@@ -5217,6 +5226,18 @@ async function requireMarketAccess(base44, body) {
   return { user, profile };
 }
 async function instrumentFor(base44, body) {
+  const marketCode = String(body.market_code || "").trim();
+  const instrumentCode = String(body.instrument_code || "").trim();
+  if (marketCode || instrumentCode) {
+    if (!marketCode || !instrumentCode) throw Object.assign(new Error("market_code and instrument_code are required together"), { status: 400, code: "MARKET_IDENTITY_REQUIRED" });
+    const rows = await base44.asServiceRole.entities.Instrument.filter({ market_code: marketCode, instrument_code: instrumentCode });
+    if (!rows[0] && marketCode === "SA_MAIN" && /^\d{4}$/.test(instrumentCode)) {
+      const legacyRows = await base44.asServiceRole.entities.Instrument.filter({ symbol: instrumentCode });
+      if (legacyRows[0]) return legacyRows[0];
+    }
+    if (!rows[0]) throw Object.assign(new Error("Instrument not found"), { status: 404, code: "INSTRUMENT_NOT_FOUND" });
+    return rows[0];
+  }
   const symbol = String(body.symbol || "").trim();
   if (symbol) {
     if (!/^\d{4}$/.test(symbol)) throw Object.assign(new Error("Invalid Saudi market symbol"), { status: 400 });
@@ -5266,6 +5287,12 @@ async function yahooCandles(symbol, interval, range) {
 }
 async function chartResponse(base44, body, sources) {
   const instrument = await instrumentFor(base44, body);
+  const marketCode = instrument.market_code || "SA_MAIN";
+  if (marketCode !== "SA_MAIN") {
+    const mappings = await base44.asServiceRole.entities.ProviderInstrumentMap.filter({ instrument_id: instrument.id, active: true, license_status: "approved" });
+    if (!mappings[0]) throw Object.assign(new Error("A licensed delayed feed is not configured for this market"), { status: 503, code: "MARKET_FEED_NOT_CONFIGURED" });
+    throw Object.assign(new Error("The configured provider adapter is not available"), { status: 503, code: "MARKET_ADAPTER_NOT_AVAILABLE" });
+  }
   const interval = String(body.interval || "1d");
   const range = String(body.range || "3mo");
   if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range)) {
@@ -5302,9 +5329,15 @@ async function chartResponse(base44, body, sources) {
   else await base44.asServiceRole.entities.CandleChunk.create(row);
   return {
     candles: result.candles,
-    source: yahoo,
     as_of: result.asOf,
-    data_state: stateFor(result.asOf, yahoo)
+    data_state: stateFor(result.asOf, yahoo),
+    data_meta: {
+      source_time: result.asOf,
+      received_time: new Date().toISOString(),
+      delay_seconds: 900,
+      quality_status: "verified",
+      license_status: yahoo.license_status
+    }
   };
 }
 Deno.serve(async (req) => {
@@ -5317,6 +5350,9 @@ Deno.serve(async (req) => {
       "data-source"
     );
     const sourceById = new Map(sources.map((item) => [item.id, item]));
+    if (body.action === "markets") {
+      return Response.json({ markets: MARKET_CATALOG });
+    }
     if (body.action === "chart") return Response.json(await chartResponse(base44, body, sources));
     if (body.symbol || body.instrument_id) {
       const instrument = await instrumentFor(base44, body);
@@ -5333,7 +5369,7 @@ Deno.serve(async (req) => {
       const source = quote ? sourceById.get(quote.source_id) : null;
       return Response.json({
         instrument: { ...instrument, warning_flag: losses2[0]?.level === "none" ? null : losses2[0]?.level },
-        quote: quote ? { ...quote, data_state: stateFor(quote.quote_time, source), source } : null,
+        quote: quote ? { ...quote, data_state: stateFor(quote.source_time || quote.quote_time, source), data_meta: { source_time: quote.source_time || quote.quote_time, received_time: quote.received_time || quote.updated_date, delay_seconds: Number(quote.delay_seconds || 0), quality_status: quote.quality_status, license_status: quote.license_status || source?.license_status || "pending" } } : null,
         indicators: indicators2,
         financials: financials.sort((a, b) => String(b.period_end || b.as_of || "").localeCompare(String(a.period_end || a.as_of || ""))),
         actions: actions.sort((a, b) => String(b.effective_date || b.as_of || "").localeCompare(String(a.effective_date || a.as_of || ""))),
@@ -5344,13 +5380,16 @@ Deno.serve(async (req) => {
       });
     }
     const limit = Math.min(Math.max(Number(body.limit || 500), 1), 500);
-    const instruments = entityRows(await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((item) => MAIN_MARKET_SYMBOLS.has(item.symbol));
+    const requestedMarket = String(body.market_code || "SA_MAIN");
+    const instruments = entityRows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
+      .filter((item) => (item.market_code || "SA_MAIN") === requestedMarket)
+      .filter((item) => requestedMarket !== "SA_MAIN" || MAIN_MARKET_SYMBOLS.has(item.symbol));
     const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
     const [indicators, losses] = await Promise.all([
       body.mode === "screener" ? optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.list("-source_as_of", 500), "indicator-snapshot") : Promise.resolve([]),
       optionalRows(() => base44.asServiceRole.entities.LossClassification.list("-as_of", 500), "loss-classification")
     ]);
-    if (instruments.length !== MAIN_MARKET_SYMBOLS.size) {
+    if (requestedMarket === "SA_MAIN" && instruments.length !== MAIN_MARKET_SYMBOLS.size) {
       throw Object.assign(new Error(`Main-market catalog mismatch: ${instruments.length}/${MAIN_MARKET_SYMBOLS.size}`), { status: 503 });
     }
     const quoteByInstrument = /* @__PURE__ */ new Map();
@@ -5366,15 +5405,16 @@ Deno.serve(async (req) => {
       return {
         ...instrument,
         warning_flag: loss?.level === "none" ? null : loss?.level,
-        quote: quote ? { ...quote, data_state: stateFor(quote.quote_time, source), source } : null,
+        quote: quote ? { ...quote, data_state: stateFor(quote.source_time || quote.quote_time, source), data_meta: { source_time: quote.source_time || quote.quote_time, received_time: quote.received_time || quote.updated_date, delay_seconds: Number(quote.delay_seconds || 0), quality_status: quote.quality_status, license_status: quote.license_status || source?.license_status || "pending" } } : null,
         indicator: indicatorByInstrument.get(instrument.id) || null
       };
     }).filter((item) => !query || `${item.symbol} ${item.name_ar} ${item.name_en} ${item.sector_ar} ${item.sector_en}`.toLocaleLowerCase("ar").includes(query)).filter((item) => !sector || item.sector_ar === sector || item.sector_en === sector);
     if (body.mode === "movers") rows.sort((a, b) => Number(b.quote?.change_percent || 0) - Number(a.quote?.change_percent || 0));
     return Response.json({
       instruments: rows.slice(0, limit),
-      total: MAIN_MARKET_SYMBOLS.size,
-      sources,
+      total: requestedMarket === "SA_MAIN" ? MAIN_MARKET_SYMBOLS.size : rows.length,
+      sources: sources.map((source) => ({ id: source.id, source_type: source.source_type, license_status: source.license_status, last_verified_at: source.last_verified_at })),
+      market: MARKET_CATALOG.find((market) => market.market_code === requestedMarket) || null,
       notice: "\u062A\u0638\u0647\u0631 \u062D\u0627\u0644\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u0648\u0648\u0642\u062A \u0622\u062E\u0631 \u062A\u062D\u062F\u064A\u062B \u062F\u0627\u062E\u0644 \u0627\u0644\u0645\u0646\u0635\u0629"
     });
   } catch (error) {

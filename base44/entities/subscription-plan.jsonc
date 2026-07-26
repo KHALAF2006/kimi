@@ -24,6 +24,10 @@
     },
     "active": {
       "type": "boolean"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
     }
   },
   "required": [

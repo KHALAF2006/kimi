@@ -1,0 +1,14 @@
+{
+  "name": "UsageCounter",
+  "type": "object",
+  "properties": {
+    "account_id": { "type": "string" },
+    "entitlement_code": { "type": "string" },
+    "period_key": { "type": "string" },
+    "used": { "type": "number", "minimum": 0 },
+    "limit_value": { "type": "number", "minimum": 0 },
+    "last_increment_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["account_id", "entitlement_code", "period_key", "used", "last_increment_at"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

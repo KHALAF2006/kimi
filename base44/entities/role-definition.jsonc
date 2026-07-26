@@ -1,0 +1,16 @@
+{
+  "name": "RoleDefinition",
+  "type": "object",
+  "properties": {
+    "code": { "type": "string" },
+    "name_ar": { "type": "string" },
+    "name_en": { "type": "string" },
+    "description": { "type": "string" },
+    "reserved": { "type": "boolean", "default": false },
+    "active": { "type": "boolean", "default": true },
+    "revision": { "type": "integer", "minimum": 1 },
+    "created_by_user_id": { "type": "string" }
+  },
+  "required": ["code", "name_ar", "name_en", "reserved", "active", "revision", "created_by_user_id"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

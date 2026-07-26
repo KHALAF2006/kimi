@@ -2,12 +2,12 @@ import React from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { BarChart3, Bell, Eye, LogOut, Moon, Search, Settings, ShieldCheck, Sparkles, Sun } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import { useAuth } from "@/lib/AuthContext";
 import { usePreferences } from "@/lib/preferences";
+import { useAuthorization } from "@/lib/AuthorizationContext";
 
 export default function KmyLayout() {
   const { text, isArabic, theme, toggleLanguage, toggleTheme } = usePreferences();
-  const { user } = useAuth();
+  const { can } = useAuthorization();
   const links = [
     ["/dashboard", text.market, BarChart3],
     ["/search", text.search, Search],
@@ -16,7 +16,7 @@ export default function KmyLayout() {
     ["/alerts", text.alerts, Bell],
     ["/profile", text.account, Settings],
   ];
-  if (["admin", "owner"].includes(user?.role)) links.push(["/admin", isArabic ? "الإدارة" : "Admin", ShieldCheck]);
+  if (can("dashboard.owner.read")) links.push(["/admin", isArabic ? "الإدارة" : "Admin", ShieldCheck]);
 
   return <div className="min-h-screen bg-slate-50 text-slate-950 transition-colors dark:bg-[#08111f] dark:text-slate-100">
     <header className="app-header">

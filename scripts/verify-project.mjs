@@ -66,8 +66,16 @@ assert.equal(companyIntelligenceDaily.trigger.config.timezone, "Asia/Riyadh");
 assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh");
 
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
-const entityFiles = (await readdir(entityDirectory)).filter((name) => /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/.test(name));
-assert.equal(entityFiles.length, 33, "all 33 canonical Base44 entity schemas must be present");
+const allEntityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc")).sort();
+const entityFiles = allEntityFiles.filter((name) => /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/.test(name));
+assert.equal(entityFiles.length, 44, "all 44 canonical Base44 entity schemas must be present");
+// Base44 materializes server-side entity representations beside the checked-in
+// kebab-case schemas inside its managed /app sandbox. The GitHub checkout must
+// remain canonical-only; the sandbox still validates the 44 source schemas.
+const isManagedBase44Sandbox = process.cwd().replaceAll("\\", "/") === "/app";
+if (!isManagedBase44Sandbox) {
+  assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "legacy duplicate entity schema files must not remain beside the canonical kebab-case files");
+}
 const entityNames = new Set();
 for (const name of entityFiles) {
   assert.match(name, /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/, `entity filename is not kebab-case: ${name}`);
@@ -83,7 +91,7 @@ for (const name of entityFiles) {
 }
 assert.ok(!entityNames.has("User"), "built-in Base44 User fields and permissions must not be redefined");
 const entityNamesLower = new Set([...entityNames].map((name) => name.toLowerCase()));
-for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement"]) {
+for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "UsageCounter", "Market", "InstrumentAlias", "ProviderInstrumentMap"]) {
   assert.ok(entityNamesLower.has(required.toLowerCase()), `required entity is missing: ${required}`);
 }
 const customerProfile = JSON.parse(await readFile(new URL("../base44/entities/customer-profile.jsonc", import.meta.url), "utf8"));
@@ -92,7 +100,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 16, "all 16 backend functions must be present");
+assert.equal(functionNames.length, 18, "all 18 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -153,7 +161,7 @@ assert.match(chartDrawingsFunction, /body\.action === "duplicate"/, "copy/paste 
 assert.match(chartDrawingsFunction, /drawing\.duplicate/, "backend drawing duplication must be audited");
 
 const drawingTools = await readFile(new URL("../src/components/market/ChartDrawingTools.jsx", import.meta.url), "utf8");
-for (const tool of ["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure"]) {
+for (const tool of ["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "price_range", "date_range", "date_and_price_range"]) {
   assert.match(drawingTools, new RegExp(tool), `drawing tool is missing: ${tool}`);
 }
 assert.match(drawingTools, /deleteChartDrawing\(symbol, current, force\)/, "drawing deletion must wait for persistence and use the protected backend service");
@@ -179,7 +187,7 @@ assert.match(companyIntelligence, /CompanyFinancial/, "company intelligence must
 assert.match(companyIntelligence, /CorporateAction/, "company intelligence must persist corporate actions");
 assert.match(companyIntelligence, /"bootstrap"/, "company intelligence must support an owner-controlled initial full import");
 
-const { drawingSegments, drawingHitTest } = await import(new URL("../src/components/market/chartDrawingModel.js", import.meta.url));
+const { drawingSegments, drawingFillPolygon, drawingHitTest } = await import(new URL("../src/components/market/chartDrawingModel.js", import.meta.url));
 const modelWidth = 800;
 const modelHeight = 500;
 const horizontalPoints = [{ x: 120, y: 220 }];
@@ -187,7 +195,17 @@ const rectanglePoints = [{ x: 100, y: 100 }, { x: 300, y: 260 }];
 const channelPoints = [{ x: 80, y: 120 }, { x: 330, y: 170 }, { x: 110, y: 240 }];
 assert.equal(drawingSegments("horizontal_line", horizontalPoints, modelWidth, modelHeight).length, 1, "horizontal line geometry must be deterministic");
 assert.equal(drawingSegments("rectangle", rectanglePoints, modelWidth, modelHeight).length, 4, "rectangle must retain all four anchored sides");
-assert.equal(drawingSegments("parallel_channel", channelPoints, modelWidth, modelHeight).length, 2, "parallel channel must retain both parallel boundaries");
+const extendedChannel = drawingSegments("parallel_channel", channelPoints, modelWidth, modelHeight, { extendLeft: true, extendRight: true, showMedian: true });
+assert.equal(extendedChannel.length, 3, "parallel channel must retain both boundaries and the median");
+assert.ok(extendedChannel.slice(0, 2).every((segment) => segment.some((point) => point.x === 0 || point.x === modelWidth || point.y === 0 || point.y === modelHeight)), "extended channel boundaries must reach the visible pane edge");
+assert.ok(drawingFillPolygon("parallel_channel", channelPoints, modelWidth, modelHeight, { extendLeft: true, extendRight: true }).length >= 3, "extended channel fill must be clipped to a valid visible polygon");
+const descendingChannel = [{ x: 80, y: 330 }, { x: 360, y: 120 }, { x: 360, y: 230 }];
+assert.equal(drawingSegments("parallel_channel", descendingChannel, modelWidth, modelHeight, { extendLeft: true, extendRight: true, showMedian: true }).length, 3, "descending channels must extend without losing either side");
+const verticalChannel = [{ x: 300, y: 80 }, { x: 300.00001, y: 360 }, { x: 380, y: 360 }];
+assert.ok(drawingSegments("parallel_channel", verticalChannel, modelWidth, modelHeight, { extendLeft: true, extendRight: true, showMedian: true }).length >= 2, "near-vertical channels must remain stable");
+assert.equal(drawingSegments("price_range", rectanglePoints, modelWidth, modelHeight).length, 3, "price range must include caps and a vertical measurement");
+assert.equal(drawingSegments("date_range", rectanglePoints, modelWidth, modelHeight).length, 3, "date range must include caps and a horizontal measurement");
+assert.equal(drawingSegments("date_and_price_range", rectanglePoints, modelWidth, modelHeight).length, 6, "combined range must include the box and both measurements");
 assert.equal(drawingHitTest("horizontal_line", horizontalPoints, { x: 620, y: 222 }, modelWidth, modelHeight).hit, true, "extended horizontal line must remain selectable after chart navigation");
 assert.equal(drawingHitTest("rectangle", rectanglePoints, { x: 180, y: 101 }, modelWidth, modelHeight).hit, true, "rectangle border must be selectable without filling the price pane");
 
@@ -195,15 +213,28 @@ const sharedSecurity = await readFile(new URL("../base44/shared/security.ts", im
 assert.match(sharedSecurity, /profile\?\.acquisition_source === "platform_owner_bootstrap"/, "owner access must be rooted in the server-managed platform owner marker");
 assert.match(sharedSecurity, /profile\.tags\.includes\("owner"\)/, "owner access must require the server-managed owner tag");
 assert.doesNotMatch(sharedSecurity, /if \(profile\.role !== "admin"/, "administrative login must never downgrade the owner to admin");
+assert.match(sharedSecurity, /try\s*\{\s*session = await base44\.asServiceRole\.entities\.ActiveDeviceSession\.get\(sessionId\);\s*\}\s*catch\s*\{\s*session = null;/, "unknown session identifiers must be normalized to the same authorization denial");
 const authLoginFunction = await readFile(new URL("../base44/functions/authLogin/entry.ts", import.meta.url), "utf8");
 assert.match(authLoginFunction, /acquisition_source === "platform_owner_bootstrap"/, "the deployed authLogin function must reconcile the trusted owner");
 assert.match(authLoginFunction, /role:\s*owner \? "owner" : "admin"/, "the deployed authLogin function must not downgrade the owner");
 assert.match(loginPage, /base44\.auth\.setToken\(login\.access_token,true\)/, "Base44 authentication must persist across same-origin tabs");
 assert.match(loginPage, /kmy_device_id/, "all tabs on one browser device must share a stable device identity");
-for (const fileName of ["adminCustomers", "adminSubscriptions"]) {
+for (const fileName of ["adminCustomers", "adminSubscriptions", "adminRoles", "identityContext", "operationsQuality"]) {
   const deployed = await readFile(new URL(`../base44/functions/${fileName}/entry.ts`, import.meta.url), "utf8");
-  assert.match(deployed, /const role = resolvedRole\(user, profile\)/, `${fileName} must enforce the trusted owner marker on the backend`);
+  assert.match(deployed, /authorizationContext|requirePermission/, `${fileName} must enforce the centralized backend authorization context`);
 }
+const adminSubscriptionsFunction = await readFile(new URL("../base44/functions/adminSubscriptions/entry.ts", import.meta.url), "utf8");
+assert.match(adminSubscriptionsFunction, /Array\.isArray\(body\.changes\)/, "plan entitlement updates must accept a bounded diff instead of requiring a destructive replacement");
+assert.match(adminSubscriptionsFunction, /ACCOUNT_MEMBERSHIP_REQUIRED/, "manual subscription activation must enforce account membership");
+assert.match(adminSubscriptionsFunction, /ensurePersonalAccount/, "legacy customers must receive their personal account before manual activation");
+assert.match(adminSubscriptionsFunction, /REVISION_CONFLICT/, "subscription and plan mutations must reject stale administrative writes");
+const adminRolesFunction = await readFile(new URL("../base44/functions/adminRoles/entry.ts", import.meta.url), "utf8");
+assert.match(adminRolesFunction, /SELF_ASSIGNMENT_DENIED/, "an administrator must not elevate their own role assignments");
+assert.match(adminRolesFunction, /RESERVED_ROLE_IMMUTABLE/, "reserved administrative roles must remain immutable");
+assert.match(adminRolesFunction, /REVISION_CONFLICT/, "role updates must reject stale administrative writes");
+const marketIngestionFunction = await readFile(new URL("../base44/functions/marketIngestion/entry.ts", import.meta.url), "utf8");
+assert.match(marketIngestionFunction, /base44\.functions\.invoke\("identityContext"/, "manual market ingestion must delegate authorization to the centralized identity context");
+assert.match(marketIngestionFunction, /context\.permissions\.includes\("data\.ingestion\.run"\)/, "manual market ingestion must require the dedicated backend permission");
 
 const { calculateRsiSeries, calculateMomentumSnapshot } = await import(new URL("../src/lib/market.js", import.meta.url));
 const risingBars = Array.from({ length: 40 }, (_, index) => ({

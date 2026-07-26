@@ -24,7 +24,8 @@ function SummaryCard({ icon: Icon, label, value, tone, active, onClick }) {
 export default function Dashboard() {
   const { language, isArabic, text } = usePreferences();
   const [params, setParams] = useSearchParams();
-  const [state, setState] = useState({ loading: true, rows: [], total: 0, sources: [], error: "", notice: "" });
+  const [state, setState] = useState({ loading: true, rows: [], total: 0, sources: [], markets: [], market: null, error: "", notice: "" });
+  const [marketCode, setMarketCode] = useState(() => localStorage.getItem("kmy_market_code") || "SA_MAIN");
   const [query, setQuery] = useState("");
   const [sector, setSector] = useState("");
   const [directionFilter, setDirectionFilter] = useState("");
@@ -39,8 +40,12 @@ export default function Dashboard() {
   async function loadMarket(silent = false) {
     if (!silent) setState((value) => ({ ...value, loading: true, error: "" }));
     try {
-      const data = await invokeAppFunction("marketRead", { limit: 500, mode: activeTab === "momentum" ? "screener" : undefined });
-      setState({ loading: false, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], error: "", notice: data.notice || "" });
+      const [data, marketData] = await Promise.all([
+        invokeAppFunction("marketRead", { limit: 500, market_code: marketCode, mode: activeTab === "momentum" ? "screener" : undefined }),
+        state.markets.length ? Promise.resolve({ markets: state.markets }) : invokeAppFunction("marketRead", { action: "markets" }),
+      ]);
+      const markets = marketData.markets || state.markets;
+      setState({ loading: false, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, error: "", notice: data.notice || "" });
     } catch (error) {
       setState((value) => ({ ...value, loading: false, error: error?.response?.data?.error || error?.message || "market_fetch_failed" }));
     }
@@ -50,7 +55,9 @@ export default function Dashboard() {
     loadMarket();
     const timer = window.setInterval(() => loadMarket(true), 15 * 60 * 1000);
     return () => window.clearInterval(timer);
-  }, [activeTab === "momentum"]);
+  }, [activeTab === "momentum", marketCode]);
+
+  useEffect(() => { localStorage.setItem("kmy_market_code", marketCode); }, [marketCode]);
 
   const sectorGroups = useMemo(() => {
     const sectors = new Map();
@@ -151,8 +158,8 @@ export default function Dashboard() {
     <MarketTicker rows={state.rows} />
     <div className="mx-auto max-w-[1800px] space-y-5 px-3 py-5 sm:px-5">
       <section className="flex flex-wrap items-end justify-between gap-4">
-        <div><span className="eyebrow"><Activity size={14} />{isArabic ? "السوق الرئيسية السعودية" : "Saudi Main Market"}</span><h1 className="mt-3 text-3xl font-black">{isArabic ? "لوحة السوق" : "Market dashboard"}</h1><p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{isArabic ? "السوق والشركات والشارت والمؤشرات في مساحة واحدة مترابطة." : "Market, companies, charts and indicators in one connected workspace."}</p></div>
-        <button className="secondary-button" onClick={() => loadMarket()} disabled={state.loading}><RefreshCw size={15} className={state.loading ? "animate-spin" : ""} />{isArabic ? "تحديث العرض" : "Refresh view"}</button>
+        <div><span className="eyebrow"><Activity size={14} />{isArabic ? state.market?.name_ar || "السوق الرئيسية السعودية" : state.market?.name_en || "Saudi Main Market"}</span><h1 className="mt-3 text-3xl font-black">{isArabic ? "لوحة السوق" : "Market dashboard"}</h1><p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{isArabic ? "السوق والشركات والشارت والمؤشرات في مساحة واحدة مترابطة." : "Market, companies, charts and indicators in one connected workspace."}</p></div>
+        <div className="flex flex-wrap gap-2"><select className="form-input" value={marketCode} onChange={(event) => { setMarketCode(event.target.value); setParams({}); }}>{state.markets.map((market) => <option key={market.market_code} value={market.market_code} disabled={!market.active}>{isArabic ? market.name_ar : market.name_en}{!market.active ? (isArabic ? " · قريباً" : " · Soon") : ""}</option>)}</select><button className="secondary-button" onClick={() => loadMarket()} disabled={state.loading}><RefreshCw size={15} className={state.loading ? "animate-spin" : ""} />{isArabic ? "تحديث العرض" : "Refresh view"}</button></div>
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">

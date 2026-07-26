@@ -5163,6 +5163,17 @@ async function requireRole(base44, roles) {
   if (!roles.includes(role)) throw Object.assign(new Error("Forbidden"), { status: 403 });
   return { user, profile, role };
 }
+async function requireDataIngestionPermission(base44, sessionId) {
+  const response = await base44.functions.invoke("identityContext", {
+    action: "get",
+    session_id: sessionId
+  });
+  const context = response?.data || response;
+  if (!Array.isArray(context?.permissions) || !context.permissions.includes("data.ingestion.run")) {
+    throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
+  }
+  return context;
+}
 function replyError(error) {
   const status = Number(error?.status) || 500;
   if (status >= 500) console.error("KMY backend error", error);
@@ -5265,6 +5276,15 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
 var YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart";
 var SAUDI_PROFILE = "https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/company-profile-main?companySymbol=";
 var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
+var GCC_MARKETS = [
+  { market_code: "SA_MAIN", country_code: "SA", name_ar: "\u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629", name_en: "Saudi Main Market", currency: "SAR", timezone: "Asia/Riyadh", quote_mode: "delayed", delay_seconds: 900, license_status: "pending", active: true },
+  { market_code: "AE_ADX", country_code: "AE", name_ar: "\u0633\u0648\u0642 \u0623\u0628\u0648\u0638\u0628\u064A", name_en: "Abu Dhabi Securities Exchange", currency: "AED", timezone: "Asia/Dubai", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+  { market_code: "AE_DFM", country_code: "AE", name_ar: "\u0633\u0648\u0642 \u062F\u0628\u064A", name_en: "Dubai Financial Market", currency: "AED", timezone: "Asia/Dubai", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+  { market_code: "KW_BK", country_code: "KW", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0627\u0644\u0643\u0648\u064A\u062A", name_en: "Boursa Kuwait", currency: "KWD", timezone: "Asia/Kuwait", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+  { market_code: "QA_QE", country_code: "QA", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0642\u0637\u0631", name_en: "Qatar Stock Exchange", currency: "QAR", timezone: "Asia/Qatar", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+  { market_code: "BH_BHB", country_code: "BH", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0627\u0644\u0628\u062D\u0631\u064A\u0646", name_en: "Bahrain Bourse", currency: "BHD", timezone: "Asia/Bahrain", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
+  { market_code: "OM_MSX", country_code: "OM", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0645\u0633\u0642\u0637", name_en: "Muscat Stock Exchange", currency: "OMR", timezone: "Asia/Muscat", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false }
+];
 async function source(base44, code, data) {
   const rows = await base44.asServiceRole.entities.DataSource.filter({ code });
   return rows[0] ? await base44.asServiceRole.entities.DataSource.update(rows[0].id, data) : await base44.asServiceRole.entities.DataSource.create({ code, ...data });
@@ -5308,6 +5328,9 @@ async function shouldRunScheduled(base44, body) {
 function exactInstrument(row) {
   return {
     symbol: row.symbol,
+    market_code: "SA_MAIN",
+    instrument_code: row.symbol,
+    composite_key: `SA_MAIN:${row.symbol}`,
     name_ar: row.nameAr,
     name_en: row.nameEn,
     sector_ar: row.sectorAr,
@@ -5342,6 +5365,10 @@ function officialQuote(row, instrumentId, sourceId) {
     traded_value: Number(row.officialQuote?.tradedValue || 0),
     market_cap: Number(row.officialQuote?.marketCap || 0),
     source_id: sourceId,
+    source_time: official_main_market_catalog_2026_07_21_default.quoteTime,
+    received_time: new Date().toISOString(),
+    delay_seconds: 900,
+    license_status: "pending",
     quote_time: official_main_market_catalog_2026_07_21_default.quoteTime,
     quality_status: "verified"
   };
@@ -5405,6 +5432,10 @@ async function yahooHistory(instrument, yahooSourceId) {
       week52_high: Number(meta.fiftyTwoWeekHigh),
       week52_low: Number(meta.fiftyTwoWeekLow),
       source_id: yahooSourceId,
+      source_time: quoteTime,
+      received_time: new Date().toISOString(),
+      delay_seconds: 900,
+      license_status: "pending",
       quote_time: quoteTime,
       quality_status: "verified"
     },
@@ -5491,7 +5522,7 @@ Deno.serve(async (req) => {
       user = null;
     }
     if (user) {
-      await requireRole(base44, ["admin", "owner"]);
+      await requireDataIngestionPermission(base44, body.session_id);
     } else {
       const serviceAuthorization = req.headers.get("Base44-Service-Authorization");
       const scheduledSources = /* @__PURE__ */ new Set(["scheduled_reference_sync", "scheduled_close_reconciliation"]);
@@ -5521,6 +5552,9 @@ Deno.serve(async (req) => {
       base_url: "https://finance.yahoo.com/",
       last_verified_at: (/* @__PURE__ */ new Date()).toISOString()
     });
+    await upsertMany(base44, "Market", GCC_MARKETS, ["market_code"]);
+    // Backfill the market identity through the legacy Saudi symbol key first.
+    // Switching the upsert key before the existing catalog is migrated would duplicate 270 instruments.
     await upsertMany(base44, "Instrument", official_main_market_catalog_2026_07_21_default.companies.map(exactInstrument), ["symbol"]);
     const instruments = (await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((row) => MAIN_MARKET_SYMBOLS.has(row.symbol));
     const bySymbol = new Map(instruments.map((row) => [row.symbol, row]));
