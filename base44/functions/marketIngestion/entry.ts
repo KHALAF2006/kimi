@@ -1,19 +1,272 @@
-// GENERATED from base44/functions/marketIngestion/entry.ts — do not edit directly.
-
 // base44/functions/marketIngestion/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
-import {
-  EXPECTED_INSTRUMENT_COUNT,
-  SAUDI_DELAY_SECONDS,
-  SAUDI_MAIN_MARKET,
-  coverageStatus,
-  expectedProviderAsOf,
-  fetchLicensedSnapshot,
-  normalizeLicensedSnapshot,
-  normalizeProviderCandles,
-  slotDecision,
-  stableSnapshotVersion
-} from "../../shared/market-data.ts";
+
+// base44/shared/market-data.ts
+var SAUDI_MAIN_MARKET = "SA_MAIN";
+var SAUDI_DELAY_SECONDS = 15 * 60;
+var EXPECTED_INSTRUMENT_COUNT = 270;
+var COVERAGE_HEALTHY_PERCENT = 99;
+var COVERAGE_FAILED_PERCENT = 95;
+var PROVIDER_FRESHNESS_GRACE_SECONDS = 5 * 60;
+var RIYADH_TIMEZONE = "Asia/Riyadh";
+var TRADING_WEEKDAYS = /* @__PURE__ */ new Set(["Sun", "Mon", "Tue", "Wed", "Thu"]);
+function finiteNumber(value) {
+  if (value === null || value === void 0 || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function positiveNumber(value) {
+  const parsed = finiteNumber(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
+}
+function nonNegativeNumber(value, fallback = 0) {
+  const parsed = finiteNumber(value);
+  return parsed !== null && parsed >= 0 ? parsed : fallback;
+}
+function isoTime(value, fieldName) {
+  const milliseconds = new Date(value).getTime();
+  if (!Number.isFinite(milliseconds)) throw new Error(`Invalid ${fieldName}`);
+  return new Date(milliseconds).toISOString();
+}
+function riyadhClock(now = /* @__PURE__ */ new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: RIYADH_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    weekday: parts.weekday,
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+    second: Number(parts.second)
+  };
+}
+function marketPhase(clock, slotKind = "quarter_hour") {
+  if (!TRADING_WEEKDAYS.has(clock.weekday)) return "closed";
+  const minuteOfDay = clock.hour * 60 + clock.minute;
+  if (slotKind === "close_price" || minuteOfDay >= 15 * 60 + 10 && minuteOfDay < 15 * 60 + 20) return "trade_at_last";
+  if (slotKind === "session_final" || minuteOfDay >= 15 * 60 + 20) return "closed";
+  if (minuteOfDay >= 15 * 60) return "closing_auction";
+  if (minuteOfDay >= 10 * 60) return "continuous";
+  if (minuteOfDay >= 9 * 60 + 30) return "opening_auction";
+  return "closed";
+}
+function slotDecision({ now = /* @__PURE__ */ new Date(), slotKind = "quarter_hour", source: source2 = "" } = {}) {
+  const clock = riyadhClock(now);
+  const scheduled = String(source2).startsWith("scheduled_");
+  if (!scheduled) return { run: true, clock, phase: marketPhase(clock, slotKind) };
+  if (!TRADING_WEEKDAYS.has(clock.weekday)) return { run: false, reason: "non_trading_weekday", clock, phase: "closed" };
+  const minuteOfDay = clock.hour * 60 + clock.minute;
+  const allowed = slotKind === "close_price" ? minuteOfDay >= 15 * 60 + 24 && minuteOfDay <= 15 * 60 + 29 : slotKind === "session_final" ? minuteOfDay >= 15 * 60 + 34 && minuteOfDay <= 15 * 60 + 39 : minuteOfDay >= 10 * 60 + 14 && minuteOfDay <= 15 * 60 + 16;
+  return allowed ? { run: true, clock, phase: marketPhase(clock, slotKind) } : { run: false, reason: "outside_scheduled_slot", clock, phase: marketPhase(clock, slotKind) };
+}
+function expectedProviderAsOf(now = /* @__PURE__ */ new Date()) {
+  return new Date(now.getTime() - SAUDI_DELAY_SECONDS * 1e3).toISOString();
+}
+function coverageStatus(successCount, totalCount) {
+  const coveragePercent = totalCount > 0 ? successCount / totalCount * 100 : 0;
+  const status = coveragePercent >= COVERAGE_HEALTHY_PERCENT ? "healthy" : coveragePercent >= COVERAGE_FAILED_PERCENT ? "degraded" : "failed";
+  return { coveragePercent, status };
+}
+function freshnessStatus(providerAsOf, receivedAt, delaySeconds = SAUDI_DELAY_SECONDS) {
+  const sourceMilliseconds = new Date(providerAsOf).getTime();
+  const receivedMilliseconds = new Date(receivedAt).getTime();
+  if (!Number.isFinite(sourceMilliseconds) || !Number.isFinite(receivedMilliseconds)) return "stale";
+  const ageSeconds = Math.max(0, (receivedMilliseconds - sourceMilliseconds) / 1e3);
+  return ageSeconds <= delaySeconds + PROVIDER_FRESHNESS_GRACE_SECONDS ? "fresh" : "stale";
+}
+async function stableSnapshotVersion(value) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
+  return Array.from(new Uint8Array(bytes)).map((item) => item.toString(16).padStart(2, "0")).join("").slice(0, 24);
+}
+function quoteRows(payload) {
+  const root = payload?.data && typeof payload.data === "object" ? payload.data : payload;
+  if (!root || !Array.isArray(root.quotes)) throw new Error("Provider payload must include quotes[]");
+  return { root, quotes: root.quotes };
+}
+function normalizeLicensedSnapshot({
+  payload,
+  mappings,
+  instruments,
+  sourceId,
+  runId,
+  snapshotVersion,
+  receivedAt = (/* @__PURE__ */ new Date()).toISOString(),
+  slotKind = "quarter_hour"
+}) {
+  const { root, quotes } = quoteRows(payload);
+  const providerAsOf = isoTime(root.provider_as_of || root.as_of, "provider_as_of");
+  const receivedIso = isoTime(receivedAt, "received_time");
+  const providerAgeSeconds = (new Date(receivedIso).getTime() - new Date(providerAsOf).getTime()) / 1e3;
+  if (providerAgeSeconds < SAUDI_DELAY_SECONDS - 2 * 60) {
+    throw new Error("Provider snapshot is not delayed by the contracted 15 minutes");
+  }
+  if (providerAgeSeconds > SAUDI_DELAY_SECONDS + PROVIDER_FRESHNESS_GRACE_SECONDS) {
+    throw new Error("Provider snapshot missed the expected T+15 freshness window");
+  }
+  const instrumentById = new Map(instruments.map((instrument) => [instrument.id, instrument]));
+  const rawByProviderSymbol = /* @__PURE__ */ new Map();
+  for (const row of quotes) {
+    const providerSymbol = String(row.provider_symbol || row.symbol || "").trim();
+    if (providerSymbol && !rawByProviderSymbol.has(providerSymbol)) rawByProviderSymbol.set(providerSymbol, row);
+  }
+  const clock = riyadhClock(new Date(providerAsOf));
+  const phase = marketPhase(clock, slotKind);
+  const final = slotKind === "close_price" || slotKind === "session_final";
+  const accepted = [];
+  const rejected = [];
+  for (const mapping of mappings) {
+    const instrument = instrumentById.get(mapping.instrument_id);
+    const raw = rawByProviderSymbol.get(String(mapping.provider_symbol));
+    if (!instrument || !raw) {
+      rejected.push({ instrument_id: mapping.instrument_id, symbol: instrument?.symbol || "", issue_type: "missing_provider_quote", message: "Provider snapshot did not include the mapped instrument" });
+      continue;
+    }
+    const lastPrice = positiveNumber(raw.last_price ?? raw.last);
+    const previousClose = positiveNumber(raw.previous_close);
+    const open = positiveNumber(raw.open);
+    const high = positiveNumber(raw.high);
+    const low = positiveNumber(raw.low);
+    if ([lastPrice, previousClose, open, high, low].some((value) => value === null) || high < Math.max(open, lastPrice) || low > Math.min(open, lastPrice)) {
+      rejected.push({ instrument_id: instrument.id, symbol: instrument.symbol, issue_type: "invalid_ohlc", message: "Provider quote failed price and OHLC validation" });
+      continue;
+    }
+    const changeValue = lastPrice - previousClose;
+    const changePercent = previousClose ? changeValue / previousClose * 100 : 0;
+    const providerChangePercent = finiteNumber(raw.change_percent);
+    if (providerChangePercent !== null && Math.abs(providerChangePercent - changePercent) > 0.05) {
+      rejected.push({ instrument_id: instrument.id, symbol: instrument.symbol, issue_type: "change_mismatch", message: "Provider change percent differs from the canonical calculation" });
+      continue;
+    }
+    let lastTradeTime = null;
+    if (raw.last_trade_time) {
+      try {
+        lastTradeTime = isoTime(raw.last_trade_time, "last_trade_time");
+      } catch {
+        rejected.push({ instrument_id: instrument.id, symbol: instrument.symbol, issue_type: "invalid_trade_time", message: "Provider returned an invalid last trade time" });
+        continue;
+      }
+      if (new Date(lastTradeTime).getTime() > new Date(providerAsOf).getTime() + 60 * 1e3) {
+        rejected.push({ instrument_id: instrument.id, symbol: instrument.symbol, issue_type: "future_trade_time", message: "Last trade time is newer than the provider snapshot" });
+        continue;
+      }
+    }
+    const freshness = freshnessStatus(providerAsOf, receivedIso);
+    accepted.push({
+      market_code: SAUDI_MAIN_MARKET,
+      session_date: clock.date,
+      instrument_id: instrument.id,
+      symbol: instrument.symbol,
+      last_price: lastPrice,
+      previous_close: previousClose,
+      change_value: changeValue,
+      change_percent: changePercent,
+      open,
+      high,
+      low,
+      volume: nonNegativeNumber(raw.volume),
+      trade_count: nonNegativeNumber(raw.trade_count),
+      traded_value: nonNegativeNumber(raw.traded_value),
+      market_cap: nonNegativeNumber(raw.market_cap),
+      source_id: sourceId,
+      source_time: providerAsOf,
+      provider_as_of: providerAsOf,
+      ...lastTradeTime ? { last_trade_time: lastTradeTime } : {},
+      received_time: receivedIso,
+      delay_seconds: SAUDI_DELAY_SECONDS,
+      license_status: "approved",
+      quote_time: providerAsOf,
+      market_phase: phase,
+      freshness_status: freshness,
+      quality_status: freshness === "fresh" ? "verified" : "stale",
+      is_final: final,
+      run_id: runId,
+      snapshot_version: snapshotVersion
+    });
+  }
+  return { providerAsOf, phase, isFinal: final, accepted, rejected };
+}
+function normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate) {
+  const root = payload?.data && typeof payload.data === "object" ? payload.data : payload;
+  const rows = Array.isArray(root?.candles) ? root.candles : [];
+  const mappingBySymbol = new Map(mappings.map((mapping) => [String(mapping.provider_symbol), mapping]));
+  const instrumentById = new Map(instruments.map((instrument) => [instrument.id, instrument]));
+  const chunks = [];
+  for (const row of rows) {
+    const mapping = mappingBySymbol.get(String(row.provider_symbol || row.symbol || ""));
+    const instrument = mapping ? instrumentById.get(mapping.instrument_id) : null;
+    if (!instrument || !Array.isArray(row.bars)) continue;
+    const bars = row.bars.map((bar) => ({
+      time: isoTime(bar.time, "candle time"),
+      open: positiveNumber(bar.open),
+      high: positiveNumber(bar.high),
+      low: positiveNumber(bar.low),
+      close: positiveNumber(bar.close),
+      volume: nonNegativeNumber(bar.volume)
+    })).filter((bar) => [bar.open, bar.high, bar.low, bar.close].every((value) => value !== null) && bar.high >= Math.max(bar.open, bar.close) && bar.low <= Math.min(bar.open, bar.close));
+    if (!bars.length) continue;
+    chunks.push({
+      instrument_id: instrument.id,
+      symbol: instrument.symbol,
+      interval: "15m",
+      chunk_key: `${instrument.symbol}-15m-${sessionDate}`,
+      start_time: bars[0].time,
+      end_time: bars[bars.length - 1].time,
+      bars,
+      bar_count: bars.length,
+      source_id: sourceId,
+      quality_status: "verified"
+    });
+  }
+  return chunks;
+}
+async function fetchLicensedSnapshot({
+  url,
+  token,
+  requestBody,
+  fetchImpl = fetch,
+  attempts = 3,
+  timeoutMilliseconds = 2e4
+}) {
+  const parsedUrl = new URL(String(url || ""));
+  if (parsedUrl.protocol !== "https:") throw new Error("Licensed provider URL must use HTTPS");
+  if (!String(token || "").trim()) throw new Error("Licensed provider token is not configured");
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMilliseconds);
+    try {
+      const response = await fetchImpl(parsedUrl, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "User-Agent": "KMY-Licensed-Market-Data/1.0"
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error(`Licensed provider returned ${response.status}`);
+      return { payload: await response.json(), attemptCount: attempt };
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, attempt === 1 ? 1500 : 4e3));
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw lastError || new Error("Licensed provider request failed");
+}
+
+// base44/functions/marketIngestion/entry.ts
 var official_main_market_catalog_2026_07_21_default = {
   source: "Saudi Exchange",
   sourceUrl: "https://www.saudiexchange.sa/Resources/Reports-v2/DetailedDaily_en.html",
@@ -5159,22 +5412,6 @@ var official_main_market_catalog_2026_07_21_default = {
     }
   ]
 };
-async function requireUser(base44) {
-  const user = await base44.auth.me();
-  if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
-  return user;
-}
-async function profileFor(base44, user) {
-  const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  return rows[0] || null;
-}
-async function requireRole(base44, roles) {
-  const user = await requireUser(base44);
-  const profile = await profileFor(base44, user);
-  const role = profile?.role || user.role;
-  if (!roles.includes(role)) throw Object.assign(new Error("Forbidden"), { status: 403 });
-  return { user, profile, role };
-}
 async function requireDataIngestionPermission(base44, sessionId) {
   const response = await base44.functions.invoke("identityContext", {
     action: "get",
@@ -5193,97 +5430,6 @@ function replyError(error) {
     error: status >= 500 ? "Backend operation failed" : error?.message || "Request failed",
     code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
   }, { status });
-}
-var MOMENTUM_FORMULA_VERSION = "momentum-zones-v1";
-var LOOKBACK_DAYS = 20;
-var HISTORY_BARS = 500;
-var FIXED_STOP_PERCENT = 0.03;
-var ZONE_DEFINITIONS = [
-  { key: "zone1", nameAr: "\u0627\u0644\u0627\u0631\u062A\u062F\u0627\u062F", nameEn: "Rebound", colorNameAr: "\u0623\u062E\u0636\u0631", colorNameEn: "Green", light: "#16a34a", dark: "#22c55e", topPercent: 0.075, bottomPercent: 0.1 },
-  { key: "zone2", nameAr: "\u0642\u0627\u0639 \u0623\u0633\u0628\u0648\u0639\u064A/\u0634\u0647\u0631\u064A", nameEn: "Weekly / Monthly Base", colorNameAr: "\u0628\u0631\u062A\u0642\u0627\u0644\u064A", colorNameEn: "Orange", light: "#d97706", dark: "#f59e0b", topPercent: 0.2, bottomPercent: 0.24 },
-  { key: "zone3", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0645\u0646\u062E\u0641\u0636", nameEn: "Low-Risk Investment", colorNameAr: "\u0623\u0632\u0631\u0642", colorNameEn: "Blue", light: "#2563eb", dark: "#60a5fa", topPercent: 0.32, bottomPercent: 0.36 },
-  { key: "zone4", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0631\u0628\u0639 \u0633\u0646\u0648\u064A", nameEn: "Quarterly Investment", colorNameAr: "\u0628\u0646\u0641\u0633\u062C\u064A", colorNameEn: "Purple", light: "#7c3aed", dark: "#a78bfa", topPercent: 0.48, bottomPercent: 0.52 },
-  { key: "zone5", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0633\u0646\u0648\u064A", nameEn: "Annual Investment", colorNameAr: "\u0641\u064A\u0631\u0648\u0632\u064A", colorNameEn: "Teal", light: "#0d9488", dark: "#2dd4bf", topPercent: 0.58, bottomPercent: 0.65 }
-];
-function buildMomentumZones(referencePeak, zone4Active = false, zone5Active = false) {
-  return ZONE_DEFINITIONS.map((definition, index) => {
-    const top = referencePeak * (1 - definition.topPercent);
-    const bottom = referencePeak * (1 - definition.bottomPercent);
-    return {
-      ...definition,
-      top,
-      bottom,
-      stop: bottom * (1 - FIXED_STOP_PERCENT),
-      active: index < 3 || index === 3 && zone4Active || index === 4 && zone5Active
-    };
-  });
-}
-function crossedUnder(current, threshold, previous, previousThreshold) {
-  return previous !== null && previousThreshold !== null && current < threshold && previous >= previousThreshold;
-}
-function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, historyBars = HISTORY_BARS) {
-  const bars = inputBars.map((bar) => ({
-    time: String(bar.time || ""),
-    high: Number(bar.high),
-    close: Number(bar.close)
-  })).filter((bar) => bar.time && Number.isFinite(bar.high) && Number.isFinite(bar.close) && bar.high > 0 && bar.close > 0).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()).slice(-historyBars);
-  if (bars.length < 2) return null;
-  let referencePeak = null;
-  let referenceTime = null;
-  let lastBrokenPeak = null;
-  let zone4Active = false;
-  let zone5Active = false;
-  let previousClose = null;
-  let previousZone3Stop = null;
-  let previousZone4Stop = null;
-  for (let index = 0; index < bars.length; index += 1) {
-    let candidatePeak = null;
-    let candidateTime = null;
-    for (let offset = 1; offset <= lookbackDays; offset += 1) {
-      const candidate = bars[index - offset];
-      if (!candidate) continue;
-      if (candidatePeak === null || candidate.high > candidatePeak) {
-        candidatePeak = candidate.high;
-        candidateTime = candidate.time;
-      }
-    }
-    const bar = bars[index];
-    if (referencePeak !== null && bar.high > referencePeak) {
-      lastBrokenPeak = referencePeak;
-      referencePeak = null;
-      referenceTime = null;
-      zone4Active = false;
-      zone5Active = false;
-    }
-    if (referencePeak === null && candidatePeak !== null && (lastBrokenPeak === null || candidatePeak !== lastBrokenPeak)) {
-      referencePeak = candidatePeak;
-      referenceTime = candidateTime;
-      zone4Active = false;
-      zone5Active = false;
-    }
-    if (referencePeak !== null) {
-      const zones = buildMomentumZones(referencePeak, zone4Active, zone5Active);
-      if (crossedUnder(bar.close, zones[2].stop, previousClose, previousZone3Stop)) zone4Active = true;
-      if (zone4Active && crossedUnder(bar.close, zones[3].stop, previousClose, previousZone4Stop)) zone5Active = true;
-      previousZone3Stop = zones[2].stop;
-      previousZone4Stop = zones[3].stop;
-    } else {
-      previousZone3Stop = null;
-      previousZone4Stop = null;
-    }
-    previousClose = bar.close;
-  }
-  if (referencePeak === null) return null;
-  return {
-    referencePeak,
-    referenceTime,
-    lookbackDays,
-    historyBars,
-    formulaVersion: MOMENTUM_FORMULA_VERSION,
-    zone4Active,
-    zone5Active,
-    zones: buildMomentumZones(referencePeak, zone4Active, zone5Active)
-  };
 }
 var SAUDI_PROFILE = "https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/company-profile-main?companySymbol=";
 var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
@@ -5313,28 +5459,6 @@ async function upsertMany(base44, entity, rows, keyFields) {
   const updates = rows.filter((row) => byKey.has(key(row))).map((row) => ({ id: byKey.get(key(row)).id, ...row }));
   if (creates.length) await base44.asServiceRole.entities[entity].bulkCreate(creates);
   if (updates.length) await base44.asServiceRole.entities[entity].bulkUpdate(updates);
-}
-function riyadhClock(now = /* @__PURE__ */ new Date()) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Riyadh",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23"
-  }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, weekday: parts.weekday, hour: Number(parts.hour), minute: Number(parts.minute) };
-}
-async function shouldRunScheduled(base44, body) {
-  if (!String(body.source || "").startsWith("scheduled") || body.force === true) return { run: true };
-  const clock = riyadhClock();
-  if (!["Sun", "Mon", "Tue", "Wed", "Thu"].includes(clock.weekday)) return { run: false, reason: "non_trading_weekday", clock };
-  if (clock.hour < 10 || clock.hour > 16 || clock.hour === 16 && clock.minute > 0) return { run: false, reason: "outside_market_window", clock };
-  const holidays = await base44.asServiceRole.entities.MarketHoliday.filter({ holiday_date: clock.date });
-  if (holidays.length) return { run: false, reason: "official_market_holiday", clock };
-  return { run: true, clock };
 }
 function exactInstrument(row) {
   return {
@@ -5418,13 +5542,10 @@ async function licensedSource(base44, providerCode, providerUrl) {
     delay_seconds: SAUDI_DELAY_SECONDS,
     license_status: existing?.license_status || "pending",
     public_enabled: existing?.public_enabled === true,
-    ...(providerUrl ? { base_url: providerUrl } : {})
+    ...providerUrl ? { base_url: providerUrl } : {}
   };
-  return existing
-    ? await base44.asServiceRole.entities.DataSource.update(existing.id, common)
-    : await base44.asServiceRole.entities.DataSource.create({ code: providerCode, ...common });
+  return existing ? await base44.asServiceRole.entities.DataSource.update(existing.id, common) : await base44.asServiceRole.entities.DataSource.create({ code: providerCode, ...common });
 }
-
 async function recordQualityIssues(base44, sourceId, runId, snapshotVersion, issues) {
   if (!issues.length) return;
   const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -5455,7 +5576,6 @@ async function recordQualityIssues(base44, sourceId, runId, snapshotVersion, iss
   if (creates.length) await base44.asServiceRole.entities.DataQualityIssue.bulkCreate(creates);
   if (updates.length) await base44.asServiceRole.entities.DataQualityIssue.bulkUpdate(updates);
 }
-
 async function markMissingQuotesStale(base44, instrumentIds, acceptedQuotes) {
   const acceptedIds = new Set(acceptedQuotes.map((quote) => quote.instrument_id));
   const expectedIds = new Set(instrumentIds);
@@ -5467,16 +5587,13 @@ async function markMissingQuotesStale(base44, instrumentIds, acceptedQuotes) {
   }));
   if (updates.length) await base44.asServiceRole.entities.QuoteLatest.bulkUpdate(updates);
 }
-
 async function providerCandleChunks(payload, mappings, instruments, sourceId, sessionDate) {
   const chunks = normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate);
   return await Promise.all(chunks.map(async (chunk) => ({ ...chunk, checksum: await checksum(chunk.bars) })));
 }
-
 function ingestionFailure(message, code = "MARKET_INGESTION_FAILED", status = 503) {
   return Object.assign(new Error(message), { code, status });
 }
-
 Deno.serve(async (req) => {
   let base44 = null;
   let run = null;
@@ -5490,7 +5607,6 @@ Deno.serve(async (req) => {
     } catch {
       user = null;
     }
-
     const scheduledSources = /* @__PURE__ */ new Set([
       "scheduled_licensed_t15",
       "scheduled_licensed_close",
@@ -5504,16 +5620,12 @@ Deno.serve(async (req) => {
         throw Object.assign(new Error("Unauthorized"), { status: 401 });
       }
     }
-
     const marketCode = String(body.market_code || SAUDI_MAIN_MARKET);
     if (marketCode !== SAUDI_MAIN_MARKET) throw ingestionFailure("The requested market feed is not configured", "MARKET_FEED_NOT_CONFIGURED");
-    const slotKind = ["quarter_hour", "close_price", "session_final"].includes(String(body.slot_kind))
-      ? String(body.slot_kind)
-      : user ? "manual" : "quarter_hour";
+    const slotKind = ["quarter_hour", "close_price", "session_final"].includes(String(body.slot_kind)) ? String(body.slot_kind) : user ? "manual" : "quarter_hour";
     const now = /* @__PURE__ */ new Date();
     const schedule = slotDecision({ now, slotKind, source: body.source });
     if (!schedule.run) return Response.json({ status: "skipped", reason: schedule.reason, clock: schedule.clock, phase: schedule.phase });
-
     const [holidays, sessions] = await Promise.all([
       base44.asServiceRole.entities.MarketHoliday.filter({ holiday_date: schedule.clock.date }),
       base44.asServiceRole.entities.MarketSession.filter({ session_date: schedule.clock.date })
@@ -5521,19 +5633,16 @@ Deno.serve(async (req) => {
     if (holidays.length || sessions[0]?.is_trading_day === false) {
       return Response.json({ status: "skipped", reason: holidays.length ? "official_market_holiday" : "market_session_closed", clock: schedule.clock });
     }
-
     const providerCode = String(Deno.env.get("KMY_MARKET_DATA_PROVIDER_CODE") || "LICENSED_SAUDI_MARKET_T15").trim();
     const providerUrl = String(Deno.env.get("KMY_MARKET_DATA_URL") || "").trim();
     const providerToken = String(Deno.env.get("KMY_MARKET_DATA_TOKEN") || "").trim();
     const provider = await licensedSource(base44, providerCode, providerUrl);
-
     await upsertMany(base44, "Market", GCC_MARKETS, ["market_code"]);
     await upsertMany(base44, "Instrument", official_main_market_catalog_2026_07_21_default.companies.map(exactInstrument), ["symbol"]);
     const instruments = (await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((row) => MAIN_MARKET_SYMBOLS.has(row.symbol));
     if (instruments.length !== EXPECTED_INSTRUMENT_COUNT) {
       throw ingestionFailure(`Verified main-market catalog is incomplete: ${instruments.length}/${EXPECTED_INSTRUMENT_COUNT}`, "MARKET_CATALOG_INCOMPLETE");
     }
-
     const officialSource = await source(base44, "SAUDI_EXCHANGE_DAILY_REFERENCE", {
       name: "\u062A\u062F\u0627\u0648\u0644 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u2014 \u0627\u0644\u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u064A\u0648\u0645\u064A \u0627\u0644\u062A\u0641\u0635\u064A\u0644\u064A",
       source_type: "official",
@@ -5548,7 +5657,6 @@ Deno.serve(async (req) => {
     const bySymbol = new Map(instruments.map((row) => [row.symbol, row]));
     const lossRows = official_main_market_catalog_2026_07_21_default.companies.map((row) => lossClassification(row, bySymbol.get(row.symbol)?.id, officialSource.id)).filter((row) => row.instrument_id);
     await upsertMany(base44, "LossClassification", lossRows, ["instrument_id"]);
-
     const expectedAsOfDate = new Date(expectedProviderAsOf(now));
     expectedAsOfDate.setUTCSeconds(0, 0);
     const expectedAsOf = expectedAsOfDate.toISOString();
@@ -5559,7 +5667,6 @@ Deno.serve(async (req) => {
     if (!body.force && (completed || active)) {
       return Response.json({ status: "skipped", reason: completed ? "slot_already_promoted" : "slot_already_running", slot_key: slotKey });
     }
-
     const mappings = (await base44.asServiceRole.entities.ProviderInstrumentMap.filter({
       market_code: marketCode,
       provider_code: providerCode,
@@ -5567,7 +5674,6 @@ Deno.serve(async (req) => {
       license_status: "approved",
       active: true
     })).filter((mapping) => instruments.some((instrument) => instrument.id === mapping.instrument_id));
-
     run = await base44.asServiceRole.entities.IngestionRun.create({
       run_type: body.source || "manual_licensed_t15",
       market_code: marketCode,
@@ -5585,7 +5691,6 @@ Deno.serve(async (req) => {
       source_id: provider.id,
       notes: JSON.stringify({ provider_configured: Boolean(providerUrl && providerToken), mapping_count: mappings.length })
     });
-
     if (!providerUrl || !providerToken) {
       await recordQualityIssues(base44, provider.id, run.id, "", [{
         issue_type: "provider_not_configured",
@@ -5610,7 +5715,6 @@ Deno.serve(async (req) => {
       }]);
       throw ingestionFailure("Provider instrument mapping is incomplete", "PROVIDER_MAPPING_INCOMPLETE");
     }
-
     let payload;
     let attemptCount = 0;
     try {
@@ -5635,7 +5739,6 @@ Deno.serve(async (req) => {
       }]);
       throw ingestionFailure(error?.message || "Licensed provider request failed", "PROVIDER_REQUEST_FAILED");
     }
-
     const providerAsOf = String(payload?.data?.provider_as_of || payload?.provider_as_of || payload?.data?.as_of || payload?.as_of || "");
     const snapshotVersion = await stableSnapshotVersion({ marketCode, providerCode, providerAsOf, slotKey });
     const normalized = normalizeLicensedSnapshot({
@@ -5649,14 +5752,11 @@ Deno.serve(async (req) => {
       slotKind
     });
     const coverage = coverageStatus(normalized.accepted.length, EXPECTED_INSTRUMENT_COUNT);
-
     if (normalized.accepted.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(normalized.accepted);
     await recordQualityIssues(base44, provider.id, run.id, snapshotVersion, normalized.rejected);
-
     if (coverage.status === "failed") {
       throw ingestionFailure(`Licensed snapshot coverage failed: ${coverage.coveragePercent.toFixed(2)}%`, "MARKET_COVERAGE_FAILED");
     }
-
     await upsertMany(base44, "QuoteLatest", normalized.accepted, ["instrument_id"]);
     await markMissingQuotesStale(base44, instruments.map((instrument) => instrument.id), normalized.accepted);
     const candleChunks = await providerCandleChunks(payload, mappings, instruments, provider.id, schedule.clock.date);
@@ -5679,7 +5779,6 @@ Deno.serve(async (req) => {
       notes: JSON.stringify({ candle_chunks: candleChunks.length, rejected_count: normalized.rejected.length })
     });
     await base44.asServiceRole.entities.DataSource.update(provider.id, { last_verified_at: normalized.providerAsOf });
-
     return Response.json({
       status: finalStatus,
       market_code: marketCode,

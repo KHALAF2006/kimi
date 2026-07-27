@@ -44,6 +44,7 @@ assert.match(ingestion, /MAIN_MARKET_SYMBOLS\.has\(row\.symbol\)/, "ingestion mu
 assert.match(ingestion, /KMY_MARKET_DATA_URL/, "licensed ingestion must require a provider endpoint secret");
 assert.match(ingestion, /QuoteObservation\.bulkCreate/, "accepted provider readings must be stored before promotion");
 assert.doesNotMatch(ingestion, /query1\.finance\.yahoo\.com|YAHOO_CHART/, "production ingestion must not use Yahoo");
+assert.doesNotMatch(ingestion, /from\s+["']\.\.\/\.\.\/shared\//, "scheduled market ingestion must be self-contained for Base44 function bundling");
 
 const marketRead = await readFile(new URL("../base44/functions/marketRead/entry.ts", import.meta.url), "utf8");
 assert.match(marketRead, /official_main_market_catalog_2026_07_21_default\.companies/, "deployed reads must contain the bundled verified catalog");
