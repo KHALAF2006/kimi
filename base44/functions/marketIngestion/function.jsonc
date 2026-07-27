@@ -1,4 +1,76 @@
 {
   "name": "marketIngestion",
-  "entry": "entry.ts"
+  "entry": "entry.ts",
+  "automations": [
+    {
+      "name": "Saudi market T+15 quarter cycles",
+      "description": "10:15-14:45 Asia/Riyadh, Sunday-Thursday (UTC schedule).",
+      "type": "scheduled",
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "15,30,45 7-11 * * 0-4",
+      "function_args": {
+        "slot_kind": "quarter_hour",
+        "source": "experimental_t15"
+      },
+      "ends_type": "never",
+      "is_active": true
+    },
+    {
+      "name": "Saudi market T+15 hourly boundaries",
+      "description": "11:00-15:00 Asia/Riyadh, Sunday-Thursday (UTC schedule).",
+      "type": "scheduled",
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "0 8-12 * * 0-4",
+      "function_args": {
+        "slot_kind": "quarter_hour",
+        "source": "experimental_t15"
+      },
+      "ends_type": "never",
+      "is_active": true
+    },
+    {
+      "name": "Saudi market T+15 final quarter",
+      "description": "15:15 Asia/Riyadh, Sunday-Thursday (UTC schedule).",
+      "type": "scheduled",
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "15 12 * * 0-4",
+      "function_args": {
+        "slot_kind": "quarter_hour",
+        "source": "experimental_t15"
+      },
+      "ends_type": "never",
+      "is_active": true
+    },
+    {
+      "name": "Saudi market closing-price reconciliation",
+      "description": "15:26 Asia/Riyadh, Sunday-Thursday (UTC schedule).",
+      "type": "scheduled",
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "26 12 * * 0-4",
+      "function_args": {
+        "slot_kind": "close_price",
+        "source": "close_price"
+      },
+      "ends_type": "never",
+      "is_active": true
+    },
+    {
+      "name": "Saudi market session-final reconciliation",
+      "description": "15:36 Asia/Riyadh, Sunday-Thursday (UTC schedule).",
+      "type": "scheduled",
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "36 12 * * 0-4",
+      "function_args": {
+        "slot_kind": "session_final",
+        "source": "session_final"
+      },
+      "ends_type": "never",
+      "is_active": true
+    }
+  ]
 }

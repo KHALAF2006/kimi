@@ -60,7 +60,25 @@ const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIn
 assert.equal(schedule.name, "marketIngestion");
 const companyIntelligenceDaily = JSON.parse(await readFile(new URL("../base44/workflows/CompanyIntelligenceDaily.jsonc", import.meta.url), "utf8"));
 const companyFinancialsTwiceWeekly = JSON.parse(await readFile(new URL("../base44/workflows/CompanyFinancialsTwiceWeekly.jsonc", import.meta.url), "utf8"));
-assert.equal(schedule.automations, undefined, "the production app uses Base44 Workflows and rejects function-level legacy automations");
+assert.equal(schedule.automations.length, 5, "market ingestion must deploy five active Base44 automations");
+assert.deepEqual(
+  schedule.automations.map((automation) => automation.cron_expression),
+  ["15,30,45 7-11 * * 0-4", "0 8-12 * * 0-4", "15 12 * * 0-4", "26 12 * * 0-4", "36 12 * * 0-4"],
+  "market ingestion automations must cover the exact Riyadh T+15 and closing cycles in UTC",
+);
+for (const automation of schedule.automations) {
+  assert.equal(automation.type, "scheduled");
+  assert.equal(automation.schedule_mode, "recurring");
+  assert.equal(automation.schedule_type, "cron");
+  assert.equal(automation.ends_type, "never");
+  assert.equal(automation.is_active, true);
+}
+assert.deepEqual(
+  schedule.automations.slice(0, 3).map((automation) => automation.function_args.slot_kind),
+  ["quarter_hour", "quarter_hour", "quarter_hour"],
+);
+assert.equal(schedule.automations[3].function_args.slot_kind, "close_price");
+assert.equal(schedule.automations[4].function_args.slot_kind, "session_final");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
 assert.equal(companyFinancialsTwiceWeekly.trigger.config.cron_expression, "0 16 * * 1,4");
 assert.equal(companyIntelligenceDaily.trigger.config.timezone, "Asia/Riyadh");
