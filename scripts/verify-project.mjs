@@ -58,16 +58,7 @@ const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIn
 assert.equal(schedule.name, "marketIngestion");
 const companyIntelligenceDaily = JSON.parse(await readFile(new URL("../base44/workflows/CompanyIntelligenceDaily.jsonc", import.meta.url), "utf8"));
 const companyFinancialsTwiceWeekly = JSON.parse(await readFile(new URL("../base44/workflows/CompanyFinancialsTwiceWeekly.jsonc", import.meta.url), "utf8"));
-assert.equal(schedule.automations.length, 5, "market ingestion must define the bounded T+15 schedules in function.jsonc");
-assert.deepEqual(schedule.automations.map((automation) => automation.cron_expression), [
-  "15,30,45 7 * * 0-4",
-  "0,15,30,45 8-11 * * 0-4",
-  "0,15 12 * * 0-4",
-  "26 12 * * 0-4",
-  "36 12 * * 0-4",
-]);
-assert.ok(schedule.automations.every((automation) => automation.is_active === false), "licensed market automations must remain inactive before provider approval");
-assert.ok(schedule.automations.every((automation) => automation.function_args.market_code === "SA_MAIN"));
+assert.equal(schedule.automations, undefined, "the production app uses Base44 Workflows and rejects function-level legacy automations");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
 assert.equal(companyFinancialsTwiceWeekly.trigger.config.cron_expression, "0 16 * * 1,4");
 assert.equal(companyIntelligenceDaily.trigger.config.timezone, "Asia/Riyadh");

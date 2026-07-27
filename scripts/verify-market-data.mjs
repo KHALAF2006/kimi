@@ -1,12 +1,23 @@
 import assert from "node:assert/strict";
 import {
   SAUDI_DELAY_SECONDS,
+  MARKET_AUTOMATION_SPECS,
   coverageStatus,
   freshnessStatus,
   normalizeLicensedSnapshot,
   normalizeProviderCandles,
   slotDecision,
 } from "../base44/shared/market-data.ts";
+
+assert.equal(MARKET_AUTOMATION_SPECS.length, 5);
+assert.deepEqual(MARKET_AUTOMATION_SPECS.map((automation) => automation.cron), [
+  "15,30,45 7 * * 0-4",
+  "0,15,30,45 8-11 * * 0-4",
+  "0,15 12 * * 0-4",
+  "26 12 * * 0-4",
+  "36 12 * * 0-4",
+]);
+assert.ok(MARKET_AUTOMATION_SPECS.every((automation) => automation.active === false));
 
 const sundayQuarterHour = new Date("2026-07-26T07:15:00.000Z");
 const quarterSlot = slotDecision({ now: sundayQuarterHour, source: "scheduled_licensed_t15", slotKind: "quarter_hour" });

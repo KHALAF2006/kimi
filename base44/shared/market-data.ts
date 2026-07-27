@@ -4,6 +4,13 @@ export const EXPECTED_INSTRUMENT_COUNT = 270;
 export const COVERAGE_HEALTHY_PERCENT = 99;
 export const COVERAGE_FAILED_PERCENT = 95;
 export const PROVIDER_FRESHNESS_GRACE_SECONDS = 5 * 60;
+export const MARKET_AUTOMATION_SPECS = Object.freeze([
+  { name: "saudi_t15_1015_1045_riyadh", cron: "15,30,45 7 * * 0-4", slotKind: "quarter_hour", active: false },
+  { name: "saudi_t15_1100_1445_riyadh", cron: "0,15,30,45 8-11 * * 0-4", slotKind: "quarter_hour", active: false },
+  { name: "saudi_t15_1500_1515_riyadh", cron: "0,15 12 * * 0-4", slotKind: "quarter_hour", active: false },
+  { name: "saudi_close_price_1526_riyadh", cron: "26 12 * * 0-4", slotKind: "close_price", active: false },
+  { name: "saudi_session_final_1536_riyadh", cron: "36 12 * * 0-4", slotKind: "session_final", active: false },
+]);
 
 const RIYADH_TIMEZONE = "Asia/Riyadh";
 const TRADING_WEEKDAYS = new Set(["Sun", "Mon", "Tue", "Wed", "Thu"]);
