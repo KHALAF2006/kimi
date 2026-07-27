@@ -185,7 +185,12 @@ function renderDrawing(context, drawing, points, width, height, selected, isArab
     context.fillStyle = "#0f172a";
     context.fillRect(x, y - 18, labelWidth, 20);
     context.fillStyle = "#fff";
-    context.fillText(label, x + 7, y - 4);
+    // Canvas inherits the page RTL direction. Without an explicit anchor,
+    // Arabic measurement text starts at the box's left edge and renders
+    // outside it. Anchor RTL labels to the right padding of their own box.
+    context.direction = isArabic ? "rtl" : "ltr";
+    context.textAlign = isArabic ? "right" : "left";
+    context.fillText(label, isArabic ? x + labelWidth - 7 : x + 7, y - 4);
   }
 
   if (selected) {

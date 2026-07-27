@@ -176,6 +176,8 @@ assert.match(drawingTools, /aria-orientation/, "the drawing toolbar must expose 
 assert.match(drawingTools, /LayoutList/, "the drawing object tree must be available");
 assert.match(drawingTools, /fillOpacity/, "filled drawings must expose opacity controls");
 assert.match(drawingTools, /ALERT_TYPES/, "alert-capable drawing types must be explicit");
+assert.match(drawingTools, /context\.direction = isArabic \? "rtl" : "ltr"/, "Arabic measurement labels must use an explicit canvas direction");
+assert.match(drawingTools, /context\.textAlign = isArabic \? "right" : "left"/, "Arabic measurement labels must stay anchored inside their background");
 
 const companyIntelligence = await readFile(new URL("../base44/functions/companyIntelligence/entry.ts", import.meta.url), "utf8");
 assert.match(companyIntelligence, /SAUDI_EXCHANGE_COMPANY_FEED_URL/, "company intelligence must require a configured official feed");
