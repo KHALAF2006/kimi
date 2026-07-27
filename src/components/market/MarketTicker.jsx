@@ -13,7 +13,11 @@ export default function MarketTicker({ rows = [] }) {
     <div className="market-ticker-track">
       {content.map((row, index) => {
         const direction = quoteDirection(row.quote?.change_percent);
-        const stateLabel = row.quote?.data_state?.label || "";
+        const stateLabel = row.quote?.is_final === true
+          ? (language === "ar" ? "إغلاق نهائي" : "Final close")
+          : row.quote?.freshness_status === "healthy" || row.quote?.freshness_status === "degraded"
+            ? (language === "ar" ? "متأخرة 15 دقيقة" : "Delayed 15 minutes")
+            : (language === "ar" ? "آخر بيانات متاحة" : "Latest available data");
         return <Link key={row.symbol + "-" + index} to={"/dashboard?company=" + row.symbol} className="market-ticker-item" title={(language === "ar" ? "افتح " + row.name_ar : "Open " + row.name_en) + (stateLabel ? " · " + stateLabel : "")}>
           <span className="font-black">{row.symbol}</span>
           <span>{language === "ar" ? row.name_ar : row.name_en}</span>

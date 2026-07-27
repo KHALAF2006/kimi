@@ -235,6 +235,10 @@ const dashboardPage = await readFile(new URL("../src/pages/Dashboard.jsx", impor
 assert.match(dashboardPage, /SectorPanel/, "sector selection must open a sector profile, not only filter the table");
 const customerMarketStatus = await readFile(new URL("../src/components/market/MarketDataStatus.jsx", import.meta.url), "utf8");
 assert.doesNotMatch(customerMarketStatus, /تجريبي|تجريبية|experimental|Unlicensed/i, "customer market status must not expose removed staging copy");
+const customerMarketTable = await readFile(new URL("../src/components/market/MarketTable.jsx", import.meta.url), "utf8");
+assert.doesNotMatch(customerMarketTable, /data_state\?\.label/, "the market table must not replay obsolete labels stored with old quotes");
+const customerMarketTicker = await readFile(new URL("../src/components/market/MarketTicker.jsx", import.meta.url), "utf8");
+assert.doesNotMatch(customerMarketTicker, /data_state\?\.label/, "the ticker must not replay obsolete labels stored with old quotes");
 
 const companyIntelligence = await readFile(new URL("../base44/functions/companyIntelligence/entry.ts", import.meta.url), "utf8");
 assert.match(companyIntelligence, /SAUDI_EXCHANGE_COMPANY_FEED_URL/, "company intelligence must require a configured official feed");
