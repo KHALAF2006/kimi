@@ -60,25 +60,37 @@ const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIn
 assert.equal(schedule.name, "marketIngestion");
 const companyIntelligenceDaily = JSON.parse(await readFile(new URL("../base44/workflows/CompanyIntelligenceDaily.jsonc", import.meta.url), "utf8"));
 const companyFinancialsTwiceWeekly = JSON.parse(await readFile(new URL("../base44/workflows/CompanyFinancialsTwiceWeekly.jsonc", import.meta.url), "utf8"));
-assert.equal(schedule.automations.length, 5, "market ingestion must deploy five active Base44 automations");
-assert.deepEqual(
-  schedule.automations.map((automation) => automation.cron_expression),
-  ["15,30,45 7-11 * * 0-4", "0 8-12 * * 0-4", "15 12 * * 0-4", "26 12 * * 0-4", "36 12 * * 0-4"],
-  "market ingestion automations must cover the exact Riyadh T+15 and closing cycles in UTC",
+assert.equal(schedule.automations, undefined, "the production app uses Base44 Workflows and rejects function-level legacy automations");
+const marketWorkflowPaths = [
+  "../base44/workflows/MarketQuarterCycles.jsonc",
+  "../base44/workflows/MarketHourlyBoundaries.jsonc",
+  "../base44/workflows/MarketFinalQuarter.jsonc",
+  "../base44/workflows/MarketClosePrice.jsonc",
+  "../base44/workflows/MarketSessionFinal.jsonc",
+];
+const marketWorkflows = await Promise.all(
+  marketWorkflowPaths.map(async (path) => JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"))),
 );
-for (const automation of schedule.automations) {
-  assert.equal(automation.type, "scheduled");
-  assert.equal(automation.schedule_mode, "recurring");
-  assert.equal(automation.schedule_type, "cron");
-  assert.equal(automation.ends_type, "never");
-  assert.equal(automation.is_active, true);
+assert.deepEqual(
+  marketWorkflows.map((workflow) => workflow.trigger.config.cron_expression),
+  ["15,30,45 10-14 * * 0-4", "0 11-15 * * 0-4", "15 15 * * 0-4", "26 15 * * 0-4", "36 15 * * 0-4"],
+  "market workflows must cover the exact Riyadh T+15 and closing cycles",
+);
+for (const workflow of marketWorkflows) {
+  assert.equal(workflow.trigger.config.trigger_type, "scheduled");
+  assert.equal(workflow.trigger.config.schedule_mode, "recurring");
+  assert.equal(workflow.trigger.config.timezone, "Asia/Riyadh");
+  assert.equal(workflow.trigger.config.ends_type, "never");
+  const action = Object.values(workflow.definition.do[0])[0];
+  assert.equal(action.call, "invoke_backend_function");
+  assert.equal(action.with.function_name, "marketIngestion");
 }
 assert.deepEqual(
-  schedule.automations.slice(0, 3).map((automation) => automation.function_args.slot_kind),
+  marketWorkflows.slice(0, 3).map((workflow) => Object.values(workflow.definition.do[0])[0].with.args.slot_kind),
   ["quarter_hour", "quarter_hour", "quarter_hour"],
 );
-assert.equal(schedule.automations[3].function_args.slot_kind, "close_price");
-assert.equal(schedule.automations[4].function_args.slot_kind, "session_final");
+assert.equal(Object.values(marketWorkflows[3].definition.do[0])[0].with.args.slot_kind, "close_price");
+assert.equal(Object.values(marketWorkflows[4].definition.do[0])[0].with.args.slot_kind, "session_final");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
 assert.equal(companyFinancialsTwiceWeekly.trigger.config.cron_expression, "0 16 * * 1,4");
 assert.equal(companyIntelligenceDaily.trigger.config.timezone, "Asia/Riyadh");
