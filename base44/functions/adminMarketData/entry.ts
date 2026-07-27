@@ -1,6 +1,6 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 import { audit, replyError, requirePermission } from "../../shared/security.ts";
-import { EXPECTED_INSTRUMENT_COUNT, SAUDI_DELAY_SECONDS } from "../../shared/market-data.js";
+import { EXPECTED_INSTRUMENT_COUNT, SAUDI_DELAY_SECONDS } from "../../shared/market-data.ts";
 
 const MARKET_CODE = "SA_MAIN";
 const ESTIMATED_RUNS_PER_TRADING_DAY = 23;

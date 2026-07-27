@@ -13,7 +13,7 @@ import {
   normalizeProviderCandles,
   slotDecision,
   stableSnapshotVersion
-} from "../../shared/market-data.js";
+} from "../../shared/market-data.ts";
 var official_main_market_catalog_2026_07_21_default = {
   source: "Saudi Exchange",
   sourceUrl: "https://www.saudiexchange.sa/Resources/Reports-v2/DetailedDaily_en.html",

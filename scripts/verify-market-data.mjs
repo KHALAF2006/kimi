@@ -6,7 +6,7 @@ import {
   normalizeLicensedSnapshot,
   normalizeProviderCandles,
   slotDecision,
-} from "../base44/shared/market-data.js";
+} from "../base44/shared/market-data.ts";
 
 const sundayQuarterHour = new Date("2026-07-26T07:15:00.000Z");
 const quarterSlot = slotDecision({ now: sundayQuarterHour, source: "scheduled_licensed_t15", slotKind: "quarter_hour" });
