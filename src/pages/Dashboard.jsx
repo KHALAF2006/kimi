@@ -4,6 +4,7 @@ import { Activity, BarChart3, Building2, Database, GripVertical, Layers3, Refres
 import CompanyPanel from "@/components/market/CompanyPanel";
 import MarketTable from "@/components/market/MarketTable";
 import MarketTicker from "@/components/market/MarketTicker";
+import MarketDataStatus from "@/components/market/MarketDataStatus";
 import { formatCompact, marketSummary } from "@/lib/market";
 import { usePreferences } from "@/lib/preferences";
 import { invokeAppFunction } from "@/services/marketService";
@@ -24,7 +25,7 @@ function SummaryCard({ icon: Icon, label, value, tone, active, onClick }) {
 export default function Dashboard() {
   const { language, isArabic, text } = usePreferences();
   const [params, setParams] = useSearchParams();
-  const [state, setState] = useState({ loading: true, rows: [], total: 0, sources: [], markets: [], market: null, error: "", notice: "" });
+  const [state, setState] = useState({ loading: true, rows: [], total: 0, sources: [], markets: [], market: null, snapshot: null, error: "", notice: "" });
   const [marketCode, setMarketCode] = useState(() => localStorage.getItem("kmy_market_code") || "SA_MAIN");
   const [query, setQuery] = useState("");
   const [sector, setSector] = useState("");
@@ -45,7 +46,7 @@ export default function Dashboard() {
         state.markets.length ? Promise.resolve({ markets: state.markets }) : invokeAppFunction("marketRead", { action: "markets" }),
       ]);
       const markets = marketData.markets || state.markets;
-      setState({ loading: false, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, error: "", notice: data.notice || "" });
+      setState({ loading: false, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, snapshot: data.snapshot || null, error: "", notice: data.notice || "" });
     } catch (error) {
       setState((value) => ({ ...value, loading: false, error: error?.response?.data?.error || error?.message || "market_fetch_failed" }));
     }
@@ -162,6 +163,8 @@ export default function Dashboard() {
         <div className="flex flex-wrap gap-2"><select className="form-input" value={marketCode} onChange={(event) => { setMarketCode(event.target.value); setParams({}); }}>{state.markets.map((market) => <option key={market.market_code} value={market.market_code} disabled={!market.active}>{isArabic ? market.name_ar : market.name_en}{!market.active ? (isArabic ? " · قريباً" : " · Soon") : ""}</option>)}</select><button className="secondary-button" onClick={() => loadMarket()} disabled={state.loading}><RefreshCw size={15} className={state.loading ? "animate-spin" : ""} />{isArabic ? "تحديث العرض" : "Refresh view"}</button></div>
       </section>
 
+      <MarketDataStatus snapshot={state.snapshot} notice={state.notice} />
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard icon={TrendingUp} label={isArabic ? "مرتفعة" : "Gainers"} value={summary.up} tone="summary-up" active={directionFilter === "up"} onClick={() => applyDirection("up")} />
         <SummaryCard icon={TrendingDown} label={isArabic ? "منخفضة" : "Losers"} value={summary.down} tone="summary-down" active={directionFilter === "down"} onClick={() => applyDirection("down")} />
@@ -203,7 +206,7 @@ export default function Dashboard() {
               <section><h2 className="list-title">{isArabic ? "الثابتة" : "Unchanged"}</h2><MarketTable rows={unchanged.slice(0, 20)} selectedSymbol={selectedSymbol} onSelect={selectCompany} /></section>
             </div>}
             {activeTab === "momentum" && <MarketTable rows={filtered.filter((row) => row.indicator)} selectedSymbol={selectedSymbol} onSelect={selectCompany} />}
-            {activeTab === "quality" && <section className="content-card"><h2 className="font-black">{isArabic ? "جودة البيانات" : "Data quality"}</h2><p className="mt-2 text-sm leading-7 text-slate-500">{isArabic ? "تراقب المنصة اكتمال البيانات وحداثتها وتمنع عرض القيم غير المعتمدة." : "The platform monitors completeness and freshness and blocks unverified values."}</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="metric-card"><span>{isArabic ? "حالة الفحص" : "Validation"}</span><b>{state.sources.length ? (isArabic ? "مفعّل" : "Active") : (isArabic ? "بانتظار الاتصال" : "Awaiting connection")}</b></div><div className="metric-card"><span>{isArabic ? "آخر فحص" : "Last check"}</span><b>{state.sources[0]?.last_verified_at ? new Date(state.sources[0].last_verified_at).toLocaleString(isArabic ? "ar-SA" : "en-US") : "—"}</b></div></div></section>}
+            {activeTab === "quality" && <section className="content-card"><h2 className="font-black">{isArabic ? "جودة البيانات" : "Data quality"}</h2><p className="mt-2 text-sm leading-7 text-slate-500">{isArabic ? "تراقب المنصة اكتمال البيانات وحداثتها وتمنع وصف القيم غير المرخصة بأنها محدثة." : "The platform monitors completeness and freshness and never labels unlicensed values as current."}</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="metric-card"><span>{isArabic ? "حالة الفحص" : "Validation"}</span><b>{state.snapshot?.freshness_status === "healthy" ? (isArabic ? "سليم" : "Healthy") : state.snapshot?.freshness_status === "degraded" ? (isArabic ? "تغطية جزئية" : "Degraded") : (isArabic ? "غير جاهز للإنتاج" : "Not production-ready")}</b></div><div className="metric-card"><span>{isArabic ? "نسبة التغطية" : "Coverage"}</span><b>{Number(state.snapshot?.coverage_percent || 0).toFixed(1)}%</b></div></div></section>}
           </>}
         </div>
       </section>

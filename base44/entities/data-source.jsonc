@@ -8,6 +8,25 @@
     "name": {
       "type": "string"
     },
+    "market_code": {
+      "type": "string"
+    },
+    "quote_mode": {
+      "type": "string",
+      "enum": ["realtime", "delayed", "end_of_day", "disabled"]
+    },
+    "delay_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "public_enabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "license_expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "source_type": {
       "type": "string",
       "enum": [
@@ -19,8 +38,10 @@
     "license_status": {
       "type": "string",
       "enum": [
+        "pending",
         "approved",
         "restricted",
+        "suspended",
         "expired"
       ]
     },
@@ -37,9 +58,7 @@
     "code",
     "name",
     "source_type",
-    "license_status",
-    "base_url",
-    "last_verified_at"
+    "license_status"
   ],
   "rls": {
     "create": false,

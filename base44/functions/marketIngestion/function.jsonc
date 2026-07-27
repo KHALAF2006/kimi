@@ -1,4 +1,81 @@
 {
   "name": "marketIngestion",
-  "entry": "entry.ts"
+  "entry": "entry.ts",
+  "automations": [
+    {
+      "type": "scheduled",
+      "name": "saudi_t15_1015_1045_riyadh",
+      "description": "Licensed T+15 snapshots at 10:15, 10:30 and 10:45 Riyadh (UTC+3). Enable only after the redistribution license and provider secrets are approved.",
+      "is_active": false,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "15,30,45 7 * * 0-4",
+      "ends_type": "never",
+      "function_args": {
+        "source": "scheduled_licensed_t15",
+        "slot_kind": "quarter_hour",
+        "market_code": "SA_MAIN"
+      }
+    },
+    {
+      "type": "scheduled",
+      "name": "saudi_t15_1100_1445_riyadh",
+      "description": "Licensed T+15 snapshots every quarter hour from 11:00 through 14:45 Riyadh (UTC+3).",
+      "is_active": false,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "0,15,30,45 8-11 * * 0-4",
+      "ends_type": "never",
+      "function_args": {
+        "source": "scheduled_licensed_t15",
+        "slot_kind": "quarter_hour",
+        "market_code": "SA_MAIN"
+      }
+    },
+    {
+      "type": "scheduled",
+      "name": "saudi_t15_1500_1515_riyadh",
+      "description": "Licensed T+15 snapshots for the 14:45 and 15:00 market cutoffs.",
+      "is_active": false,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "0,15 12 * * 0-4",
+      "ends_type": "never",
+      "function_args": {
+        "source": "scheduled_licensed_t15",
+        "slot_kind": "quarter_hour",
+        "market_code": "SA_MAIN"
+      }
+    },
+    {
+      "type": "scheduled",
+      "name": "saudi_close_price_1526_riyadh",
+      "description": "Confirms the delayed official closing-auction price after it is disseminated.",
+      "is_active": false,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "26 12 * * 0-4",
+      "ends_type": "never",
+      "function_args": {
+        "source": "scheduled_licensed_close",
+        "slot_kind": "close_price",
+        "market_code": "SA_MAIN"
+      }
+    },
+    {
+      "type": "scheduled",
+      "name": "saudi_session_final_1536_riyadh",
+      "description": "Finalizes delayed normal-session statistics after trade-at-last ends.",
+      "is_active": false,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "36 12 * * 0-4",
+      "ends_type": "never",
+      "function_args": {
+        "source": "scheduled_licensed_final",
+        "slot_kind": "session_final",
+        "market_code": "SA_MAIN"
+      }
+    }
+  ]
 }

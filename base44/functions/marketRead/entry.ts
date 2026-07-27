@@ -2,6 +2,14 @@
 
 // base44/functions/marketRead/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
+import {
+  COVERAGE_FAILED_PERCENT,
+  COVERAGE_HEALTHY_PERCENT,
+  EXPECTED_INSTRUMENT_COUNT,
+  SAUDI_DELAY_SECONDS,
+  marketPhase,
+  riyadhClock
+} from "../../shared/market-data.js";
 var official_main_market_catalog_2026_07_21_default = {
   source: "Saudi Exchange",
   sourceUrl: "https://www.saudiexchange.sa/Resources/Reports-v2/DetailedDaily_en.html",
@@ -5170,7 +5178,6 @@ function replyError(error) {
     code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
   }, { status });
 }
-var YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart";
 var ALLOWED_INTERVALS = /* @__PURE__ */ new Set(["15m", "1h", "1d", "1wk", "1mo"]);
 var ALLOWED_RANGES = /* @__PURE__ */ new Set(["5d", "1mo", "3mo", "1y", "2y", "5y", "10y", "max"]);
 var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
@@ -5204,11 +5211,33 @@ async function optionalRows(operation, label) {
     return [];
   }
 }
-function stateFor(value, source, now = Date.now()) {
+function stateFor(value, source, now = Date.now(), options = {}) {
   const age = value ? now - new Date(value).getTime() : Number.POSITIVE_INFINITY;
+  const licensed = source?.source_type === "licensed" && source?.license_status === "approved" && source?.public_enabled === true;
+  const final = options.isFinal === true;
+  const explicitlyStale = options.freshnessStatus === "stale";
+  if (!licensed) {
+    return {
+      label: "\u062A\u062C\u0631\u064A\u0628\u064A\u0629 \u063A\u064A\u0631 \u0645\u0639\u062A\u0645\u062F\u0629",
+      stale: true,
+      experimental: true,
+      code: "experimental"
+    };
+  }
+  if (final && !explicitlyStale) {
+    return {
+      label: "\u0625\u063A\u0644\u0627\u0642 \u0646\u0647\u0627\u0626\u064A",
+      stale: false,
+      experimental: false,
+      code: "final"
+    };
+  }
+  const stale = explicitlyStale || age > (SAUDI_DELAY_SECONDS + 5 * 60) * 1e3;
   return {
-    label: age > 36 * 60 * 60 * 1e3 ? "\u0645\u062A\u0642\u0627\u062F\u0645\u0629" : source?.source_type === "official" ? "\u0645\u0631\u062C\u0639\u064A\u0629" : "\u0645\u062A\u0623\u062E\u0631\u0629",
-    stale: age > 36 * 60 * 60 * 1e3
+    label: stale ? "\u0645\u062A\u0642\u0627\u062F\u0645\u0629" : "\u0645\u062A\u0623\u062E\u0631\u0629 15 \u062F\u0642\u064A\u0642\u0629",
+    stale,
+    experimental: false,
+    code: stale ? "stale" : "delayed"
   };
 }
 async function requireMarketAccess(base44, body) {
@@ -5250,94 +5279,131 @@ async function instrumentFor(base44, body) {
   if (!instrument) throw Object.assign(new Error("Instrument not found"), { status: 404 });
   return instrument;
 }
-async function checksum(value) {
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
-  return Array.from(new Uint8Array(bytes)).map((item) => item.toString(16).padStart(2, "0")).join("");
-}
-function yahooPrice(value) {
-  if (value === null || value === void 0 || value === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-async function yahooCandles(symbol, interval, range) {
-  const response = await fetch(`${YAHOO_CHART}/${symbol}.SR?interval=${interval}&range=${range}&events=div%2Csplits`, {
-    headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 KMY-Saudi-Market/2.0" }
-  });
-  if (!response.ok) throw Object.assign(new Error(`Market chart source unavailable (${response.status})`), { status: 502 });
-  const result = (await response.json())?.chart?.result?.[0];
-  if (!result?.timestamp?.length) throw Object.assign(new Error("Market chart source returned no candles"), { status: 502 });
-  const values = result.indicators?.quote?.[0] || {};
-  const lastIndex = result.timestamp.length - 1;
-  const regularMarketPrice = yahooPrice(result.meta?.regularMarketPrice);
-  const candles = result.timestamp.map((timestamp, index) => {
-    const open = yahooPrice(values.open?.[index]);
-    const high = yahooPrice(values.high?.[index]);
-    const low = yahooPrice(values.low?.[index]);
-    const sourceClose = yahooPrice(values.close?.[index]);
-    const reconciledClose = index === lastIndex && sourceClose === null && regularMarketPrice !== null && low !== null && high !== null && regularMarketPrice >= low && regularMarketPrice <= high ? regularMarketPrice : sourceClose;
-    const rawVolume = values.volume?.[index];
-    const volume = rawVolume === null || rawVolume === void 0 || rawVolume === "" ? 0 : Number(rawVolume);
-    return { time: new Date(timestamp * 1e3).toISOString(), open, high, low, close: reconciledClose, volume };
-  }).filter((bar) => [bar.open, bar.high, bar.low, bar.close].every((value) => value !== null && Number.isFinite(value)) && bar.high >= Math.max(bar.open, bar.close) && bar.low <= Math.min(bar.open, bar.close) && Number.isFinite(bar.volume) && bar.volume >= 0);
-  if (!candles.length) throw Object.assign(new Error("Market chart source returned no valid candles"), { status: 502 });
-  const rawLastTime = new Date(result.timestamp[lastIndex] * 1e3).toISOString();
-  const acceptedLatestBar = candles[candles.length - 1].time === rawLastTime;
-  const lastTimestamp = acceptedLatestBar && result.meta?.regularMarketTime ? result.meta.regularMarketTime : new Date(candles[candles.length - 1].time).getTime() / 1e3;
-  return { candles, asOf: new Date(lastTimestamp * 1e3).toISOString() };
-}
+var RANGE_MILLISECONDS = {
+  "5d": 5 * 24 * 60 * 60 * 1e3,
+  "1mo": 31 * 24 * 60 * 60 * 1e3,
+  "3mo": 93 * 24 * 60 * 60 * 1e3,
+  "1y": 366 * 24 * 60 * 60 * 1e3,
+  "2y": 2 * 366 * 24 * 60 * 60 * 1e3,
+  "5y": 5 * 366 * 24 * 60 * 60 * 1e3,
+  "10y": 10 * 366 * 24 * 60 * 60 * 1e3
+};
 async function chartResponse(base44, body, sources) {
   const instrument = await instrumentFor(base44, body);
-  const marketCode = instrument.market_code || "SA_MAIN";
-  if (marketCode !== "SA_MAIN") {
-    const mappings = await base44.asServiceRole.entities.ProviderInstrumentMap.filter({ instrument_id: instrument.id, active: true, license_status: "approved" });
-    if (!mappings[0]) throw Object.assign(new Error("A licensed delayed feed is not configured for this market"), { status: 503, code: "MARKET_FEED_NOT_CONFIGURED" });
-    throw Object.assign(new Error("The configured provider adapter is not available"), { status: 503, code: "MARKET_ADAPTER_NOT_AVAILABLE" });
-  }
   const interval = String(body.interval || "1d");
   const range = String(body.range || "3mo");
   if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range)) {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
-  let yahoo = sources.find((item) => item.code === "YAHOO_FINANCE_SA_DELAYED");
-  if (!yahoo) {
-    yahoo = await base44.asServiceRole.entities.DataSource.create({
-      code: "YAHOO_FINANCE_SA_DELAYED",
-      name: "Yahoo Finance \u2014 Saudi delayed chart",
-      source_type: "reference",
-      license_status: "restricted",
-      base_url: "https://finance.yahoo.com/",
-      last_verified_at: (/* @__PURE__ */ new Date()).toISOString()
-    });
+  const chunks = (await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrument.id, interval }))
+    .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
+    .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
+  if (!chunks.length) {
+    throw Object.assign(new Error("Stored chart data is not available until a licensed ingestion run provides it"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   }
-  const result = await yahooCandles(instrument.symbol, interval, range);
-  const chunkKey = `${instrument.symbol}-${interval}-${range}`;
-  const row = {
-    instrument_id: instrument.id,
-    symbol: instrument.symbol,
-    interval,
-    chunk_key: chunkKey,
-    start_time: result.candles[0].time,
-    end_time: result.candles[result.candles.length - 1].time,
-    bars: result.candles,
-    bar_count: result.candles.length,
-    checksum: await checksum(result.candles),
-    source_id: yahoo.id,
-    quality_status: "verified"
-  };
-  const existing = await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrument.id, interval, chunk_key: chunkKey });
-  if (existing[0]) await base44.asServiceRole.entities.CandleChunk.update(existing[0].id, row);
-  else await base44.asServiceRole.entities.CandleChunk.create(row);
-  return {
-    candles: result.candles,
-    as_of: result.asOf,
-    data_state: stateFor(result.asOf, yahoo),
-    data_meta: {
-      source_time: result.asOf,
-      received_time: new Date().toISOString(),
-      delay_seconds: 900,
-      quality_status: "verified",
-      license_status: yahoo.license_status
+  const latestChunk = chunks[chunks.length - 1];
+  const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : new Date(latestChunk.end_time).getTime() - RANGE_MILLISECONDS[range];
+  const candleByTime = new Map();
+  for (const chunk of chunks) {
+    for (const bar of chunk.bars) {
+      if (new Date(bar.time).getTime() >= cutoff) candleByTime.set(bar.time, bar);
     }
+  }
+  const candles = [...candleByTime.values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  if (!candles.length) throw Object.assign(new Error("Stored chart data contains no valid candles for the requested range"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
+  const source = sources.find((item) => item.id === latestChunk.source_id) || null;
+  const asOf = latestChunk.end_time || candles[candles.length - 1].time;
+  return {
+    candles,
+    as_of: asOf,
+    data_state: stateFor(asOf, source),
+    data_meta: {
+      source_time: asOf,
+      received_time: latestChunk.updated_date || latestChunk.created_date || asOf,
+      delay_seconds: Number(source?.delay_seconds || SAUDI_DELAY_SECONDS),
+      quality_status: latestChunk.quality_status,
+      license_status: source?.license_status || "restricted"
+    }
+  };
+}
+function quoteView(quote, source) {
+  if (!quote) return null;
+  const asOf = quote.provider_as_of || quote.source_time || quote.quote_time;
+  return {
+    ...quote,
+    data_state: stateFor(asOf, source, Date.now(), {
+      isFinal: quote.is_final,
+      freshnessStatus: quote.freshness_status
+    }),
+    data_meta: {
+      source_time: quote.source_time || quote.quote_time,
+      provider_as_of: asOf,
+      last_trade_time: quote.last_trade_time || null,
+      received_time: quote.received_time || quote.updated_date,
+      delay_seconds: Number(quote.delay_seconds || source?.delay_seconds || SAUDI_DELAY_SECONDS),
+      snapshot_version: quote.snapshot_version || null,
+      market_phase: quote.market_phase || null,
+      freshness_status: quote.freshness_status || "stale",
+      quality_status: quote.quality_status,
+      license_status: quote.license_status || source?.license_status || "pending",
+      is_final: quote.is_final === true
+    }
+  };
+}
+function latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMarket) {
+  const clock = riyadhClock();
+  const fallback = {
+    market_code: requestedMarket,
+    session_phase: marketPhase(clock),
+    as_of: null,
+    received_at: null,
+    delay_seconds: SAUDI_DELAY_SECONDS,
+    snapshot_version: null,
+    coverage_percent: 0,
+    freshness_status: "experimental",
+    is_final: false
+  };
+  const candidates = instruments.map((instrument) => quoteByInstrument.get(instrument.id)).filter(Boolean)
+    .filter((quote) => quote.snapshot_version)
+    .filter((quote) => {
+      const source = sourceById.get(quote.source_id);
+      return source?.source_type === "licensed"
+        && source?.license_status === "approved"
+        && source?.public_enabled === true;
+    })
+    .sort((a, b) => new Date(b.received_time || b.updated_date || 0).getTime() - new Date(a.received_time || a.updated_date || 0).getTime());
+  if (!candidates.length) {
+    const reference = instruments.map((instrument) => quoteByInstrument.get(instrument.id)).filter(Boolean)
+      .sort((a, b) => new Date(b.source_time || b.quote_time || 0).getTime() - new Date(a.source_time || a.quote_time || 0).getTime())[0];
+    return reference ? {
+      ...fallback,
+      as_of: reference.provider_as_of || reference.source_time || reference.quote_time || null,
+      received_at: reference.received_time || reference.updated_date || null
+    } : fallback;
+  }
+  const snapshotVersion = candidates[0].snapshot_version;
+  const current = candidates.filter((quote) => quote.snapshot_version === snapshotVersion);
+  const denominator = requestedMarket === "SA_MAIN" ? EXPECTED_INSTRUMENT_COUNT : Math.max(instruments.length, 1);
+  const coveragePercent = Math.round(current.length / denominator * 10000) / 100;
+  const freshness = current.some((quote) => quote.freshness_status === "stale")
+    ? "stale"
+    : coveragePercent >= COVERAGE_HEALTHY_PERCENT
+      ? "healthy"
+      : coveragePercent >= COVERAGE_FAILED_PERCENT
+        ? "degraded"
+        : "failed";
+  const latestValue = (field, fallbackField) => current.map((quote) => quote[field] || quote[fallbackField]).filter(Boolean)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || null;
+  return {
+    market_code: requestedMarket,
+    session_phase: current[0].market_phase || marketPhase(clock),
+    as_of: latestValue("provider_as_of", "source_time"),
+    received_at: latestValue("received_time", "updated_date"),
+    delay_seconds: SAUDI_DELAY_SECONDS,
+    snapshot_version: snapshotVersion,
+    coverage_percent: coveragePercent,
+    freshness_status: freshness,
+    is_final: current.length > 0 && current.every((quote) => quote.is_final === true)
   };
 }
 Deno.serve(async (req) => {
@@ -5369,14 +5435,16 @@ Deno.serve(async (req) => {
       const source = quote ? sourceById.get(quote.source_id) : null;
       return Response.json({
         instrument: { ...instrument, warning_flag: losses2[0]?.level === "none" ? null : losses2[0]?.level },
-        quote: quote ? { ...quote, data_state: stateFor(quote.source_time || quote.quote_time, source), data_meta: { source_time: quote.source_time || quote.quote_time, received_time: quote.received_time || quote.updated_date, delay_seconds: Number(quote.delay_seconds || 0), quality_status: quote.quality_status, license_status: quote.license_status || source?.license_status || "pending" } } : null,
+        quote: quoteView(quote, source),
         indicators: indicators2,
         financials: financials.sort((a, b) => String(b.period_end || b.as_of || "").localeCompare(String(a.period_end || a.as_of || ""))),
         actions: actions.sort((a, b) => String(b.effective_date || b.as_of || "").localeCompare(String(a.effective_date || a.as_of || ""))),
         announcements: announcements.sort((a, b) => String(b.published_at || "").localeCompare(String(a.published_at || ""))),
         shareholders: shareholders.sort((a, b) => Number(b.ownership_percent || 0) - Number(a.ownership_percent || 0)),
         loss_classification: losses2[0] || null,
-        notice: "\u062A\u0638\u0647\u0631 \u062D\u0627\u0644\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u0648\u0648\u0642\u062A \u0622\u062E\u0631 \u062A\u062D\u062F\u064A\u062B \u062F\u0627\u062E\u0644 \u0627\u0644\u0645\u0646\u0635\u0629"
+        notice: quote?.snapshot_version
+          ? "\u0628\u064A\u0627\u0646\u0627\u062A \u0633\u0648\u0642 \u0645\u062A\u0623\u062E\u0631\u0629 15 \u062F\u0642\u064A\u0642\u0629"
+          : "\u0627\u0644\u0623\u0633\u0639\u0627\u0631 \u0627\u0644\u062D\u0627\u0644\u064A\u0629 \u062A\u062C\u0631\u064A\u0628\u064A\u0629 \u0648\u063A\u064A\u0631 \u0645\u0639\u062A\u0645\u062F\u0629 \u0644\u0644\u062A\u062F\u0627\u0648\u0644"
       });
     }
     const limit = Math.min(Math.max(Number(body.limit || 500), 1), 500);
@@ -5405,17 +5473,29 @@ Deno.serve(async (req) => {
       return {
         ...instrument,
         warning_flag: loss?.level === "none" ? null : loss?.level,
-        quote: quote ? { ...quote, data_state: stateFor(quote.source_time || quote.quote_time, source), data_meta: { source_time: quote.source_time || quote.quote_time, received_time: quote.received_time || quote.updated_date, delay_seconds: Number(quote.delay_seconds || 0), quality_status: quote.quality_status, license_status: quote.license_status || source?.license_status || "pending" } } : null,
+        quote: quoteView(quote, source),
         indicator: indicatorByInstrument.get(instrument.id) || null
       };
     }).filter((item) => !query || `${item.symbol} ${item.name_ar} ${item.name_en} ${item.sector_ar} ${item.sector_en}`.toLocaleLowerCase("ar").includes(query)).filter((item) => !sector || item.sector_ar === sector || item.sector_en === sector);
     if (body.mode === "movers") rows.sort((a, b) => Number(b.quote?.change_percent || 0) - Number(a.quote?.change_percent || 0));
+    const snapshot = latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMarket);
     return Response.json({
       instruments: rows.slice(0, limit),
       total: requestedMarket === "SA_MAIN" ? MAIN_MARKET_SYMBOLS.size : rows.length,
-      sources: sources.map((source) => ({ id: source.id, source_type: source.source_type, license_status: source.license_status, last_verified_at: source.last_verified_at })),
+      sources: sources.map((source) => ({ source_type: source.source_type, license_status: source.license_status, last_verified_at: source.last_verified_at })),
       market: MARKET_CATALOG.find((market) => market.market_code === requestedMarket) || null,
-      notice: "\u062A\u0638\u0647\u0631 \u062D\u0627\u0644\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u0648\u0648\u0642\u062A \u0622\u062E\u0631 \u062A\u062D\u062F\u064A\u062B \u062F\u0627\u062E\u0644 \u0627\u0644\u0645\u0646\u0635\u0629"
+      snapshot,
+      session_phase: snapshot.session_phase,
+      as_of: snapshot.as_of,
+      received_at: snapshot.received_at,
+      delay_seconds: snapshot.delay_seconds,
+      snapshot_version: snapshot.snapshot_version,
+      coverage_percent: snapshot.coverage_percent,
+      freshness_status: snapshot.freshness_status,
+      is_final: snapshot.is_final,
+      notice: snapshot.freshness_status === "experimental"
+        ? "\u0627\u0644\u0623\u0633\u0639\u0627\u0631 \u0627\u0644\u062D\u0627\u0644\u064A\u0629 \u062A\u062C\u0631\u064A\u0628\u064A\u0629 \u0648\u063A\u064A\u0631 \u0645\u0639\u062A\u0645\u062F\u0629 \u0644\u0644\u062A\u062F\u0627\u0648\u0644"
+        : "\u0628\u064A\u0627\u0646\u0627\u062A \u0633\u0648\u0642 \u0645\u062A\u0623\u062E\u0631\u0629 15 \u062F\u0642\u064A\u0642\u0629"
     });
   } catch (error) {
     return replyError(error);

@@ -28,7 +28,7 @@ export default function MarketTable({ rows = [], selectedSymbol = "", onSelect =
             return <tr key={row.id || row.symbol} className={selectedSymbol === row.symbol ? "selected-market-row" : ""}>
               <td><Link to={"/dashboard?company=" + row.symbol} onClick={(event) => select(event, row)} className="market-symbol">{row.symbol}<ExternalLink size={11} /></Link></td>
               <td><Link to={"/dashboard?company=" + row.symbol} onClick={(event) => select(event, row)} className="block"><b className="text-slate-950 dark:text-white">{isArabic ? row.name_ar : row.name_en}</b><span className="mt-1 block text-xs text-slate-500">{isArabic ? row.sector_ar : row.sector_en}</span><div className="mt-1"><LossFlagBadge flag={row.warning_flag || row.loss_classification?.level} compact /></div></Link></td>
-              <td className="font-black">{formatNumber(quote.last_price, language)}</td>
+              <td className="font-black">{formatNumber(quote.last_price, language)}<span className="mt-1 block text-[10px] font-medium text-slate-500">{quote.data_state?.label || (isArabic ? "الحالة غير معروفة" : "Unknown status")}</span></td>
               <td className={"market-" + direction}>{Number(quote.change_value || 0) > 0 ? "+" : ""}{formatNumber(quote.change_value, language)}</td>
               <td className={"font-black market-" + direction}>{Number(quote.change_percent || 0) > 0 ? "+" : ""}{formatNumber(quote.change_percent, language)}%</td>
               <td>{formatNumber(quote.previous_close, language)}</td>
@@ -44,7 +44,7 @@ export default function MarketTable({ rows = [], selectedSymbol = "", onSelect =
         const quote = row.quote || {};
         const direction = quoteDirection(quote.change_percent);
         return <Link key={row.id || row.symbol} to={"/dashboard?company=" + row.symbol} onClick={(event) => select(event, row)} className={"block p-4 " + (selectedSymbol === row.symbol ? "bg-amber-50 dark:bg-amber-400/10" : "")}>
-          <div className="flex items-start justify-between gap-3"><div><b>{row.symbol} · {isArabic ? row.name_ar : row.name_en}</b><p className="mt-1 text-xs text-slate-500">{isArabic ? row.sector_ar : row.sector_en}</p><div className="mt-2"><LossFlagBadge flag={row.warning_flag || row.loss_classification?.level} compact /></div></div><div className="text-left" dir="ltr"><b className="text-lg">{formatNumber(quote.last_price, language)}</b><p className={"text-sm font-black market-" + direction}>{Number(quote.change_percent || 0) > 0 ? "+" : ""}{formatNumber(quote.change_percent, language)}%</p></div></div>
+          <div className="flex items-start justify-between gap-3"><div><b>{row.symbol} · {isArabic ? row.name_ar : row.name_en}</b><p className="mt-1 text-xs text-slate-500">{isArabic ? row.sector_ar : row.sector_en}</p><div className="mt-2"><LossFlagBadge flag={row.warning_flag || row.loss_classification?.level} compact /></div></div><div className="text-left" dir="ltr"><b className="text-lg">{formatNumber(quote.last_price, language)}</b><p className={"text-sm font-black market-" + direction}>{Number(quote.change_percent || 0) > 0 ? "+" : ""}{formatNumber(quote.change_percent, language)}%</p><p className="mt-1 text-[10px] text-slate-500" dir={isArabic ? "rtl" : "ltr"}>{quote.data_state?.label || (isArabic ? "الحالة غير معروفة" : "Unknown status")}</p></div></div>
         </Link>;
       })}
     </div>

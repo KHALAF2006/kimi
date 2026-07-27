@@ -5,6 +5,13 @@
     "instrument_id": {
       "type": "string"
     },
+    "market_code": {
+      "type": "string"
+    },
+    "session_date": {
+      "type": "string",
+      "format": "date"
+    },
     "symbol": {
       "type": "string"
     },
@@ -57,6 +64,14 @@
       "type": "string",
       "format": "date-time"
     },
+    "provider_as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_trade_time": {
+      "type": "string",
+      "format": "date-time"
+    },
     "received_time": {
       "type": "string",
       "format": "date-time"
@@ -80,6 +95,23 @@
         "stale",
         "quarantined"
       ]
+    },
+    "snapshot_version": {
+      "type": "string"
+    },
+    "market_phase": {
+      "type": "string",
+      "enum": ["opening_auction", "continuous", "closing_auction", "trade_at_last", "closed"]
+    },
+    "freshness_status": {
+      "type": "string",
+      "enum": ["fresh", "stale"]
+    },
+    "is_final": {
+      "type": "boolean"
+    },
+    "run_id": {
+      "type": "string"
     }
   },
   "required": [
