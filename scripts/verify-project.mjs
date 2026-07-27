@@ -40,6 +40,8 @@ assert.match(ingestion, /name_ar:\s*row\.nameAr/);
 assert.match(ingestion, /name_en:\s*row\.nameEn/);
 assert.match(ingestion, /upsertMany\(base44,\s*["']Instrument["']/);
 assert.match(ingestion, /Base44-Service-Authorization/, "scheduled ingestion must require Base44 service authorization");
+assert.match(ingestion, /const isServiceInvocation = Boolean\(serviceAuthorization\) && body\.force !== true/, "workflow service authorization must take precedence over the creator user identity");
+assert.match(ingestion, /if \(!isServiceInvocation\)/, "manual ingestion must remain behind the owner session and permission checks");
 assert.match(ingestion, /MAIN_MARKET_SYMBOLS\.has\(row\.symbol\)/, "ingestion must exclude records outside the verified main-market catalog");
 assert.match(ingestion, /KMY_MARKET_DATA_URL/, "licensed ingestion must require a provider endpoint secret");
 assert.match(ingestion, /fetchPublicDelayedCharts/, "experimental ingestion must support public delayed 15-minute charts without a paid key");

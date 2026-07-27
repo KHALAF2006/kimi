@@ -5771,16 +5771,14 @@ Deno.serve(async (req) => {
       user = null;
     }
     const serviceAuthorization = req.headers.get("Base44-Service-Authorization");
-    if (user) {
+    const isServiceInvocation = Boolean(serviceAuthorization) && body.force !== true;
+    if (!isServiceInvocation) {
+      if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
       await requireDataIngestionPermission(base44, body.session_id);
-    } else {
-      if (!serviceAuthorization || body.force === true) {
-        throw Object.assign(new Error("Unauthorized"), { status: 401 });
-      }
     }
-    const effectiveSource = user
-      ? String(body.source || "manual")
-      : `scheduled_${String(body.source || "experimental_t15").replace(/^scheduled_/, "")}`;
+    const effectiveSource = isServiceInvocation
+      ? `scheduled_${String(body.source || "experimental_t15").replace(/^scheduled_/, "")}`
+      : String(body.source || "manual");
     const marketCode = String(body.market_code || SAUDI_MAIN_MARKET);
     if (marketCode !== SAUDI_MAIN_MARKET) throw ingestionFailure("The requested market feed is not configured", "MARKET_FEED_NOT_CONFIGURED");
     const now = /* @__PURE__ */ new Date();
@@ -5791,7 +5789,7 @@ Deno.serve(async (req) => {
       : effectiveSource.includes("close") || !user && requestMinuteOfDay >= 16 * 60
         ? "close_price"
         : "quarter_hour";
-    const slotKind = ["quarter_hour", "close_price", "session_final"].includes(String(body.slot_kind)) ? String(body.slot_kind) : user ? "manual" : inferredSlotKind;
+    const slotKind = ["quarter_hour", "close_price", "session_final"].includes(String(body.slot_kind)) ? String(body.slot_kind) : isServiceInvocation ? inferredSlotKind : "manual";
     const schedule = slotDecision({ now, slotKind, source: effectiveSource });
     if (!schedule.run) return Response.json({ status: "skipped", reason: schedule.reason, clock: schedule.clock, phase: schedule.phase });
     const [holidays, sessions] = await Promise.all([
