@@ -8,7 +8,8 @@ import {
   cloneDrawings, createDrawing, DRAWING_TYPES, drawingFillPolygon, drawingHitTest, drawingSegments, lineStyleDash,
 } from "@/components/market/chartDrawingModel";
 import {
-  deleteChartDrawing, deleteDrawingAlert, duplicateChartDrawing, loadChartDrawings, saveChartDrawing, saveDrawingAlert,
+  deleteAllChartDrawings, deleteChartDrawing, deleteDrawingAlert, duplicateChartDrawing, loadChartDrawings,
+  saveChartDrawing, saveDrawingAlert, setAllChartDrawingsVisibility,
 } from "@/services/drawingService";
 
 const icons = {
@@ -29,6 +30,9 @@ const icons = {
 const ALERT_TYPES = new Set(["trend_line", "ray", "horizontal_line"]);
 const RANGE_TYPES = new Set(["price_range", "date_range", "date_and_price_range"]);
 const TOOLBAR_STORAGE_KEY = "si_drawing_toolbar_layout";
+const SELECTION_TOOLBAR_STORAGE_KEY = "si_drawing_selection_toolbar_layout";
+const DRAWING_CLIPBOARD_STORAGE_KEY = "kmy_drawing_clipboard_v1";
+const DRAWING_CLIPBOARD_PREFIX = "KMY_DRAWING:";
 
 function storedToolbarLayout() {
   try {
@@ -39,6 +43,62 @@ function storedToolbarLayout() {
   } catch {
     return { x: null, y: 8, orientation: "horizontal", collapsed: false, hidden: false };
   }
+}
+
+function storedSelectionToolbarLayout() {
+  try {
+    const value = JSON.parse(localStorage.getItem(SELECTION_TOOLBAR_STORAGE_KEY) || "null");
+    return value && Number.isFinite(Number(value.x)) && Number.isFinite(Number(value.y))
+      ? { x: Number(value.x), y: Number(value.y) }
+      : { x: null, y: 96 };
+  } catch {
+    return { x: null, y: 96 };
+  }
+}
+
+function storedClipboardDrawing() {
+  try {
+    const value = JSON.parse(localStorage.getItem(DRAWING_CLIPBOARD_STORAGE_KEY) || "null");
+    return value?.drawing ? { ...value.drawing, clipboardSymbol: value.symbol, clipboardInterval: value.interval } : null;
+  } catch {
+    return null;
+  }
+}
+
+function smoothPath(context, points) {
+  if (!points.length) return;
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+  if (points.length === 2) {
+    context.lineTo(points[1].x, points[1].y);
+  } else {
+    for (let index = 1; index < points.length - 1; index += 1) {
+      const midpoint = {
+        x: (points[index].x + points[index + 1].x) / 2,
+        y: (points[index].y + points[index + 1].y) / 2,
+      };
+      context.quadraticCurveTo(points[index].x, points[index].y, midpoint.x, midpoint.y);
+    }
+    context.lineTo(points.at(-1).x, points.at(-1).y);
+  }
+  context.stroke();
+}
+
+function simplifyFreehand(points, tolerance = 1.6) {
+  if (points.length <= 2) return points;
+  const squareTolerance = tolerance * tolerance;
+  const radial = [points[0]];
+  let previous = points[0];
+  for (let index = 1; index < points.length; index += 1) {
+    const point = points[index];
+    const dx = Number(point.x) - Number(previous.x);
+    const dy = Number(point.y) - Number(previous.y);
+    if (dx * dx + dy * dy >= squareTolerance || index === points.length - 1) {
+      radial.push(point);
+      previous = point;
+    }
+  }
+  return radial.slice(0, 500);
 }
 
 function displayError(error, isArabic) {
@@ -144,11 +204,8 @@ function renderDrawing(context, drawing, points, width, height, selected, isArab
     context.fill();
   }
 
-  if (drawing.type === "curve" && points.length >= 3) {
-    context.beginPath();
-    context.moveTo(points[0].x, points[0].y);
-    context.quadraticCurveTo(points[1].x, points[1].y, points[2].x, points[2].y);
-    context.stroke();
+  if ((drawing.type === "curve" || drawing.type === "brush") && points.length >= 2) {
+    smoothPath(context, points);
   } else {
     const segments = drawingSegments(drawing.type, points, width, height, options);
     segments.forEach(([start, end], index) => {
@@ -195,7 +252,8 @@ function renderDrawing(context, drawing, points, width, height, selected, isArab
 
   if (selected) {
     context.setLineDash([]);
-    points.forEach((point) => {
+    const handles = drawing.type === "brush" && points.length > 2 ? [points[0], points.at(-1)] : points;
+    handles.forEach((point) => {
       context.beginPath();
       context.arc(point.x, point.y, 5, 0, Math.PI * 2);
       context.fillStyle = "#fff";
@@ -213,11 +271,13 @@ function renderDrawing(context, drawing, points, width, height, selected, isArab
   context.restore();
 }
 
-export default function ChartDrawingTools({ chart, series, symbol, interval, mainPaneHeight = 470, isArabic, onResetChart }) {
+export default function ChartDrawingTools({ chart, series, symbol, interval, mainPaneHeight = 470, isArabic, onResetChart, visibilityCommand = null, onDrawingVisibilityChange = (_visible) => {} }) {
   const instanceRef = useRef(crypto.randomUUID());
   const canvasRef = useRef(null);
   const toolbarRef = useRef(null);
   const toolbarDragRef = useRef(null);
+  const selectionToolbarRef = useRef(null);
+  const selectionToolbarDragRef = useRef(null);
   const pendingSavesRef = useRef(new Map());
   const interactionRef = useRef(null);
   const draftRef = useRef(null);
@@ -231,19 +291,31 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   const [status, setStatus] = useState("");
   const [showAlertEditor, setShowAlertEditor] = useState(false);
   const [showDrawingList, setShowDrawingList] = useState(false);
-  const [clipboardDrawing, setClipboardDrawing] = useState(null);
+  const [clipboardDrawing, setClipboardDrawing] = useState(storedClipboardDrawing);
   const [contextMenu, setContextMenu] = useState(null);
   const [busyDrawingId, setBusyDrawingId] = useState("");
   const [toolbarLayout, setToolbarLayout] = useState(storedToolbarLayout);
+  const [selectionToolbarLayout, setSelectionToolbarLayout] = useState(storedSelectionToolbarLayout);
   const [alertForm, setAlertForm] = useState({ condition: "crosses", frequency: "repeat", cooldown_minutes: 15 });
   drawingsRef.current = drawings;
   draftRef.current = draft;
   const selected = drawings.find((drawing) => drawing.clientId === selectedId) || null;
   const toolbarStyle = toolbarLayout.x == null ? { top: toolbarLayout.y, insetInlineEnd: 8 } : { top: toolbarLayout.y, left: toolbarLayout.x };
+  const selectionToolbarStyle = selectionToolbarLayout.x == null
+    ? { top: selectionToolbarLayout.y, insetInlineEnd: 8 }
+    : { top: selectionToolbarLayout.y, left: selectionToolbarLayout.x };
 
   useEffect(() => {
     localStorage.setItem(TOOLBAR_STORAGE_KEY, JSON.stringify(toolbarLayout));
   }, [toolbarLayout]);
+
+  useEffect(() => {
+    localStorage.setItem(SELECTION_TOOLBAR_STORAGE_KEY, JSON.stringify(selectionToolbarLayout));
+  }, [selectionToolbarLayout]);
+
+  useEffect(() => {
+    onDrawingVisibilityChange(drawings.length === 0 || drawings.some((drawing) => drawing.visible));
+  }, [drawings, onDrawingVisibilityChange]);
 
   useEffect(() => {
     const buttons = [...(toolbarRef.current?.querySelectorAll("button:not(:disabled)") || [])];
@@ -309,6 +381,11 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   }, [symbol, interval, isArabic]);
 
   useEffect(() => {
+    if (!visibilityCommand?.id) return;
+    setAllVisibility(Boolean(visibilityCommand.visible)).catch(() => {});
+  }, [visibilityCommand?.id]);
+
+  useEffect(() => {
     const handler = (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
@@ -321,7 +398,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
         event.preventDefault(); removeSelected();
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && selectedId && !event.target.closest("input,select,textarea")) {
         event.preventDefault(); copySelected();
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && clipboardDrawing && !event.target.closest("input,select,textarea")) {
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && !event.target.closest("input,select,textarea")) {
         event.preventDefault(); pasteCopied();
       } else if (event.altKey && event.key.toLowerCase() === "r") {
         event.preventDefault(); onResetChart?.();
@@ -421,12 +498,15 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
 
   function finishDrawing(value) {
     if (!value || value.points.length < 1) return;
-    const next = [...drawingsRef.current, value];
+    const finished = value.type === "brush"
+      ? { ...value, points: simplifyFreehand(value.points) }
+      : value;
+    const next = [...drawingsRef.current, finished];
     replaceDrawings(next);
     setDraft(null);
-    setSelectedId(value.clientId);
+    setSelectedId(finished.clientId);
     setActiveTool("select");
-    persist(value).catch(() => {});
+    persist(finished).catch(() => {});
   }
 
   function pointerDown(event) {
@@ -468,7 +548,11 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     if (!point) return;
     const interaction = interactionRef.current;
     if (interaction?.mode === "draw" && draftRef.current) setDraft({ ...draftRef.current, points: [draftRef.current.points[0], point] });
-    else if (interaction?.mode === "brush" && draftRef.current) setDraft({ ...draftRef.current, points: [...draftRef.current.points, point].slice(-500) });
+    else if (interaction?.mode === "brush" && draftRef.current) {
+      const previous = draftRef.current.points.at(-1);
+      const distance = previous ? Math.hypot(Number(point.x) - Number(previous.x), Number(point.y) - Number(previous.y)) : Number.POSITIVE_INFINITY;
+      if (distance >= 1.8) setDraft({ ...draftRef.current, points: [...draftRef.current.points, point].slice(-500) });
+    }
     else if (interaction && ["move", "handle"].includes(interaction.mode)) {
       const original = interaction.original;
       let points;
@@ -542,24 +626,111 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     return removeDrawing(selected, force);
   }
 
-  function copySelected() {
+  async function copySelected() {
     if (!selected) return;
-    setClipboardDrawing(cloneDrawings([selected])[0]);
+    const drawing = { ...cloneDrawings([selected])[0], clipboardSymbol: symbol, clipboardInterval: interval };
+    setClipboardDrawing(drawing);
+    const payload = { version: 1, symbol, interval, drawing };
+    localStorage.setItem(DRAWING_CLIPBOARD_STORAGE_KEY, JSON.stringify(payload));
+    try {
+      await navigator.clipboard?.writeText(DRAWING_CLIPBOARD_PREFIX + JSON.stringify(payload));
+    } catch {
+      // The durable in-app clipboard remains available when browser clipboard permission is unavailable.
+    }
     setStatus(isArabic ? "تم نسخ الرسم. استخدم لصق أو Ctrl+V." : "Drawing copied. Use Paste or Ctrl+V.");
   }
 
   async function pasteCopied() {
-    if (!clipboardDrawing) return;
+    let source = clipboardDrawing || storedClipboardDrawing();
     try {
-      setBusyDrawingId(clipboardDrawing.clientId);
-      let source = clipboardDrawing;
+      const systemValue = await navigator.clipboard?.readText?.();
+      if (systemValue?.startsWith(DRAWING_CLIPBOARD_PREFIX)) {
+        const payload = JSON.parse(systemValue.slice(DRAWING_CLIPBOARD_PREFIX.length));
+        if (payload?.drawing) source = { ...payload.drawing, clipboardSymbol: payload.symbol, clipboardInterval: payload.interval };
+      }
+    } catch {
+      // Browser clipboard access is optional; use the durable in-app clipboard.
+    }
+    if (!source) {
+      setStatus(isArabic ? "انسخ رسماً أولاً ثم استخدم اللصق." : "Copy a drawing before pasting.");
+      return;
+    }
+    try {
+      setBusyDrawingId(source.clientId);
+      const sourceSymbol = source.clipboardSymbol;
       const pending = pendingSavesRef.current.get(source.clientId);
       if (pending) source = await pending;
-      const copy = await duplicateChartDrawing(symbol, source, crypto.randomUUID());
+      const newClientId = crypto.randomUUID();
+      const canDuplicate = sourceSymbol === symbol && source.serverId;
+      const copy = canDuplicate
+        ? await duplicateChartDrawing(symbol, source, newClientId)
+        : await saveChartDrawing(symbol, interval, {
+          ...source,
+          clientId: newClientId,
+          serverId: null,
+          alert: null,
+          locked: false,
+          visible: true,
+          zIndex: Math.max(0, ...drawingsRef.current.map((item) => Number(item.zIndex || 0))) + 1,
+          points: source.points.map((point) => ({ ...point, logical: Number(point.logical || 0) + 1 })),
+        });
       replaceDrawings([...drawingsRef.current, copy]);
       setSelectedId(copy.clientId);
       setActiveTool("select");
       setStatus(isArabic ? "تم لصق نسخة مستقلة من الرسم." : "An independent drawing copy was pasted.");
+    } catch (error) {
+      setStatus(displayError(error, isArabic));
+    } finally {
+      setBusyDrawingId("");
+    }
+  }
+
+  async function setAllVisibility(visible) {
+    try {
+      setBusyDrawingId("bulk");
+      await setAllChartDrawingsVisibility(symbol, interval, visible);
+      const next = drawingsRef.current.map((drawing) => ({ ...drawing, visible }));
+      replaceDrawings(next);
+      setStatus(visible
+        ? (isArabic ? "تم إظهار جميع الرسومات." : "All drawings are visible.")
+        : (isArabic ? "تم إخفاء جميع الرسومات." : "All drawings are hidden."));
+    } catch (error) {
+      setStatus(displayError(error, isArabic));
+      throw error;
+    } finally {
+      setBusyDrawingId("");
+    }
+  }
+
+  function wheelZoom(event) {
+    if (!chart || !canvasRef.current) return;
+    const scale = chart.timeScale();
+    const visible = scale.getVisibleLogicalRange();
+    if (!visible) return;
+    event.preventDefault();
+    const rect = canvasRef.current.getBoundingClientRect();
+    const coordinate = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+    const anchor = scale.coordinateToLogical(coordinate) ?? (visible.from + visible.to) / 2;
+    const span = Math.max(4, visible.to - visible.from);
+    const nextSpan = Math.max(4, Math.min(5000, span * (event.deltaY > 0 ? 1.14 : 0.86)));
+    const ratio = span ? (anchor - visible.from) / span : 0.5;
+    scale.setVisibleLogicalRange({
+      from: anchor - nextSpan * ratio,
+      to: anchor + nextSpan * (1 - ratio),
+    });
+    redraw();
+  }
+
+  async function clearAllDrawings() {
+    if (!drawingsRef.current.length) return;
+    const confirmed = window.confirm(isArabic ? "هل تريد مسح جميع الرسومات المحفوظة لهذا الشارت؟" : "Delete all saved drawings for this chart?");
+    if (!confirmed) return;
+    try {
+      setBusyDrawingId("bulk");
+      await deleteAllChartDrawings(symbol, interval, drawingsRef.current.some((drawing) => drawing.alert));
+      replaceDrawings([]);
+      setSelectedId("");
+      setStatus(isArabic ? "تم مسح جميع الرسومات." : "All drawings were deleted.");
     } catch (error) {
       setStatus(displayError(error, isArabic));
     } finally {
@@ -629,6 +800,38 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
+  function beginSelectionToolbarDrag(event) {
+    const toolbar = selectionToolbarRef.current;
+    const boundary = canvasRef.current?.parentElement;
+    if (!toolbar || !boundary) return;
+    const toolbarRect = toolbar.getBoundingClientRect();
+    const boundaryRect = boundary.getBoundingClientRect();
+    selectionToolbarDragRef.current = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - toolbarRect.left,
+      offsetY: event.clientY - toolbarRect.top,
+      boundaryRect,
+      width: toolbarRect.width,
+      height: toolbarRect.height,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function moveSelectionToolbar(event) {
+    const drag = selectionToolbarDragRef.current;
+    if (!drag) return;
+    const x = Math.max(4, Math.min(drag.boundaryRect.width - drag.width - 4, event.clientX - drag.boundaryRect.left - drag.offsetX));
+    const y = Math.max(4, Math.min(mainPaneHeight - drag.height - 4, event.clientY - drag.boundaryRect.top - drag.offsetY));
+    setSelectionToolbarLayout({ x, y });
+  }
+
+  function finishSelectionToolbarDrag(event) {
+    if (!selectionToolbarDragRef.current) return;
+    selectionToolbarDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
   function toggleDrawingVisibility(drawing) {
     const next = { ...drawing, visible: !drawing.visible };
     replaceDrawings(drawingsRef.current.map((item) => item.clientId === drawing.clientId ? next : item));
@@ -676,6 +879,9 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       <span className="drawing-tools-separator" />
       <button type="button" onClick={undo} disabled={!undoStack.length} title={isArabic ? "تراجع" : "Undo"}><Undo2 size={16} /></button>
       <button type="button" onClick={redo} disabled={!redoStack.length} title={isArabic ? "إعادة" : "Redo"}><Redo2 size={16} /></button>
+      <span className="drawing-tools-separator" />
+      <button type="button" data-action="toggle-all-drawings" disabled={!drawings.length || busyDrawingId === "bulk"} onClick={() => setAllVisibility(!drawings.some((drawing) => drawing.visible))} title={drawings.some((drawing) => drawing.visible) ? (isArabic ? "إخفاء جميع الرسومات" : "Hide all drawings") : (isArabic ? "إظهار جميع الرسومات" : "Show all drawings")}>{drawings.some((drawing) => drawing.visible) ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+      <button type="button" data-action="clear-all-drawings" disabled={!drawings.length || busyDrawingId === "bulk"} className="danger" onClick={clearAllDrawings} title={isArabic ? "مسح جميع الرسومات" : "Delete all drawings"}><Trash2 size={16} /></button>
       </div>}
     </div>}
 
@@ -698,7 +904,9 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     {contextMenu && <div className="chart-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} role="menu" onPointerDown={(event) => event.stopPropagation()}>
       <button type="button" role="menuitem" onClick={() => { onResetChart?.(); setContextMenu(null); }}><RefreshCcw size={15} />{isArabic ? "إعادة الرسم للوضع الطبيعي" : "Reset chart view"}<kbd>Alt+R</kbd></button>
       <button type="button" role="menuitem" disabled={!selected} onClick={() => { copySelected(); setContextMenu(null); }}><Copy size={15} />{isArabic ? "نسخ الرسم المحدد" : "Copy selected drawing"}<kbd>Ctrl+C</kbd></button>
-      <button type="button" role="menuitem" disabled={!clipboardDrawing} onClick={() => { pasteCopied(); setContextMenu(null); }}><ClipboardPaste size={15} />{isArabic ? "لصق الرسم" : "Paste drawing"}<kbd>Ctrl+V</kbd></button>
+      <button type="button" role="menuitem" onClick={() => { pasteCopied(); setContextMenu(null); }}><ClipboardPaste size={15} />{isArabic ? "لصق الرسم" : "Paste drawing"}<kbd>Ctrl+V</kbd></button>
+      <button type="button" role="menuitem" disabled={!drawings.length} onClick={() => { setAllVisibility(!drawings.some((drawing) => drawing.visible)); setContextMenu(null); }}>{drawings.some((drawing) => drawing.visible) ? <EyeOff size={15} /> : <Eye size={15} />}{drawings.some((drawing) => drawing.visible) ? (isArabic ? "إخفاء جميع الرسومات" : "Hide all drawings") : (isArabic ? "إظهار جميع الرسومات" : "Show all drawings")}</button>
+      <button type="button" role="menuitem" disabled={!drawings.length} className="danger" onClick={() => { clearAllDrawings(); setContextMenu(null); }}><Trash2 size={15} />{isArabic ? "مسح جميع الرسومات" : "Delete all drawings"}</button>
       <button type="button" role="menuitem" disabled={!selected || busyDrawingId === selected?.clientId} className="danger" onClick={() => { removeSelected(); setContextMenu(null); }}><Trash2 size={15} />{isArabic ? "حذف الرسم المحدد" : "Delete selected drawing"}<kbd>Del</kbd></button>
     </div>}
 
@@ -710,11 +918,13 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       onPointerMove={pointerMove}
       onPointerUp={pointerUp}
       onPointerCancel={pointerUp}
+      onWheel={wheelZoom}
       onDoubleClick={() => draftRef.current && ["polyline"].includes(draftRef.current.type) && finishDrawing(draftRef.current)}
       aria-label={isArabic ? "طبقة الرسم على الشارت" : "Chart drawing layer"}
     />
 
-    {selected && <div className="drawing-selection-toolbar" role="toolbar" aria-label={isArabic ? "خصائص الرسم المحدد" : "Selected drawing properties"}>
+    {selected && <div ref={selectionToolbarRef} style={selectionToolbarStyle} className="drawing-selection-toolbar" role="toolbar" aria-label={isArabic ? "خصائص الرسم المحدد" : "Selected drawing properties"}>
+      <button type="button" className="drawing-selection-drag-handle" onPointerDown={beginSelectionToolbarDrag} onPointerMove={moveSelectionToolbar} onPointerUp={finishSelectionToolbarDrag} onPointerCancel={finishSelectionToolbarDrag} title={isArabic ? "اسحب لتحريك خصائص الرسم" : "Drag drawing properties"}><Grip size={15} /></button>
       <b>{isArabic ? selectedType?.ar : selectedType?.en}</b>
       <input type="color" value={selected.options.color} onChange={(event) => updateSelected({ options: { color: event.target.value } })} title={isArabic ? "لون الخط" : "Line color"} />
       {["rectangle", "parallel_channel", ...RANGE_TYPES].includes(selected.type) && <><input type="color" value={selected.options.fillColor || selected.options.color} onChange={(event) => updateSelected({ options: { fillColor: event.target.value } })} title={isArabic ? "لون التعبئة" : "Fill color"} /><label><span>{isArabic ? "شفافية" : "Opacity"}</span><input type="range" min="0" max="100" value={selected.options.fillOpacity} onChange={(event) => updateSelected({ options: { fillOpacity: Number(event.target.value) } })} /></label></>}
@@ -727,7 +937,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       <button type="button" onClick={() => updateSelected({ visible: !selected.visible })} title={selected.visible ? (isArabic ? "إخفاء" : "Hide") : (isArabic ? "إظهار" : "Show")}>{selected.visible ? <Eye size={15} /> : <EyeOff size={15} />}</button>
       <button type="button" disabled={!ALERT_TYPES.has(selected.type)} onClick={() => setShowAlertEditor(true)} title={!ALERT_TYPES.has(selected.type) ? (isArabic ? "التنبيه متاح للخطوط السعرية فقط" : "Alerts are available for price lines") : (isArabic ? "تنبيه الرسم" : "Drawing alert")}>{selected.alert ? <BellOff size={15} /> : <BellPlus size={15} />}</button>
       <button type="button" onClick={copySelected} title={isArabic ? "نسخ الرسم إلى الحافظة" : "Copy drawing"}><Copy size={15} /></button>
-      <button type="button" disabled={!clipboardDrawing || Boolean(busyDrawingId)} onClick={pasteCopied} title={isArabic ? "لصق نسخة مستقلة" : "Paste independent copy"}><ClipboardPaste size={15} /></button>
+      <button type="button" disabled={Boolean(busyDrawingId)} onClick={pasteCopied} title={isArabic ? "لصق نسخة مستقلة" : "Paste independent copy"}><ClipboardPaste size={15} /></button>
       {drawings.length > 1 && <select defaultValue="" onChange={(event) => { if (event.target.value) orderSelected(event.target.value); event.target.value = ""; }} aria-label={isArabic ? "ترتيب طبقة الرسم" : "Drawing layer order"}>
         <option value="" disabled>{isArabic ? "ترتيب الطبقة" : "Layer order"}</option>
         <option value="front">{isArabic ? "إحضار إلى الأمام" : "Bring to front"}</option>

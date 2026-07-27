@@ -113,3 +113,32 @@ export async function deleteDrawingAlert(symbol, drawing) {
     client_id: drawing.clientId,
   });
 }
+
+export async function setAllChartDrawingsVisibility(symbol, interval, visible) {
+  if (isReferencePreview()) {
+    const drawings = readLocal(symbol, interval).map((drawing) => ({ ...drawing, visible: Boolean(visible) }));
+    writeLocal(symbol, interval, drawings);
+    return { updated: drawings.length, drawings };
+  }
+  return invokeAppFunction("chartDrawings", {
+    action: "set_visibility_bulk",
+    symbol,
+    interval_scope: interval,
+    visible: Boolean(visible),
+  });
+}
+
+export async function deleteAllChartDrawings(symbol, interval, confirmAlertDelete = false) {
+  if (isReferencePreview()) {
+    const count = readLocal(symbol, interval).length;
+    writeLocal(symbol, interval, []);
+    return { removed: count };
+  }
+  return invokeAppFunction("chartDrawings", {
+    action: "delete_all",
+    symbol,
+    interval_scope: interval,
+    confirm_all: true,
+    confirm_alert_delete: Boolean(confirmAlertDelete),
+  });
+}

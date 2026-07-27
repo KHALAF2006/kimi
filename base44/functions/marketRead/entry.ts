@@ -5218,17 +5218,15 @@ function stateFor(value, source, now = Date.now(), options = {}) {
   const explicitlyStale = options.freshnessStatus === "stale";
   if (!licensed) {
     return {
-      label: "\u062A\u062C\u0631\u064A\u0628\u064A\u0629 \u063A\u064A\u0631 \u0645\u0639\u062A\u0645\u062F\u0629",
+      label: "\u0622\u062E\u0631 \u0628\u064A\u0627\u0646\u0627\u062A \u0645\u062A\u0627\u062D\u0629",
       stale: true,
-      experimental: true,
-      code: "experimental"
+      code: "stale"
     };
   }
   if (final && !explicitlyStale) {
     return {
       label: "\u0625\u063A\u0644\u0627\u0642 \u0646\u0647\u0627\u0626\u064A",
       stale: false,
-      experimental: false,
       code: "final"
     };
   }
@@ -5236,7 +5234,6 @@ function stateFor(value, source, now = Date.now(), options = {}) {
   return {
     label: stale ? "\u0645\u062A\u0642\u0627\u062F\u0645\u0629" : "\u0645\u062A\u0623\u062E\u0631\u0629 15 \u062F\u0642\u064A\u0642\u0629",
     stale,
-    experimental: false,
     code: stale ? "stale" : "delayed"
   };
 }
@@ -5360,7 +5357,7 @@ function latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMar
     delay_seconds: SAUDI_DELAY_SECONDS,
     snapshot_version: null,
     coverage_percent: 0,
-    freshness_status: "experimental",
+    freshness_status: "stale",
     is_final: false
   };
   const candidates = instruments.map((instrument) => quoteByInstrument.get(instrument.id)).filter(Boolean)
@@ -5391,7 +5388,7 @@ function latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMar
   const denominator = requestedMarket === "SA_MAIN" ? EXPECTED_INSTRUMENT_COUNT : Math.max(instruments.length, 1);
   const coveragePercent = Math.round(current.length / denominator * 10000) / 100;
   const freshness = !licensed
-    ? "experimental"
+    ? "stale"
     : current.some((quote) => quote.freshness_status === "stale")
     ? "stale"
     : coveragePercent >= COVERAGE_HEALTHY_PERCENT
@@ -5413,6 +5410,121 @@ function latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMar
     is_final: current.length > 0 && current.every((quote) => quote.is_final === true)
   };
 }
+function cleanSectorName(value) {
+  const sector = String(value || "").trim();
+  if (!sector || sector.length > 120) throw Object.assign(new Error("Valid sector is required"), { status: 400, code: "INVALID_SECTOR" });
+  return sector;
+}
+async function sectorInstruments(base44, body) {
+  const requestedMarket = String(body.market_code || "SA_MAIN");
+  const sector = cleanSectorName(body.sector);
+  const instruments = entityRows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
+    .filter((item) => (item.market_code || "SA_MAIN") === requestedMarket)
+    .filter((item) => item.sector_ar === sector || item.sector_en === sector);
+  if (!instruments.length) throw Object.assign(new Error("Sector not found"), { status: 404, code: "SECTOR_NOT_FOUND" });
+  return { requestedMarket, sector, instruments };
+}
+function sectorWeights(instruments, quoteByInstrument) {
+  const caps = instruments.map((instrument) => Math.max(0, Number(quoteByInstrument.get(instrument.id)?.market_cap || 0)));
+  const total = caps.reduce((sum, value) => sum + value, 0);
+  return new Map(instruments.map((instrument, index) => [instrument.id, total > 0 ? caps[index] / total : 1 / instruments.length]));
+}
+async function sectorResponse(base44, body, sourceById) {
+  const { requestedMarket, sector, instruments } = await sectorInstruments(base44, body);
+  const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
+  const quoteByInstrument = new Map();
+  for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
+  const weights = sectorWeights(instruments, quoteByInstrument);
+  const constituents = instruments.map((instrument) => {
+    const quote = quoteByInstrument.get(instrument.id) || null;
+    return { ...instrument, quote: quoteView(quote, quote ? sourceById.get(quote.source_id) : null), sector_weight: weights.get(instrument.id) || 0 };
+  });
+  const available = constituents.filter((item) => item.quote);
+  const weightedChange = available.reduce((sum, item) => sum + Number(item.quote.change_percent || 0) * Number(item.sector_weight || 0), 0);
+  const weightCoverage = available.reduce((sum, item) => sum + Number(item.sector_weight || 0), 0);
+  const changePercent = weightCoverage > 0 ? weightedChange / weightCoverage : 0;
+  const previousClose = 1000;
+  const lastPrice = previousClose * (1 + changePercent / 100);
+  const latestAsOf = available.map((item) => item.quote.provider_as_of || item.quote.source_time || item.quote.quote_time).filter(Boolean).sort().at(-1) || null;
+  return {
+    sector: {
+      key: `${requestedMarket}:${sector}`,
+      market_code: requestedMarket,
+      name_ar: instruments[0].sector_ar,
+      name_en: instruments[0].sector_en,
+      constituent_count: instruments.length,
+      methodology: available.some((item) => Number(item.quote?.market_cap || 0) > 0) ? "market_cap_weighted" : "equal_weighted"
+    },
+    quote: {
+      last_price: Number(lastPrice.toFixed(4)),
+      previous_close: previousClose,
+      change_value: Number((lastPrice - previousClose).toFixed(4)),
+      change_percent: Number(changePercent.toFixed(4)),
+      provider_as_of: latestAsOf,
+      received_time: available.map((item) => item.quote.received_time).filter(Boolean).sort().at(-1) || latestAsOf,
+      delay_seconds: Math.max(0, ...available.map((item) => Number(item.quote.delay_seconds || SAUDI_DELAY_SECONDS)))
+    },
+    constituents
+  };
+}
+async function sectorChartResponse(base44, body) {
+  const { sector, instruments } = await sectorInstruments(base44, body);
+  const interval = String(body.interval || "1d");
+  const range = String(body.range || "3mo");
+  if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range)) {
+    throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
+  }
+  const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
+  const quoteByInstrument = new Map();
+  for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
+  const weights = sectorWeights(instruments, quoteByInstrument);
+  const chunksByInstrument = await Promise.all(instruments.map(async (instrument) => ({
+    instrument,
+    chunks: entityRows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrument.id, interval }))
+      .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
+  })));
+  const latestTime = Math.max(...chunksByInstrument.flatMap(({ chunks }) => chunks.map((chunk) => new Date(chunk.end_time).getTime())).filter(Number.isFinite));
+  if (!Number.isFinite(latestTime)) throw Object.assign(new Error("Stored sector chart data is not available"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
+  const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : latestTime - RANGE_MILLISECONDS[range];
+  const series = chunksByInstrument.map(({ instrument, chunks }) => {
+    const byTime = new Map();
+    for (const chunk of chunks) for (const bar of chunk.bars) {
+      const time = new Date(bar.time).getTime();
+      if (Number.isFinite(time) && time >= cutoff && Number(bar.close) > 0) byTime.set(new Date(time).toISOString(), bar);
+    }
+    const bars = [...byTime.values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    const base = Number(bars[0]?.close);
+    return { instrument, weight: weights.get(instrument.id) || 0, base, bars };
+  }).filter((item) => Number.isFinite(item.base) && item.base > 0 && item.bars.length);
+  if (!series.length) throw Object.assign(new Error("Stored sector chart data contains no valid candles"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
+  const timestamps = [...new Set(series.flatMap((item) => item.bars.map((bar) => new Date(bar.time).toISOString())))].sort();
+  const barMaps = new Map(series.map((item) => [item.instrument.id, new Map(item.bars.map((bar) => [new Date(bar.time).toISOString(), bar]))]));
+  const candles = timestamps.map((time) => {
+    const members = series.map((item) => ({ item, bar: barMaps.get(item.instrument.id).get(time) })).filter((value) => value.bar);
+    const presentWeight = members.reduce((sum, value) => sum + value.item.weight, 0);
+    if (!presentWeight) return null;
+    const aggregate = (field) => members.reduce((sum, value) => sum + (Number(value.bar[field]) / value.item.base * 1000) * (value.item.weight / presentWeight), 0);
+    const open = aggregate("open");
+    const close = aggregate("close");
+    const rawHigh = aggregate("high");
+    const rawLow = aggregate("low");
+    return {
+      time,
+      open: Number(open.toFixed(6)),
+      high: Number(Math.max(rawHigh, open, close).toFixed(6)),
+      low: Number(Math.min(rawLow, open, close).toFixed(6)),
+      close: Number(close.toFixed(6)),
+      volume: members.reduce((sum, value) => sum + Math.max(0, Number(value.bar.volume || 0)), 0)
+    };
+  }).filter(Boolean);
+  if (candles.length < 2) throw Object.assign(new Error("Stored sector chart data is incomplete"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
+  return {
+    sector,
+    candles,
+    as_of: candles[candles.length - 1].time,
+    methodology: series.some((item) => Number(quoteByInstrument.get(item.instrument.id)?.market_cap || 0) > 0) ? "market_cap_weighted" : "equal_weighted"
+  };
+}
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -5426,6 +5538,8 @@ Deno.serve(async (req) => {
     if (body.action === "markets") {
       return Response.json({ markets: MARKET_CATALOG });
     }
+    if (body.action === "sector") return Response.json(await sectorResponse(base44, body, sourceById));
+    if (body.action === "sector_chart") return Response.json(await sectorChartResponse(base44, body));
     if (body.action === "chart") return Response.json(await chartResponse(base44, body, sources));
     if (body.symbol || body.instrument_id) {
       const instrument = await instrumentFor(base44, body);
@@ -5451,7 +5565,7 @@ Deno.serve(async (req) => {
         loss_classification: losses2[0] || null,
         notice: quote?.snapshot_version
           ? "\u0628\u064A\u0627\u0646\u0627\u062A \u0633\u0648\u0642 \u0645\u062A\u0623\u062E\u0631\u0629 15 \u062F\u0642\u064A\u0642\u0629"
-          : "\u0627\u0644\u0623\u0633\u0639\u0627\u0631 \u0627\u0644\u062D\u0627\u0644\u064A\u0629 \u062A\u062C\u0631\u064A\u0628\u064A\u0629 \u0648\u063A\u064A\u0631 \u0645\u0639\u062A\u0645\u062F\u0629 \u0644\u0644\u062A\u062F\u0627\u0648\u0644"
+          : "\u0622\u062E\u0631 \u0628\u064A\u0627\u0646\u0627\u062A \u0633\u0648\u0642 \u0645\u062A\u0627\u062D\u0629"
       });
     }
     const limit = Math.min(Math.max(Number(body.limit || 500), 1), 500);
@@ -5500,8 +5614,8 @@ Deno.serve(async (req) => {
       coverage_percent: snapshot.coverage_percent,
       freshness_status: snapshot.freshness_status,
       is_final: snapshot.is_final,
-      notice: snapshot.freshness_status === "experimental"
-        ? "\u0627\u0644\u0623\u0633\u0639\u0627\u0631 \u0627\u0644\u062D\u0627\u0644\u064A\u0629 \u062A\u062C\u0631\u064A\u0628\u064A\u0629 \u0648\u063A\u064A\u0631 \u0645\u0639\u062A\u0645\u062F\u0629 \u0644\u0644\u062A\u062F\u0627\u0648\u0644"
+      notice: snapshot.freshness_status === "stale"
+        ? "\u0622\u062E\u0631 \u0628\u064A\u0627\u0646\u0627\u062A \u0633\u0648\u0642 \u0645\u062A\u0627\u062D\u0629"
         : "\u0628\u064A\u0627\u0646\u0627\u062A \u0633\u0648\u0642 \u0645\u062A\u0623\u062E\u0631\u0629 15 \u062F\u0642\u064A\u0642\u0629"
     });
   } catch (error) {

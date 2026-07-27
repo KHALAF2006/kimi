@@ -24,14 +24,12 @@ function dateTime(value, isArabic) {
 export default function MarketDataStatus({ snapshot, notice }) {
   const { isArabic } = usePreferences();
   if (!snapshot && !notice) return null;
-  const status = snapshot?.freshness_status || "experimental";
-  const unsafe = ["experimental", "stale", "failed"].includes(status);
+  const status = snapshot?.freshness_status || "stale";
+  const unsafe = ["stale", "failed"].includes(status);
   const phase = PHASES[snapshot?.session_phase] || PHASES.closed;
   const Icon = unsafe ? AlertTriangle : CheckCircle2;
-  const statusLabel = status === "experimental"
-    ? (isArabic ? "بيانات تجريبية غير معتمدة" : "Unlicensed experimental data")
-    : status === "stale"
-      ? (isArabic ? "آخر بيانات سليمة — التحديث متوقف" : "Last good data — updates delayed")
+  const statusLabel = status === "stale"
+      ? (isArabic ? "آخر بيانات متاحة — بانتظار التحديث" : "Latest available data — awaiting refresh")
       : status === "degraded"
         ? (isArabic ? "تغطية جزئية" : "Partial coverage")
         : snapshot?.is_final
@@ -43,7 +41,7 @@ export default function MarketDataStatus({ snapshot, notice }) {
       <div className="flex items-center gap-2"><Icon size={18} /><b>{statusLabel}</b></div>
       <span className="rounded-full border border-current/20 px-3 py-1 text-xs font-bold">{isArabic ? phase[0] : phase[1]}</span>
     </div>
-    <p className="mt-2 text-sm opacity-80">{notice}</p>
+    {notice && <p className="mt-2 text-sm opacity-80">{notice}</p>}
     <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
       <span className="flex items-center gap-2"><Clock3 size={14} />{isArabic ? "البيانات حتى: " : "Data as of: "}<b>{dateTime(snapshot?.as_of, isArabic)}</b></span>
       <span className="flex items-center gap-2"><Clock3 size={14} />{isArabic ? "وصلت المنصة: " : "Received: "}<b>{dateTime(snapshot?.received_at, isArabic)}</b></span>

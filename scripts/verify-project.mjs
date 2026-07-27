@@ -182,8 +182,12 @@ assert.match(companyChart, /className=\{["']ohlc-strip ["'] \+ \(hovered \? ["']
 assert.match(companyChart, /interactionEvents = \[[^\]]*["']wheel["'][^\]]*["']pointermove["']/, "zone geometry must follow price-scale wheel and drag interactions");
 assert.match(companyChart, /sameZoneGeometry\(current, zones\)/, "zone synchronization must avoid redundant React layout updates");
 assert.match(companyChart, /showMomentumCard/, "momentum price card must have its own visibility state");
-assert.doesNotMatch(companyChart, /showMomentum\s*&&\s*showMomentumCard/, "momentum price card must not depend on the zone overlay visibility");
+assert.match(companyChart, /showMomentum\s*&&\s*momentum\?\.zones/, "hiding all indicators must also hide the investor-zone price card");
 assert.match(companyChart, /ChartDrawingTools/, "the verified chart must mount the drawing layer");
+assert.match(companyChart, /axisPressedMouseMove:\s*\{\s*time:\s*true,\s*price:\s*true\s*\}/, "price and time axes must support direct drag scaling");
+assert.match(companyChart, /axisDoubleClickReset:\s*\{\s*time:\s*true,\s*price:\s*true\s*\}/, "price and time axes must support direct reset");
+assert.match(companyChart, /toggleAllIndicators/, "the chart must expose one action for all indicators");
+assert.match(companyChart, /toggleAllChartObjects/, "the chart must expose one action for drawings and indicators together");
 
 const chartDrawingsFunction = await readFile(new URL("../base44/functions/chartDrawings/entry.ts", import.meta.url), "utf8");
 assert.match(chartDrawingsFunction, /requireActiveSession\(base44, profile, body\.session_id\)/, "drawing storage must require the verified KMY session");
@@ -192,6 +196,9 @@ assert.match(chartDrawingsFunction, /DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED/
 assert.match(chartDrawingsFunction, /"trend_line", "ray", "horizontal_line"/, "drawing alerts must be restricted to supported line geometry");
 assert.match(chartDrawingsFunction, /body\.action === "duplicate"/, "copy/paste must create the duplicate through the protected backend");
 assert.match(chartDrawingsFunction, /drawing\.duplicate/, "backend drawing duplication must be audited");
+assert.match(chartDrawingsFunction, /body\.action === "set_visibility_bulk"/, "bulk drawing visibility must be enforced by the backend");
+assert.match(chartDrawingsFunction, /body\.action === "delete_all"/, "bulk drawing deletion must be enforced by the backend");
+assert.match(chartDrawingsFunction, /drawing\.bulk\.delete/, "bulk drawing deletion must be audited");
 
 const drawingTools = await readFile(new URL("../src/components/market/ChartDrawingTools.jsx", import.meta.url), "utf8");
 for (const tool of ["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "price_range", "date_range", "date_and_price_range"]) {
@@ -205,12 +212,29 @@ assert.match(drawingTools, /contextmenu/, "the chart must expose a right-click c
 assert.match(drawingTools, /onResetChart/, "the chart context menu must provide a complete view reset");
 assert.match(drawingTools, /setPointerCapture/, "the drawing toolbar must use pointer capture while it is moved");
 assert.match(drawingTools, /TOOLBAR_STORAGE_KEY/, "the drawing toolbar position must persist");
+assert.match(drawingTools, /SELECTION_TOOLBAR_STORAGE_KEY/, "the selected drawing properties position must persist");
+assert.match(drawingTools, /DRAWING_CLIPBOARD_STORAGE_KEY/, "the drawing clipboard must survive chart remounts");
+assert.match(drawingTools, /navigator\.clipboard/, "copy/paste must integrate with the secure browser clipboard when available");
+assert.match(drawingTools, /setAllChartDrawingsVisibility/, "hide/show all drawings must use the protected backend");
+assert.match(drawingTools, /deleteAllChartDrawings/, "clear all drawings must use the protected backend");
+assert.match(drawingTools, /smoothPath/, "curve and brush strokes must use a smoothed path");
+assert.match(drawingTools, /simplifyFreehand/, "freehand input must be sampled before persistence");
+assert.match(drawingTools, /function wheelZoom\(event\)/, "mouse-wheel zoom must remain available while the drawing layer is active");
 assert.match(drawingTools, /aria-orientation/, "the drawing toolbar must expose its orientation");
 assert.match(drawingTools, /LayoutList/, "the drawing object tree must be available");
 assert.match(drawingTools, /fillOpacity/, "filled drawings must expose opacity controls");
 assert.match(drawingTools, /ALERT_TYPES/, "alert-capable drawing types must be explicit");
 assert.match(drawingTools, /context\.direction = isArabic \? "rtl" : "ltr"/, "Arabic measurement labels must use an explicit canvas direction");
 assert.match(drawingTools, /context\.textAlign = isArabic \? "right" : "left"/, "Arabic measurement labels must stay anchored inside their background");
+
+const marketReadFunction = await readFile(new URL("../base44/functions/marketRead/entry.ts", import.meta.url), "utf8");
+assert.match(marketReadFunction, /body\.action === "sector"/, "sector details must be served from the protected market backend");
+assert.match(marketReadFunction, /body\.action === "sector_chart"/, "sector chart candles must be built by the protected market backend");
+assert.match(marketReadFunction, /sectorWeights/, "sector index construction must use an explicit weighting function");
+const dashboardPage = await readFile(new URL("../src/pages/Dashboard.jsx", import.meta.url), "utf8");
+assert.match(dashboardPage, /SectorPanel/, "sector selection must open a sector profile, not only filter the table");
+const customerMarketStatus = await readFile(new URL("../src/components/market/MarketDataStatus.jsx", import.meta.url), "utf8");
+assert.doesNotMatch(customerMarketStatus, /تجريبي|تجريبية|experimental|Unlicensed/i, "customer market status must not expose removed staging copy");
 
 const companyIntelligence = await readFile(new URL("../base44/functions/companyIntelligence/entry.ts", import.meta.url), "utf8");
 assert.match(companyIntelligence, /SAUDI_EXCHANGE_COMPANY_FEED_URL/, "company intelligence must require a configured official feed");

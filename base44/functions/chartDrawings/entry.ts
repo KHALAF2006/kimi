@@ -217,6 +217,39 @@ Deno.serve(async (req) => {
       await audit(base44, user.id, "drawing.alert.delete", "ChartDrawing", drawing.id, "success");
       return Response.json({ removed: true });
     }
+    if (body.action === "set_visibility_bulk") {
+      const symbol = String(body.symbol || "").trim();
+      await instrumentFor(base44, symbol);
+      const interval = INTERVALS.has(body.interval_scope) ? body.interval_scope : "all";
+      const visible = body.visible === true;
+      const rows = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, symbol });
+      const scoped = rows.filter((row) => row.interval_scope === "all" || row.interval_scope === interval);
+      await Promise.all(scoped.map((row) => base44.asServiceRole.entities.ChartDrawing.update(row.id, {
+        visible,
+        revision: Number(row.revision || 0) + 1
+      })));
+      await audit(base44, user.id, visible ? "drawing.bulk.show" : "drawing.bulk.hide", "ChartDrawing", `${symbol}:${interval}`, "success", `count:${scoped.length}`);
+      return Response.json({ updated: scoped.length, visible });
+    }
+    if (body.action === "delete_all") {
+      if (body.confirm_all !== true) bad("Explicit confirmation is required", "DRAWING_DELETE_ALL_CONFIRMATION_REQUIRED");
+      const symbol = String(body.symbol || "").trim();
+      await instrumentFor(base44, symbol);
+      const interval = INTERVALS.has(body.interval_scope) ? body.interval_scope : "all";
+      const rows = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, symbol });
+      const scoped = rows.filter((row) => row.interval_scope === "all" || row.interval_scope === interval);
+      const withAlerts = scoped.filter((row) => row.alert_rule_id);
+      if (withAlerts.length && body.confirm_alert_delete !== true) {
+        throw Object.assign(new Error("One or more drawings have active alerts"), { status: 409, code: "DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED" });
+      }
+      await Promise.all(withAlerts.map(async (drawing) => {
+        const rule = await base44.asServiceRole.entities.AlertRule.get(drawing.alert_rule_id);
+        if (rule?.customer_id === profile.id) await base44.asServiceRole.entities.AlertRule.delete(rule.id);
+      }));
+      await Promise.all(scoped.map((row) => base44.asServiceRole.entities.ChartDrawing.delete(row.id)));
+      await audit(base44, user.id, "drawing.bulk.delete", "ChartDrawing", `${symbol}:${interval}`, "success", `count:${scoped.length};alerts:${withAlerts.length}`);
+      return Response.json({ removed: scoped.length });
+    }
     if (body.action === "delete") {
       const drawing = await ownedDrawing(base44, profile, body);
       if (drawing.alert_rule_id && body.confirm_alert_delete !== true) {

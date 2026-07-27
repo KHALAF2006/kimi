@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, LineStyle } from "lightweight-charts";
 import { BarChart3, ChevronLeft, ChevronRight, Eye, EyeOff, Layers3, Maximize2, Minus, Plus, RotateCcw, Settings2, Waves } from "lucide-react";
 import { invokeAppFunction } from "@/services/marketService";
@@ -130,7 +130,7 @@ function ToggleButton({ active, label, icon: Icon, onClick, settings = false, on
   </div>;
 }
 
-export default function CompanyChart({ symbol, momentum: rawMomentum, previousCompany, nextCompany, onSelectCompany, onResetWidth }) {
+export default function CompanyChart({ symbol = "", sector = "", marketCode = "SA_MAIN", momentum: rawMomentum = null, previousCompany = null, nextCompany = null, onSelectCompany = (_symbol) => {}, onResetWidth = () => {} }) {
   const { language, isArabic, theme } = usePreferences();
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -168,6 +168,10 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
   const [zoneGeometry, setZoneGeometry] = useState([]);
   const [mainPaneHeight, setMainPaneHeight] = useState(470);
   const [, setChartRevision] = useState(0);
+  const [drawingsVisible, setDrawingsVisible] = useState(true);
+  const [drawingVisibilityCommand, setDrawingVisibilityCommand] = useState(null);
+  const chartTarget = sector || symbol;
+  const chartTitle = sector ? (isArabic ? `مؤشر قطاع ${sector}` : `${sector} sector index`) : (isArabic ? "الرسم البياني" : "Chart");
 
   const orderedCandles = useMemo(() => normalizeCandles(candles), [candles]);
   const rsiData = useMemo(() => calculateRsiSeries(orderedCandles, rsiSettings.length, rsiSettings.source), [orderedCandles, rsiSettings.length, rsiSettings.source]);
@@ -183,13 +187,17 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
   const investorZoneLabel = isArabic
     ? { "15m": "مناطق المستثمر لفاصل 15 دقيقة", "1h": "مناطق المستثمر الساعية", "1d": "مناطق المستثمر اليومية", "1wk": "مناطق المستثمر الأسبوعية", "1mo": "مناطق المستثمر الشهرية" }[interval]
     : { "15m": "15-minute investor zones", "1h": "Hourly investor zones", "1d": "Daily investor zones", "1wk": "Weekly investor zones", "1mo": "Monthly investor zones" }[interval];
+  const anyIndicatorVisible = showVolume || showMomentum || showRsi;
+  const onDrawingVisibilityChange = useCallback((visible) => setDrawingsVisible(visible), []);
 
   useEffect(() => {
-    if (!symbol) return;
+    if (!chartTarget) return;
     let active = true;
     setLoading(true);
     setError("");
-    invokeAppFunction("marketRead", { action: "chart", symbol, interval, range })
+    invokeAppFunction("marketRead", sector
+      ? { action: "sector_chart", sector, market_code: marketCode, interval, range }
+      : { action: "chart", symbol, interval, range })
       .then((data) => {
         if (!active) return;
         setCandles(Array.isArray(data.candles) ? data.candles : []);
@@ -203,17 +211,19 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
     localStorage.setItem("kmy_chart_interval", interval);
     localStorage.setItem("kmy_chart_range", range);
     return () => { active = false; };
-  }, [symbol, interval, range]);
+  }, [chartTarget, sector, symbol, marketCode, interval, range]);
 
   useEffect(() => {
-    if (!symbol) return;
+    if (!chartTarget) return;
     let active = true;
     const indicatorRange = interval === "15m" ? "1mo" : interval === "1h" ? "1y" : "5y";
-    invokeAppFunction("marketRead", { action: "chart", symbol, interval, range: indicatorRange })
+    invokeAppFunction("marketRead", sector
+      ? { action: "sector_chart", sector, market_code: marketCode, interval, range: indicatorRange }
+      : { action: "chart", symbol, interval, range: indicatorRange })
       .then((data) => active && setIndicatorCandles(Array.isArray(data.candles) ? data.candles : []))
       .catch(() => active && setIndicatorCandles([]));
     return () => { active = false; };
-  }, [symbol, interval]);
+  }, [chartTarget, sector, symbol, marketCode, interval]);
 
   useEffect(() => {
     localStorage.setItem("kmy_show_momentum", String(showMomentum));
@@ -240,9 +250,11 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
         panes: { separatorColor: dark ? "#243247" : "#dbe3ee", separatorHoverColor: "#f59e0b", enableResize: true },
       },
       grid: { vertLines: { color: dark ? "#172337" : "#edf1f6" }, horzLines: { color: dark ? "#172337" : "#edf1f6" } },
-      rightPriceScale: { borderColor: dark ? "#334155" : "#cbd5e1", minimumWidth: 68, scaleMargins: { top: 0.08, bottom: 0.08 } },
+      rightPriceScale: { borderVisible: true, borderColor: dark ? "#475569" : "#94a3b8", ticksVisible: true, minimumWidth: 74, scaleMargins: { top: 0.08, bottom: 0.08 } },
       timeScale: {
-        borderColor: dark ? "#334155" : "#cbd5e1",
+        borderVisible: true,
+        borderColor: dark ? "#f59e0b" : "#d97706",
+        ticksVisible: true,
         timeVisible: interval === "15m" || interval === "1h",
         secondsVisible: false,
         rightOffset: 8,
@@ -256,7 +268,12 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
         horzLine: { color: dark ? "#64748b" : "#64748b", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#0f172a" },
       },
       handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
-      handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+      handleScale: {
+        axisPressedMouseMove: { time: true, price: true },
+        axisDoubleClickReset: { time: true, price: true },
+        mouseWheel: true,
+        pinch: true,
+      },
       localization: { locale: language === "ar" ? "ar-SA" : "en-US" },
     });
 
@@ -482,6 +499,24 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
     }));
   }
 
+  function setAllIndicators(visible) {
+    setShowVolume(visible);
+    setShowMomentum(visible);
+    setShowRsi(visible);
+    setShowMomentumCard(visible);
+    if (!visible) setSettingsPanel("");
+  }
+
+  function toggleAllIndicators() {
+    setAllIndicators(!anyIndicatorVisible);
+  }
+
+  function toggleAllChartObjects() {
+    const nextVisible = !(anyIndicatorVisible || drawingsVisible);
+    setAllIndicators(nextVisible);
+    setDrawingVisibilityCommand({ id: Date.now(), visible: nextVisible });
+  }
+
   const sourceOptions = [
     ["close", isArabic ? "الإغلاق" : "Close"],
     ["open", isArabic ? "الافتتاح" : "Open"],
@@ -495,13 +530,13 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
   return <div ref={wrapperRef} className="chart-shell">
     <div className="chart-header-row">
       <div>
-        <h3 className="font-black">{isArabic ? "الرسم البياني" : "Chart"}</h3>
+        <h3 className="font-black">{chartTitle}</h3>
       </div>
-      <div className="company-navigation chart-company-navigation">
+      {!sector && <div className="company-navigation chart-company-navigation">
         <button type="button" disabled={!previousCompany} onClick={() => previousCompany && onSelectCompany?.(previousCompany.symbol)} title={isArabic ? "الشركة السابقة حسب القائمة الحالية" : "Previous company in current list"}><ChevronRight size={16} /><span><small>{isArabic ? "السابق" : "Previous"}</small><b>{previousCompany ? (isArabic ? previousCompany.name_ar : previousCompany.name_en) : "—"}</b></span></button>
         <button className="secondary-button" onClick={onResetWidth}><RotateCcw size={14} />{isArabic ? "الحجم الطبيعي" : "Reset size"}</button>
         <button type="button" disabled={!nextCompany} onClick={() => nextCompany && onSelectCompany?.(nextCompany.symbol)} title={isArabic ? "الشركة التالية حسب القائمة الحالية" : "Next company in current list"}><span><small>{isArabic ? "التالي" : "Next"}</small><b>{nextCompany ? (isArabic ? nextCompany.name_ar : nextCompany.name_en) : "—"}</b></span><ChevronLeft size={16} /></button>
-      </div>
+      </div>}
       <div className="flex flex-wrap items-center gap-2">
         <button className="icon-button" onClick={() => zoom(0.75)} title={isArabic ? "تكبير" : "Zoom in"}><Plus size={17} /></button>
         <button className="icon-button" onClick={() => zoom(1.35)} title={isArabic ? "تصغير" : "Zoom out"}><Minus size={17} /></button>
@@ -519,6 +554,8 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
       <ToggleButton active={showVolume} label={isArabic ? "أحجام التداول" : "Volume"} icon={BarChart3} onClick={() => setShowVolume((value) => !value)} isArabic={isArabic} />
       <ToggleButton active={showMomentum} label={investorZoneLabel} icon={Layers3} onClick={() => setShowMomentum((value) => !value)} onSettings={() => setSettingsPanel((value) => value === "momentum" ? "" : "momentum")} settings={settingsPanel === "momentum"} isArabic={isArabic} />
       <ToggleButton active={showRsi} label={isArabic ? "مؤشر القوة النسبية" : "RSI"} icon={Waves} onClick={() => setShowRsi((value) => !value)} onSettings={() => setSettingsPanel((value) => value === "rsi" ? "" : "rsi")} settings={settingsPanel === "rsi"} isArabic={isArabic} />
+      <button type="button" className="indicator-global-button" data-action="toggle-all-indicators" onClick={toggleAllIndicators} title={anyIndicatorVisible ? (isArabic ? "إخفاء جميع المؤشرات ومناطق المستثمر" : "Hide all indicators and investor zones") : (isArabic ? "إظهار جميع المؤشرات ومناطق المستثمر" : "Show all indicators and investor zones")}>{anyIndicatorVisible ? <EyeOff size={15} /> : <Eye size={15} />}<span>{isArabic ? "كل المؤشرات" : "All indicators"}</span></button>
+      {symbol && <button type="button" className="indicator-global-button" data-action="toggle-all-chart-objects" onClick={toggleAllChartObjects} title={anyIndicatorVisible || drawingsVisible ? (isArabic ? "إخفاء الرسومات والمؤشرات معاً" : "Hide drawings and indicators") : (isArabic ? "إظهار الرسومات والمؤشرات معاً" : "Show drawings and indicators")}>{anyIndicatorVisible || drawingsVisible ? <EyeOff size={15} /> : <Eye size={15} />}<span>{isArabic ? "الكل" : "Everything"}</span></button>}
     </div>
 
     {settingsPanel === "rsi" && <section className="indicator-settings-panel">
@@ -566,8 +603,8 @@ export default function CompanyChart({ symbol, momentum: rawMomentum, previousCo
     <div className={candles.length ? "chart-canvas-wrap" : "h-0"} style={candles.length ? { height: chartHeight } : undefined}>
       <div ref={containerRef} className="absolute inset-0" />
       <div className="momentum-zone-overlay" aria-hidden="true">{zoneGeometry.map((zone) => <div key={zone.key} className="momentum-zone-box" style={{ left: zone.left, width: zone.width, top: zone.top, height: zone.height, borderColor: zone.color, backgroundColor: colorWithOpacity(zone.color, Math.max(0.05, (100 - momentumSettings.zoneOpacity) / 100)) }}><span style={{ backgroundColor: zone.color }}>{zone.name} · {formatNumber(zone.topPrice, "en")}–{formatNumber(zone.bottomPrice, "en")}</span></div>)}</div>
-      {chartRef.current && candleSeriesRef.current && <ChartDrawingTools chart={chartRef.current} series={candleSeriesRef.current} symbol={symbol} interval={interval} mainPaneHeight={mainPaneHeight} isArabic={isArabic} onResetChart={resetChartView} />}
-      {momentum?.zones?.length > 0 && <div className={"momentum-price-panel " + (!showMomentumCard ? "momentum-price-panel-collapsed" : "")}>
+      {symbol && chartRef.current && candleSeriesRef.current && <ChartDrawingTools chart={chartRef.current} series={candleSeriesRef.current} symbol={symbol} interval={interval} mainPaneHeight={mainPaneHeight} isArabic={isArabic} onResetChart={resetChartView} visibilityCommand={drawingVisibilityCommand} onDrawingVisibilityChange={onDrawingVisibilityChange} />}
+      {showMomentum && momentum?.zones?.length > 0 && <div className={"momentum-price-panel " + (!showMomentumCard ? "momentum-price-panel-collapsed" : "")}>
         <button type="button" className="momentum-card-eye" onClick={() => setShowMomentumCard((value) => !value)} title={showMomentumCard ? (isArabic ? "إخفاء بطاقة أسعار المناطق" : "Hide zone price card") : (isArabic ? "إظهار بطاقة أسعار المناطق" : "Show zone price card")} aria-expanded={showMomentumCard}>{showMomentumCard ? <EyeOff size={14} /> : <Eye size={14} />}<span>{investorZoneLabel}</span></button>
         {showMomentumCard && <><div className="momentum-price-head"><span>{isArabic ? "المنطقة" : "Zone"}</span><span>{isArabic ? "من" : "From"}</span><span>{isArabic ? "إلى" : "To"}</span><span>{isArabic ? "الوقف" : "Stop"}</span></div>
         {momentum.zones.map((zone) => <div key={zone.key} className={zone.active === false ? "opacity-45" : ""}><b style={{ color: momentumSettings.zones[zone.key]?.color }}>{isArabic ? zone.nameAr : zone.nameEn}</b><span>{zone.active === false ? (isArabic ? "بانتظار" : "Waiting") : formatNumber(zone.top, "en")}</span><span>{zone.active === false ? "—" : formatNumber(zone.bottom, "en")}</span><span className="text-red-500">{zone.active === false ? "—" : formatNumber(zone.stop, "en")}</span></div>)}</>}

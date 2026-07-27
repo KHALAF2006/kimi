@@ -32,7 +32,7 @@ function quoteFromReference(company) {
     license_status: "restricted",
     is_final: false,
     snapshot_version: null,
-    data_state: { label: "تجريبية غير معتمدة", stale: true, experimental: true, code: "experimental" },
+    data_state: { label: "آخر بيانات متاحة", stale: true, code: "stale" },
     data_meta: {
       provider_as_of: asOf,
       received_time: asOf,
@@ -67,6 +67,29 @@ async function referenceFetch(path) {
   return response.json();
 }
 
+function buildReferenceSectorCandles(seriesLists) {
+  const series = seriesLists.map((bars) => {
+    const ordered = [...(bars || [])].filter((bar) => Number(bar.close) > 0).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    return { bars: ordered, base: Number(ordered[0]?.close), byTime: new Map(ordered.map((bar) => [new Date(bar.time).toISOString(), bar])) };
+  }).filter((item) => Number.isFinite(item.base) && item.base > 0 && item.bars.length);
+  const times = [...new Set(series.flatMap((item) => item.bars.map((bar) => new Date(bar.time).toISOString())))].sort();
+  return times.map((time) => {
+    const members = series.map((item) => ({ item, bar: item.byTime.get(time) })).filter((value) => value.bar);
+    if (!members.length) return null;
+    const average = (field) => members.reduce((sum, value) => sum + Number(value.bar[field]) / value.item.base * 1000, 0) / members.length;
+    const open = average("open");
+    const close = average("close");
+    return {
+      time,
+      open,
+      high: Math.max(average("high"), open, close),
+      low: Math.min(average("low"), open, close),
+      close,
+      volume: members.reduce((sum, value) => sum + Number(value.bar.volume || 0), 0),
+    };
+  }).filter(Boolean);
+}
+
 async function referenceMarketRead(payload) {
   if (payload.action === "markets") {
     return {
@@ -81,6 +104,25 @@ async function referenceMarketRead(payload) {
       ],
     };
   }
+  if (payload.action === "sector" || payload.action === "sector_chart") {
+    const companies = await referenceFetch("/api/companies?limit=500");
+    const members = companies.filter((company) => company.sectorAr === payload.sector || company.sectorEn === payload.sector);
+    if (!members.length) throw new Error("sector_not_found");
+    if (payload.action === "sector") {
+      const constituents = members.map(instrumentFromReference);
+      const changePercent = constituents.reduce((sum, item) => sum + Number(item.quote?.change_percent || 0), 0) / constituents.length;
+      return {
+        sector: { key: `SA_MAIN:${payload.sector}`, market_code: "SA_MAIN", name_ar: members[0].sectorAr, name_en: members[0].sectorEn, constituent_count: members.length, methodology: "equal_weighted" },
+        quote: { last_price: 1000 * (1 + changePercent / 100), previous_close: 1000, change_value: 10 * changePercent, change_percent: changePercent, provider_as_of: constituents.map((item) => item.quote?.provider_as_of).filter(Boolean).sort().at(-1) || null, delay_seconds: 900 },
+        constituents,
+      };
+    }
+    const referenceRanges = { "5d": "1w", "1mo": "1M", "3mo": "3M", "1y": "1y", "5y": "5y" };
+    const range = referenceRanges[payload.range] || "3M";
+    const results = await Promise.allSettled(members.map((company) => referenceFetch(`/api/companies/${encodeURIComponent(company.symbol)}/chart?interval=${encodeURIComponent(payload.interval || "1d")}&range=${encodeURIComponent(range)}`)));
+    const candles = buildReferenceSectorCandles(results.filter((result) => result.status === "fulfilled").map((result) => result.value.candles || []));
+    return { sector: payload.sector, candles, as_of: candles.at(-1)?.time || null, methodology: "equal_weighted" };
+  }
   if (payload.action === "chart") {
     const referenceRanges = { "5d": "1w", "1mo": "1M", "3mo": "3M", "1y": "1y", "5y": "5y" };
     const referenceRange = referenceRanges[payload.range] || "3M";
@@ -89,7 +131,7 @@ async function referenceMarketRead(payload) {
     return {
       candles: data.candles || [],
       as_of: data.asOf,
-      data_state: { label: "تجريبية غير معتمدة", stale: true, experimental: true, code: "experimental" },
+      data_state: { label: "آخر بيانات متاحة", stale: true, code: "stale" },
       data_meta: { provider_as_of: data.asOf || null, received_time: data.asOf || null, delay_seconds: 900, freshness_status: "stale", quality_status: "unverified", license_status: "restricted", is_final: false },
     };
   }
@@ -107,7 +149,7 @@ async function referenceMarketRead(payload) {
       actions: company.corporateActions || [],
       shareholders: company.shareholders || [],
       loss_classification: company.warningFlag ? { level: company.warningFlag } : null,
-      notice: "الأسعار الحالية تجريبية وغير معتمدة للتداول",
+      notice: "بيانات السوق متأخرة 15 دقيقة",
     };
   }
   const companies = await referenceFetch("/api/companies?limit=500");
@@ -129,10 +171,10 @@ async function referenceMarketRead(payload) {
       delay_seconds: 900,
       snapshot_version: null,
       coverage_percent: 0,
-      freshness_status: "experimental",
+      freshness_status: "stale",
       is_final: false,
     },
-    notice: "الأسعار الحالية تجريبية وغير معتمدة للتداول",
+    notice: "بيانات السوق متأخرة 15 دقيقة",
   };
 }
 

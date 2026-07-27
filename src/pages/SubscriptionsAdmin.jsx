@@ -14,7 +14,7 @@ export default function SubscriptionsAdmin() {
   const [state, setState] = useState({ loading: true, plans: [], subscriptions: [], customers: [], error: "", status: "", busy: false });
   const [activation, setActivation] = useState({ customer_id: "", plan_id: "", starts_at: new Date().toISOString().slice(0, 10), reason: "" });
   const [transition, setTransition] = useState({ id: "", status: "suspended", reason: "", expected_revision: 1 });
-  const [plan, setPlan] = useState({ code: "pilot", name_ar: "الخطة التجريبية", name_en: "Pilot", duration_months: 1, price_sar: 0, active: true });
+  const [plan, setPlan] = useState({ code: "starter", name_ar: "الخطة الأساسية", name_en: "Starter", duration_months: 1, price_sar: 0, active: true });
   const [planReason, setPlanReason] = useState("");
   const [entitlementEditor, setEntitlementEditor] = useState({ plan_id: "", expected_revision: 1, reason: "", entitlements: [] });
 
@@ -94,7 +94,7 @@ export default function SubscriptionsAdmin() {
   }
 
   return <>
-    <PageHeader title="الاشتراكات والخطط" description="تفعيل يدوي للمرحلة التجريبية، حدود قابلة للتطوير، وانتقالات محكومة بسبب ومراجعة." />
+    <PageHeader title="الاشتراكات والخطط" description="تفعيل يدوي، حدود قابلة للتطوير، وانتقالات محكومة بسبب ومراجعة." />
     <div className="mx-auto max-w-[1800px] space-y-5 px-4 pb-10">
       {state.loading && <StatusPanel loading />}
       {state.error && <StatusPanel error={state.error} />}
