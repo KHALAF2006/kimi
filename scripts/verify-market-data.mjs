@@ -31,6 +31,8 @@ assert.equal(sundayClose.run, true);
 assert.equal(sundayClose.phase, "trade_at_last");
 const workflowClose = slotDecision({ now: new Date("2026-07-26T13:03:00.000Z"), source: "scheduled_experimental_close", slotKind: "close_price" });
 assert.equal(workflowClose.run, true, "the existing 4:00 PM Riyadh close workflow must be accepted");
+const lateCloseRetry = slotDecision({ now: new Date("2026-07-26T20:30:00.000Z"), source: "scheduled_experimental_close", slotKind: "close_price" });
+assert.equal(lateCloseRetry.run, true, "an owner-triggered close retry must remain available after the scheduled close");
 assert.equal(expectedProviderAsOf(new Date("2026-07-26T07:16:42.000Z")), "2026-07-26T07:00:00.000Z", "delayed slots must be rounded to their quarter-hour boundary");
 
 const saturday = slotDecision({ now: new Date("2026-07-25T07:15:00.000Z"), source: "scheduled_licensed_t15", slotKind: "quarter_hour" });

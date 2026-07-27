@@ -65,7 +65,7 @@ function slotDecision({ now = /* @__PURE__ */ new Date(), slotKind = "quarter_ho
   if (!scheduled) return { run: true, clock, phase: marketPhase(clock, slotKind) };
   if (!TRADING_WEEKDAYS.has(clock.weekday)) return { run: false, reason: "non_trading_weekday", clock, phase: "closed" };
   const minuteOfDay = clock.hour * 60 + clock.minute;
-  const allowed = slotKind === "close_price" ? minuteOfDay >= 15 * 60 + 24 && minuteOfDay <= 16 * 60 + 10 : slotKind === "session_final" ? minuteOfDay >= 15 * 60 + 34 && minuteOfDay <= 16 * 60 + 10 : minuteOfDay >= 10 * 60 + 14 && minuteOfDay <= 15 * 60 + 16;
+  const allowed = slotKind === "close_price" ? minuteOfDay >= 15 * 60 + 24 : slotKind === "session_final" ? minuteOfDay >= 15 * 60 + 34 : minuteOfDay >= 10 * 60 + 14 && minuteOfDay <= 15 * 60 + 16;
   return allowed ? { run: true, clock, phase: marketPhase(clock, slotKind) } : { run: false, reason: "outside_scheduled_slot", clock, phase: marketPhase(clock, slotKind) };
 }
 function expectedProviderAsOf(now = /* @__PURE__ */ new Date()) {
@@ -5783,9 +5783,15 @@ Deno.serve(async (req) => {
       : `scheduled_${String(body.source || "experimental_t15").replace(/^scheduled_/, "")}`;
     const marketCode = String(body.market_code || SAUDI_MAIN_MARKET);
     if (marketCode !== SAUDI_MAIN_MARKET) throw ingestionFailure("The requested market feed is not configured", "MARKET_FEED_NOT_CONFIGURED");
-    const inferredSlotKind = effectiveSource.includes("final") ? "session_final" : effectiveSource.includes("close") ? "close_price" : "quarter_hour";
-    const slotKind = ["quarter_hour", "close_price", "session_final"].includes(String(body.slot_kind)) ? String(body.slot_kind) : user ? "manual" : inferredSlotKind;
     const now = /* @__PURE__ */ new Date();
+    const requestClock = riyadhClock(now);
+    const requestMinuteOfDay = requestClock.hour * 60 + requestClock.minute;
+    const inferredSlotKind = effectiveSource.includes("final")
+      ? "session_final"
+      : effectiveSource.includes("close") || !user && requestMinuteOfDay >= 16 * 60
+        ? "close_price"
+        : "quarter_hour";
+    const slotKind = ["quarter_hour", "close_price", "session_final"].includes(String(body.slot_kind)) ? String(body.slot_kind) : user ? "manual" : inferredSlotKind;
     const schedule = slotDecision({ now, slotKind, source: effectiveSource });
     if (!schedule.run) return Response.json({ status: "skipped", reason: schedule.reason, clock: schedule.clock, phase: schedule.phase });
     const [holidays, sessions] = await Promise.all([
