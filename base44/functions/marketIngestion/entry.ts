@@ -2,6 +2,18 @@
 
 // base44/functions/marketIngestion/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
+import {
+  EXPECTED_INSTRUMENT_COUNT,
+  SAUDI_DELAY_SECONDS,
+  SAUDI_MAIN_MARKET,
+  coverageStatus,
+  expectedProviderAsOf,
+  fetchLicensedSnapshot,
+  normalizeLicensedSnapshot,
+  normalizeProviderCandles,
+  slotDecision,
+  stableSnapshotVersion
+} from "../../shared/market-data.js";
 var official_main_market_catalog_2026_07_21_default = {
   source: "Saudi Exchange",
   sourceUrl: "https://www.saudiexchange.sa/Resources/Reports-v2/DetailedDaily_en.html",
@@ -5273,7 +5285,6 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
     zones: buildMomentumZones(referencePeak, zone4Active, zone5Active)
   };
 }
-var YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart";
 var SAUDI_PROFILE = "https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/company-profile-main?companySymbol=";
 var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
 var GCC_MARKETS = [
@@ -5341,38 +5352,6 @@ function exactInstrument(row) {
     official_url: SAUDI_PROFILE + row.symbol
   };
 }
-function officialQuote(row, instrumentId, sourceId) {
-  const last = Number(row.officialQuote?.lastPrice);
-  const percent = Number(row.officialQuote?.changePercent || 0);
-  const open = Number(row.officialQuote?.openPrice);
-  const high = Number(row.officialQuote?.highPrice);
-  const low = Number(row.officialQuote?.lowPrice);
-  if (![last, open, high, low].every((value) => Number.isFinite(value) && value > 0)
-      || high < Math.max(open, last) || low > Math.min(open, last) || percent <= -100) return null;
-  const previous = percent === -100 ? null : last / (1 + percent / 100);
-  return {
-    instrument_id: instrumentId,
-    symbol: row.symbol,
-    last_price: last,
-    previous_close: previous,
-    change_value: previous == null ? null : last - previous,
-    change_percent: percent,
-    open,
-    high,
-    low,
-    volume: Number(row.officialQuote?.volume || 0),
-    trade_count: Number(row.officialQuote?.tradeCount || 0),
-    traded_value: Number(row.officialQuote?.tradedValue || 0),
-    market_cap: Number(row.officialQuote?.marketCap || 0),
-    source_id: sourceId,
-    source_time: official_main_market_catalog_2026_07_21_default.quoteTime,
-    received_time: new Date().toISOString(),
-    delay_seconds: 900,
-    license_status: "pending",
-    quote_time: official_main_market_catalog_2026_07_21_default.quoteTime,
-    quality_status: "verified"
-  };
-}
 function lossClassification(row, instrumentId, sourceId) {
   const level = row.warningFlag || "none";
   const labels = {
@@ -5382,87 +5361,6 @@ function lossClassification(row, instrumentId, sourceId) {
     red: ["\u062E\u0633\u0627\u0626\u0631 \u0645\u062A\u0631\u0627\u0643\u0645\u0629 50% \u0641\u0623\u0643\u062B\u0631", "Accumulated losses of 50% or more"]
   };
   return { instrument_id: instrumentId, level, label_ar: labels[level][0], label_en: labels[level][1], source_id: sourceId, as_of: official_main_market_catalog_2026_07_21_default.quoteTime };
-}
-function yahooPrice(value) {
-  if (value === null || value === void 0 || value === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-async function yahooHistory(instrument, yahooSourceId) {
-  const response = await fetch(`${YAHOO_CHART}/${instrument.symbol}.SR?interval=1d&range=2y&events=div%2Csplits`, {
-    headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 KMY-Saudi-Market/2.0" }
-  });
-  if (!response.ok) throw new Error(`Yahoo chart ${response.status}`);
-  const result = (await response.json())?.chart?.result?.[0];
-  if (!result?.timestamp?.length) throw new Error("Yahoo chart returned no timestamps");
-  const values = result.indicators?.quote?.[0] || {};
-  const lastIndex = result.timestamp.length - 1;
-  const regularMarketPrice = yahooPrice(result.meta?.regularMarketPrice);
-  const bars = result.timestamp.map((timestamp, index) => {
-    const open = yahooPrice(values.open?.[index]);
-    const high = yahooPrice(values.high?.[index]);
-    const low = yahooPrice(values.low?.[index]);
-    const sourceClose = yahooPrice(values.close?.[index]);
-    const reconciledClose = index === lastIndex && sourceClose === null && regularMarketPrice !== null && low !== null && high !== null && regularMarketPrice >= low && regularMarketPrice <= high ? regularMarketPrice : sourceClose;
-    const rawVolume = values.volume?.[index];
-    const volume = rawVolume === null || rawVolume === void 0 || rawVolume === "" ? 0 : Number(rawVolume);
-    return { time: new Date(timestamp * 1e3).toISOString(), open, high, low, close: reconciledClose, volume };
-  }).filter((bar) => [bar.open, bar.high, bar.low, bar.close].every((value) => value !== null && Number.isFinite(value)) && bar.high >= Math.max(bar.open, bar.close) && bar.low <= Math.min(bar.open, bar.close) && Number.isFinite(bar.volume) && bar.volume >= 0);
-  if (bars.length < 2) throw new Error("Yahoo chart returned insufficient valid bars");
-  const meta = result.meta || {};
-  const last = bars[bars.length - 1];
-  const previous = bars[bars.length - 2];
-  const previousClose = previous.close;
-  const rawLastTime = new Date(result.timestamp[lastIndex] * 1e3).toISOString();
-  const acceptedLatestBar = last.time === rawLastTime;
-  const quoteTime = acceptedLatestBar && meta.regularMarketTime ? new Date(meta.regularMarketTime * 1e3).toISOString() : last.time;
-  const momentum = calculateMomentumZones(bars);
-  return {
-    quote: {
-      instrument_id: instrument.id,
-      symbol: instrument.symbol,
-      last_price: last.close,
-      previous_close: previousClose,
-      change_value: last.close - previousClose,
-      change_percent: previousClose ? (last.close - previousClose) / previousClose * 100 : 0,
-      open: last.open,
-      high: last.high,
-      low: last.low,
-      volume: last.volume,
-      week52_high: Number(meta.fiftyTwoWeekHigh),
-      week52_low: Number(meta.fiftyTwoWeekLow),
-      source_id: yahooSourceId,
-      source_time: quoteTime,
-      received_time: new Date().toISOString(),
-      delay_seconds: 900,
-      license_status: "pending",
-      quote_time: quoteTime,
-      quality_status: "verified"
-    },
-    candle: {
-      instrument_id: instrument.id,
-      symbol: instrument.symbol,
-      interval: "1d",
-      chunk_key: `${instrument.symbol}-1d-2y`,
-      start_time: bars[0].time,
-      end_time: last.time,
-      bars,
-      bar_count: bars.length,
-      checksum: await checksum(bars),
-      source_id: yahooSourceId,
-      quality_status: "verified"
-    },
-    indicator: momentum ? {
-      instrument_id: instrument.id,
-      symbol: instrument.symbol,
-      indicator_key: "momentum_zones",
-      timeframe: "1d",
-      values: momentum,
-      source_as_of: quoteTime,
-      calculated_at: (/* @__PURE__ */ new Date()).toISOString(),
-      formula_version: MOMENTUM_FORMULA_VERSION
-    } : null
-  };
 }
 function drawingLevel(points, observedAt) {
   if (!Array.isArray(points) || !points.length) return null;
@@ -5510,9 +5408,80 @@ async function evaluateDrawingAlerts(base44, quotes) {
   }
   return { evaluated: rules.length, triggered };
 }
+async function licensedSource(base44, providerCode, providerUrl) {
+  const existing = (await base44.asServiceRole.entities.DataSource.filter({ code: providerCode }))[0] || null;
+  const common = {
+    name: existing?.name || "Licensed Saudi market T+15 feed",
+    source_type: "licensed",
+    market_code: SAUDI_MAIN_MARKET,
+    quote_mode: "delayed",
+    delay_seconds: SAUDI_DELAY_SECONDS,
+    license_status: existing?.license_status || "pending",
+    public_enabled: existing?.public_enabled === true,
+    ...(providerUrl ? { base_url: providerUrl } : {})
+  };
+  return existing
+    ? await base44.asServiceRole.entities.DataSource.update(existing.id, common)
+    : await base44.asServiceRole.entities.DataSource.create({ code: providerCode, ...common });
+}
+
+async function recordQualityIssues(base44, sourceId, runId, snapshotVersion, issues) {
+  if (!issues.length) return;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const existing = await base44.asServiceRole.entities.DataQualityIssue.filter({ status: "open", source_id: sourceId });
+  const keyFor = (row) => `${row.instrument_id || "market"}:${row.issue_type}`;
+  const byKey = new Map(existing.map((row) => [keyFor(row), row]));
+  const creates = [];
+  const updates = [];
+  for (const issue of issues) {
+    const current = byKey.get(keyFor(issue));
+    const values = {
+      instrument_id: issue.instrument_id || void 0,
+      symbol: issue.symbol || void 0,
+      issue_type: issue.issue_type,
+      severity: issue.severity || "warning",
+      message: issue.message,
+      status: "open",
+      source_id: sourceId,
+      run_id: runId,
+      snapshot_version: snapshotVersion || void 0,
+      first_seen_at: current?.first_seen_at || now,
+      last_seen_at: now,
+      occurrence_count: Number(current?.occurrence_count || 0) + 1
+    };
+    if (current) updates.push({ id: current.id, ...values });
+    else creates.push(values);
+  }
+  if (creates.length) await base44.asServiceRole.entities.DataQualityIssue.bulkCreate(creates);
+  if (updates.length) await base44.asServiceRole.entities.DataQualityIssue.bulkUpdate(updates);
+}
+
+async function markMissingQuotesStale(base44, instrumentIds, acceptedQuotes) {
+  const acceptedIds = new Set(acceptedQuotes.map((quote) => quote.instrument_id));
+  const expectedIds = new Set(instrumentIds);
+  const existing = await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500);
+  const updates = existing.filter((quote) => expectedIds.has(quote.instrument_id) && !acceptedIds.has(quote.instrument_id)).map((quote) => ({
+    id: quote.id,
+    freshness_status: "stale",
+    quality_status: "stale"
+  }));
+  if (updates.length) await base44.asServiceRole.entities.QuoteLatest.bulkUpdate(updates);
+}
+
+async function providerCandleChunks(payload, mappings, instruments, sourceId, sessionDate) {
+  const chunks = normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate);
+  return await Promise.all(chunks.map(async (chunk) => ({ ...chunk, checksum: await checksum(chunk.bars) })));
+}
+
+function ingestionFailure(message, code = "MARKET_INGESTION_FAILED", status = 503) {
+  return Object.assign(new Error(message), { code, status });
+}
+
 Deno.serve(async (req) => {
+  let base44 = null;
+  let run = null;
   try {
-    const base44 = createClientFromRequest(req);
+    base44 = createClientFromRequest(req);
     const requestBody = await req.json();
     const body = { ...requestBody, ...requestBody.args || {} };
     let user = null;
@@ -5521,98 +5490,227 @@ Deno.serve(async (req) => {
     } catch {
       user = null;
     }
+
+    const scheduledSources = /* @__PURE__ */ new Set([
+      "scheduled_licensed_t15",
+      "scheduled_licensed_close",
+      "scheduled_licensed_final"
+    ]);
     if (user) {
       await requireDataIngestionPermission(base44, body.session_id);
     } else {
       const serviceAuthorization = req.headers.get("Base44-Service-Authorization");
-      const scheduledSources = /* @__PURE__ */ new Set(["scheduled_reference_sync", "scheduled_close_reconciliation"]);
-      if (!serviceAuthorization || !scheduledSources.has(String(body.source || ""))) {
+      if (!serviceAuthorization || !scheduledSources.has(String(body.source || "")) || body.force === true) {
         throw Object.assign(new Error("Unauthorized"), { status: 401 });
       }
-      const recentRuns = await base44.asServiceRole.entities.IngestionRun.list("-started_at", 5);
-      const lastScheduled = recentRuns.find((row) => String(row.run_type || "").startsWith("scheduled"));
-      if (lastScheduled && Date.now() - new Date(lastScheduled.started_at).getTime() < 12 * 60 * 1e3) {
-        return Response.json({ status: "skipped", reason: "scheduled_run_already_recent" });
-      }
     }
-    const startedAt = (/* @__PURE__ */ new Date()).toISOString();
-    const schedule = await shouldRunScheduled(base44, body);
-    if (!schedule.run) return Response.json({ status: "skipped", reason: schedule.reason, clock: schedule.clock });
+
+    const marketCode = String(body.market_code || SAUDI_MAIN_MARKET);
+    if (marketCode !== SAUDI_MAIN_MARKET) throw ingestionFailure("The requested market feed is not configured", "MARKET_FEED_NOT_CONFIGURED");
+    const slotKind = ["quarter_hour", "close_price", "session_final"].includes(String(body.slot_kind))
+      ? String(body.slot_kind)
+      : user ? "manual" : "quarter_hour";
+    const now = /* @__PURE__ */ new Date();
+    const schedule = slotDecision({ now, slotKind, source: body.source });
+    if (!schedule.run) return Response.json({ status: "skipped", reason: schedule.reason, clock: schedule.clock, phase: schedule.phase });
+
+    const [holidays, sessions] = await Promise.all([
+      base44.asServiceRole.entities.MarketHoliday.filter({ holiday_date: schedule.clock.date }),
+      base44.asServiceRole.entities.MarketSession.filter({ session_date: schedule.clock.date })
+    ]);
+    if (holidays.length || sessions[0]?.is_trading_day === false) {
+      return Response.json({ status: "skipped", reason: holidays.length ? "official_market_holiday" : "market_session_closed", clock: schedule.clock });
+    }
+
+    const providerCode = String(Deno.env.get("KMY_MARKET_DATA_PROVIDER_CODE") || "LICENSED_SAUDI_MARKET_T15").trim();
+    const providerUrl = String(Deno.env.get("KMY_MARKET_DATA_URL") || "").trim();
+    const providerToken = String(Deno.env.get("KMY_MARKET_DATA_TOKEN") || "").trim();
+    const provider = await licensedSource(base44, providerCode, providerUrl);
+
+    await upsertMany(base44, "Market", GCC_MARKETS, ["market_code"]);
+    await upsertMany(base44, "Instrument", official_main_market_catalog_2026_07_21_default.companies.map(exactInstrument), ["symbol"]);
+    const instruments = (await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((row) => MAIN_MARKET_SYMBOLS.has(row.symbol));
+    if (instruments.length !== EXPECTED_INSTRUMENT_COUNT) {
+      throw ingestionFailure(`Verified main-market catalog is incomplete: ${instruments.length}/${EXPECTED_INSTRUMENT_COUNT}`, "MARKET_CATALOG_INCOMPLETE");
+    }
+
     const officialSource = await source(base44, "SAUDI_EXCHANGE_DAILY_REFERENCE", {
       name: "\u062A\u062F\u0627\u0648\u0644 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u2014 \u0627\u0644\u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u064A\u0648\u0645\u064A \u0627\u0644\u062A\u0641\u0635\u064A\u0644\u064A",
       source_type: "official",
+      market_code: SAUDI_MAIN_MARKET,
+      quote_mode: "end_of_day",
+      delay_seconds: 0,
+      public_enabled: false,
       license_status: "restricted",
       base_url: official_main_market_catalog_2026_07_21_default.sourceUrl,
       last_verified_at: official_main_market_catalog_2026_07_21_default.quoteTime
     });
-    const yahooSource = await source(base44, "YAHOO_FINANCE_SA_DELAYED", {
-      name: "Yahoo Finance \u2014 Saudi delayed chart",
-      source_type: "reference",
-      license_status: "restricted",
-      base_url: "https://finance.yahoo.com/",
-      last_verified_at: (/* @__PURE__ */ new Date()).toISOString()
-    });
-    await upsertMany(base44, "Market", GCC_MARKETS, ["market_code"]);
-    // Backfill the market identity through the legacy Saudi symbol key first.
-    // Switching the upsert key before the existing catalog is migrated would duplicate 270 instruments.
-    await upsertMany(base44, "Instrument", official_main_market_catalog_2026_07_21_default.companies.map(exactInstrument), ["symbol"]);
-    const instruments = (await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((row) => MAIN_MARKET_SYMBOLS.has(row.symbol));
     const bySymbol = new Map(instruments.map((row) => [row.symbol, row]));
-    if (instruments.length !== MAIN_MARKET_SYMBOLS.size) {
-      throw new Error(`Verified main-market catalog is incomplete: ${instruments.length}/${MAIN_MARKET_SYMBOLS.size}`);
-    }
-    const officialQuotes = [];
-    const lossRows = [];
-    for (const row of official_main_market_catalog_2026_07_21_default.companies) {
-      const instrument = bySymbol.get(row.symbol);
-      if (!instrument) continue;
-      const quote = officialQuote(row, instrument.id, officialSource.id);
-      if (quote) officialQuotes.push(quote);
-      lossRows.push(lossClassification(row, instrument.id, officialSource.id));
-    }
-    await upsertMany(base44, "QuoteLatest", officialQuotes, ["instrument_id"]);
+    const lossRows = official_main_market_catalog_2026_07_21_default.companies.map((row) => lossClassification(row, bySymbol.get(row.symbol)?.id, officialSource.id)).filter((row) => row.instrument_id);
     await upsertMany(base44, "LossClassification", lossRows, ["instrument_id"]);
-    const batchSize = Math.min(Math.max(Number(body.batch_size || 270), 1), 500);
-    const selected = instruments.slice(0, batchSize);
-    const successes = [];
-    const failures = [];
-    for (let index = 0; index < selected.length; index += 12) {
-      const group = selected.slice(index, index + 12);
-      const settled = await Promise.allSettled(group.map((instrument) => yahooHistory(instrument, yahooSource.id)));
-      settled.forEach((result, offset) => {
-        if (result.status === "fulfilled") successes.push(result.value);
-        else failures.push({ symbol: group[offset].symbol, error: result.reason?.message || "Yahoo history failed" });
-      });
+
+    const expectedAsOfDate = new Date(expectedProviderAsOf(now));
+    expectedAsOfDate.setUTCSeconds(0, 0);
+    const expectedAsOf = expectedAsOfDate.toISOString();
+    const slotKey = `${marketCode}:${schedule.clock.date}:${slotKind}:${expectedAsOf}`;
+    const previousRuns = await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey });
+    const completed = previousRuns.find((item) => ["success", "partial"].includes(item.status));
+    const active = previousRuns.find((item) => item.status === "running" && new Date(item.lease_expires_at || 0) > now);
+    if (!body.force && (completed || active)) {
+      return Response.json({ status: "skipped", reason: completed ? "slot_already_promoted" : "slot_already_running", slot_key: slotKey });
     }
-    await upsertMany(base44, "QuoteLatest", successes.map((item) => item.quote), ["instrument_id"]);
-    await upsertMany(base44, "CandleChunk", successes.map((item) => item.candle), ["instrument_id", "interval", "chunk_key"]);
-    await upsertMany(base44, "IndicatorSnapshot", successes.map((item) => item.indicator).filter(Boolean), ["instrument_id", "indicator_key", "timeframe"]);
-    const drawingAlerts = await evaluateDrawingAlerts(base44, successes.map((item) => item.quote));
-    const status = failures.length ? successes.length ? "partial" : "failed" : "success";
-    await base44.asServiceRole.entities.IngestionRun.create({
-      run_type: body.source || "manual_verified_sync",
-      started_at: startedAt,
-      finished_at: (/* @__PURE__ */ new Date()).toISOString(),
-      total_records: selected.length,
-      success_count: successes.length,
-      failed_count: failures.length,
-      status,
-      source_id: yahooSource.id,
-      notes: JSON.stringify({ catalog_count: instruments.length, official_catalog_date: official_main_market_catalog_2026_07_21_default.marketDate, yahoo_failures: failures.slice(0, 30) })
+
+    const mappings = (await base44.asServiceRole.entities.ProviderInstrumentMap.filter({
+      market_code: marketCode,
+      provider_code: providerCode,
+      quote_mode: "delayed",
+      license_status: "approved",
+      active: true
+    })).filter((mapping) => instruments.some((instrument) => instrument.id === mapping.instrument_id));
+
+    run = await base44.asServiceRole.entities.IngestionRun.create({
+      run_type: body.source || "manual_licensed_t15",
+      market_code: marketCode,
+      slot_key: slotKey,
+      slot_kind: slotKind,
+      scheduled_for: now.toISOString(),
+      started_at: now.toISOString(),
+      lease_expires_at: new Date(now.getTime() + 3 * 60 * 1e3).toISOString(),
+      total_records: EXPECTED_INSTRUMENT_COUNT,
+      success_count: 0,
+      failed_count: EXPECTED_INSTRUMENT_COUNT,
+      coverage_percent: 0,
+      attempt_count: 0,
+      status: "running",
+      source_id: provider.id,
+      notes: JSON.stringify({ provider_configured: Boolean(providerUrl && providerToken), mapping_count: mappings.length })
     });
+
+    if (!providerUrl || !providerToken) {
+      await recordQualityIssues(base44, provider.id, run.id, "", [{
+        issue_type: "provider_not_configured",
+        severity: "critical",
+        message: "Licensed market-data URL or token is not configured"
+      }]);
+      throw ingestionFailure("Licensed market-data credentials are not configured", "MARKET_FEED_NOT_CONFIGURED");
+    }
+    if (provider.license_status !== "approved" || provider.public_enabled !== true) {
+      await recordQualityIssues(base44, provider.id, run.id, "", [{
+        issue_type: "provider_license_not_approved",
+        severity: "critical",
+        message: "Licensed feed is blocked until redistribution approval is recorded"
+      }]);
+      throw ingestionFailure("Licensed market-data redistribution is not approved", "MARKET_LICENSE_NOT_APPROVED");
+    }
+    if (mappings.length !== EXPECTED_INSTRUMENT_COUNT) {
+      await recordQualityIssues(base44, provider.id, run.id, "", [{
+        issue_type: "provider_mapping_incomplete",
+        severity: "critical",
+        message: `Approved provider mappings are incomplete: ${mappings.length}/${EXPECTED_INSTRUMENT_COUNT}`
+      }]);
+      throw ingestionFailure("Provider instrument mapping is incomplete", "PROVIDER_MAPPING_INCOMPLETE");
+    }
+
+    let payload;
+    let attemptCount = 0;
+    try {
+      const providerResult = await fetchLicensedSnapshot({
+        url: providerUrl,
+        token: providerToken,
+        requestBody: {
+          market_code: marketCode,
+          provider_symbols: mappings.map((mapping) => mapping.provider_symbol),
+          expected_as_of: expectedAsOf,
+          delay_seconds: SAUDI_DELAY_SECONDS,
+          slot_kind: slotKind
+        }
+      });
+      payload = providerResult.payload;
+      attemptCount = providerResult.attemptCount;
+    } catch (error) {
+      await recordQualityIssues(base44, provider.id, run.id, "", [{
+        issue_type: "provider_request_failed",
+        severity: "critical",
+        message: "Licensed provider request failed after bounded retries"
+      }]);
+      throw ingestionFailure(error?.message || "Licensed provider request failed", "PROVIDER_REQUEST_FAILED");
+    }
+
+    const providerAsOf = String(payload?.data?.provider_as_of || payload?.provider_as_of || payload?.data?.as_of || payload?.as_of || "");
+    const snapshotVersion = await stableSnapshotVersion({ marketCode, providerCode, providerAsOf, slotKey });
+    const normalized = normalizeLicensedSnapshot({
+      payload,
+      mappings,
+      instruments,
+      sourceId: provider.id,
+      runId: run.id,
+      snapshotVersion,
+      receivedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      slotKind
+    });
+    const coverage = coverageStatus(normalized.accepted.length, EXPECTED_INSTRUMENT_COUNT);
+
+    if (normalized.accepted.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(normalized.accepted);
+    await recordQualityIssues(base44, provider.id, run.id, snapshotVersion, normalized.rejected);
+
+    if (coverage.status === "failed") {
+      throw ingestionFailure(`Licensed snapshot coverage failed: ${coverage.coveragePercent.toFixed(2)}%`, "MARKET_COVERAGE_FAILED");
+    }
+
+    await upsertMany(base44, "QuoteLatest", normalized.accepted, ["instrument_id"]);
+    await markMissingQuotesStale(base44, instruments.map((instrument) => instrument.id), normalized.accepted);
+    const candleChunks = await providerCandleChunks(payload, mappings, instruments, provider.id, schedule.clock.date);
+    await upsertMany(base44, "CandleChunk", candleChunks, ["instrument_id", "interval", "chunk_key"]);
+    const drawingAlerts = await evaluateDrawingAlerts(base44, normalized.accepted);
+    const finishedAt = (/* @__PURE__ */ new Date()).toISOString();
+    const finalStatus = coverage.status === "healthy" ? "success" : "partial";
+    await base44.asServiceRole.entities.IngestionRun.update(run.id, {
+      finished_at: finishedAt,
+      provider_as_of: normalized.providerAsOf,
+      snapshot_version: snapshotVersion,
+      total_records: EXPECTED_INSTRUMENT_COUNT,
+      success_count: normalized.accepted.length,
+      failed_count: normalized.rejected.length,
+      coverage_percent: coverage.coveragePercent,
+      latency_ms: new Date(finishedAt).getTime() - now.getTime(),
+      attempt_count: attemptCount,
+      status: finalStatus,
+      promoted_at: finishedAt,
+      notes: JSON.stringify({ candle_chunks: candleChunks.length, rejected_count: normalized.rejected.length })
+    });
+    await base44.asServiceRole.entities.DataSource.update(provider.id, { last_verified_at: normalized.providerAsOf });
+
     return Response.json({
-      status,
-      catalog_count: instruments.length,
-      exact_names_source: official_main_market_catalog_2026_07_21_default.sourceUrl,
-      official_catalog_date: official_main_market_catalog_2026_07_21_default.marketDate,
-      yahoo_success_count: successes.length,
-      yahoo_failure_count: failures.length,
+      status: finalStatus,
+      market_code: marketCode,
+      slot_key: slotKey,
+      slot_kind: slotKind,
+      snapshot_version: snapshotVersion,
+      provider_as_of: normalized.providerAsOf,
+      received_at: finishedAt,
+      delay_seconds: SAUDI_DELAY_SECONDS,
+      coverage_percent: coverage.coveragePercent,
+      success_count: normalized.accepted.length,
+      failed_count: normalized.rejected.length,
+      candle_chunk_count: candleChunks.length,
       drawing_alerts: drawingAlerts,
-      failures: failures.slice(0, 30),
-      mode: "verified_delayed_reference",
-      last_updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      is_final: normalized.isFinal
     });
   } catch (error) {
+    if (base44 && run?.id) {
+      try {
+        const finishedAt = (/* @__PURE__ */ new Date()).toISOString();
+        await base44.asServiceRole.entities.IngestionRun.update(run.id, {
+          finished_at: finishedAt,
+          latency_ms: new Date(finishedAt).getTime() - new Date(run.started_at).getTime(),
+          status: "failed",
+          failure_code: error?.code || "MARKET_INGESTION_FAILED",
+          notes: JSON.stringify({ failure_code: error?.code || "MARKET_INGESTION_FAILED" })
+        });
+      } catch (runError) {
+        console.error("KMY failed to finalize ingestion run", runError);
+      }
+    }
     return replyError(error);
   }
 });

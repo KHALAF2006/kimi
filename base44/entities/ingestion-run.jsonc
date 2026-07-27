@@ -5,6 +5,47 @@
     "run_type": {
       "type": "string"
     },
+    "market_code": {
+      "type": "string"
+    },
+    "slot_key": {
+      "type": "string"
+    },
+    "slot_kind": {
+      "type": "string",
+      "enum": ["quarter_hour", "close_price", "session_final", "manual"]
+    },
+    "scheduled_for": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "provider_as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "snapshot_version": {
+      "type": "string"
+    },
+    "coverage_percent": {
+      "type": "number"
+    },
+    "latency_ms": {
+      "type": "integer"
+    },
+    "attempt_count": {
+      "type": "integer"
+    },
+    "failure_code": {
+      "type": "string"
+    },
+    "lease_expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "promoted_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "started_at": {
       "type": "string",
       "format": "date-time"
@@ -26,6 +67,7 @@
       "type": "string",
       "enum": [
         "running",
+        "skipped",
         "success",
         "partial",
         "failed"

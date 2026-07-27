@@ -32,6 +32,24 @@
     "source_id": {
       "type": "string"
     },
+    "run_id": {
+      "type": "string"
+    },
+    "snapshot_version": {
+      "type": "string"
+    },
+    "first_seen_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_seen_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "occurrence_count": {
+      "type": "integer",
+      "minimum": 1
+    },
     "resolved_at": {
       "type": "string",
       "format": "date-time"

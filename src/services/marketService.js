@@ -6,6 +6,7 @@ const isLocalBrowser = typeof window !== "undefined" && localBrowserHosts.has(wi
 const referenceApi = isLocalBrowser ? (configuredReferenceApi || "/reference-api") : "";
 
 function quoteFromReference(company) {
+  const asOf = company.quoteTime || null;
   return {
     instrument_id: company.id,
     symbol: company.symbol,
@@ -22,10 +23,25 @@ function quoteFromReference(company) {
     week52_low: company.week52Low,
     traded_value: company.tradedValue,
     market_cap: company.marketCap,
-    quote_time: company.quoteTime,
-    quality_status: "verified",
-    source: { code: company.quoteSource?.includes("saudi") ? "SAUDI_EXCHANGE_REFERENCE" : "YAHOO_FINANCE_SA_DELAYED", name: company.quoteSource, source_type: company.quoteSource?.includes("saudi") ? "official" : "reference" },
-    data_state: { label: "مرجعية متأخرة", stale: Date.now() - new Date(company.quoteTime).getTime() > 36 * 60 * 60 * 1000 },
+    quote_time: asOf,
+    provider_as_of: asOf,
+    received_time: asOf,
+    delay_seconds: 900,
+    quality_status: "unverified",
+    freshness_status: "stale",
+    license_status: "restricted",
+    is_final: false,
+    snapshot_version: null,
+    data_state: { label: "تجريبية غير معتمدة", stale: true, experimental: true, code: "experimental" },
+    data_meta: {
+      provider_as_of: asOf,
+      received_time: asOf,
+      delay_seconds: 900,
+      freshness_status: "stale",
+      quality_status: "unverified",
+      license_status: "restricted",
+      is_final: false,
+    },
   };
 }
 
@@ -70,7 +86,12 @@ async function referenceMarketRead(payload) {
     const referenceRange = referenceRanges[payload.range] || "3M";
     const path = "/api/companies/" + encodeURIComponent(payload.symbol) + "/chart?interval=" + encodeURIComponent(payload.interval || "1d") + "&range=" + encodeURIComponent(referenceRange);
     const data = await referenceFetch(path);
-    return { candles: data.candles || [], source: data.source, as_of: data.asOf, data_state: { label: "مرجعية متأخرة", stale: false } };
+    return {
+      candles: data.candles || [],
+      as_of: data.asOf,
+      data_state: { label: "تجريبية غير معتمدة", stale: true, experimental: true, code: "experimental" },
+      data_meta: { provider_as_of: data.asOf || null, received_time: data.asOf || null, delay_seconds: 900, freshness_status: "stale", quality_status: "unverified", license_status: "restricted", is_final: false },
+    };
   }
   const symbol = payload.symbol || (/^\d{4}$/.test(String(payload.instrument_id || "")) ? payload.instrument_id : "");
   if (symbol) {
@@ -86,7 +107,7 @@ async function referenceMarketRead(payload) {
       actions: company.corporateActions || [],
       shareholders: company.shareholders || [],
       loss_classification: company.warningFlag ? { level: company.warningFlag } : null,
-      notice: "بيانات سوق حقيقية متأخرة — وقت التحديث موضح",
+      notice: "الأسعار الحالية تجريبية وغير معتمدة للتداول",
     };
   }
   const companies = await referenceFetch("/api/companies?limit=500");
@@ -100,7 +121,18 @@ async function referenceMarketRead(payload) {
     instruments: rows.slice(0, Math.min(Number(payload.limit || 500), 500)),
     total: companies.length,
     sources: [],
-    notice: "بيانات سوق حقيقية متأخرة — وقت التحديث موضح",
+    snapshot: {
+      market_code: payload.market_code || "SA_MAIN",
+      session_phase: "closed",
+      as_of: rows.map((row) => row.quote?.provider_as_of).filter(Boolean).sort().at(-1) || null,
+      received_at: rows.map((row) => row.quote?.received_time).filter(Boolean).sort().at(-1) || null,
+      delay_seconds: 900,
+      snapshot_version: null,
+      coverage_percent: 0,
+      freshness_status: "experimental",
+      is_final: false,
+    },
+    notice: "الأسعار الحالية تجريبية وغير معتمدة للتداول",
   };
 }
 

@@ -13,7 +13,8 @@ export default function MarketTicker({ rows = [] }) {
     <div className="market-ticker-track">
       {content.map((row, index) => {
         const direction = quoteDirection(row.quote?.change_percent);
-        return <Link key={row.symbol + "-" + index} to={"/dashboard?company=" + row.symbol} className="market-ticker-item" title={language === "ar" ? "افتح " + row.name_ar : "Open " + row.name_en}>
+        const stateLabel = row.quote?.data_state?.label || "";
+        return <Link key={row.symbol + "-" + index} to={"/dashboard?company=" + row.symbol} className="market-ticker-item" title={(language === "ar" ? "افتح " + row.name_ar : "Open " + row.name_en) + (stateLabel ? " · " + stateLabel : "")}>
           <span className="font-black">{row.symbol}</span>
           <span>{language === "ar" ? row.name_ar : row.name_en}</span>
           <b className={"market-" + direction} dir="ltr">{formatNumber(row.quote?.last_price, "en")}</b>

@@ -39,27 +39,34 @@ assert.match(ingestion, /var MAIN_MARKET_SYMBOLS = new Set/, "deployed ingestion
 assert.match(ingestion, /name_ar:\s*row\.nameAr/);
 assert.match(ingestion, /name_en:\s*row\.nameEn/);
 assert.match(ingestion, /upsertMany\(base44,\s*["']Instrument["']/);
-assert.match(ingestion, /instrument\.symbol\}\.SR/);
 assert.match(ingestion, /Base44-Service-Authorization/, "scheduled ingestion must require Base44 service authorization");
 assert.match(ingestion, /MAIN_MARKET_SYMBOLS\.has\(row\.symbol\)/, "ingestion must exclude records outside the verified main-market catalog");
+assert.match(ingestion, /KMY_MARKET_DATA_URL/, "licensed ingestion must require a provider endpoint secret");
+assert.match(ingestion, /QuoteObservation\.bulkCreate/, "accepted provider readings must be stored before promotion");
+assert.doesNotMatch(ingestion, /query1\.finance\.yahoo\.com|YAHOO_CHART/, "production ingestion must not use Yahoo");
 
 const marketRead = await readFile(new URL("../base44/functions/marketRead/entry.ts", import.meta.url), "utf8");
 assert.match(marketRead, /official_main_market_catalog_2026_07_21_default\.companies/, "deployed reads must contain the bundled verified catalog");
 assert.match(marketRead, /MAIN_MARKET_SYMBOLS\.has\(item\.symbol\)/, "market reads must exclude non-main-market records");
 assert.match(marketRead, /optionalRows/, "optional source metadata must not take down the market catalog");
 assert.match(marketRead, /Main-market catalog mismatch/, "an incomplete verified catalog must fail closed");
+assert.match(marketRead, /CHART_DATA_NOT_AVAILABLE/, "chart reads must fail clearly when licensed stored candles are unavailable");
+assert.doesNotMatch(marketRead, /query1\.finance\.yahoo\.com|YAHOO_CHART/, "market reads must never fetch Yahoo");
 
 const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIngestion/function.jsonc", import.meta.url), "utf8"));
 assert.equal(schedule.name, "marketIngestion");
-const marketQuarterHour = JSON.parse(await readFile(new URL("../base44/workflows/MarketQuarterHour.jsonc", import.meta.url), "utf8"));
-const marketClose = JSON.parse(await readFile(new URL("../base44/workflows/MarketCloseReconciliation.jsonc", import.meta.url), "utf8"));
 const companyIntelligenceDaily = JSON.parse(await readFile(new URL("../base44/workflows/CompanyIntelligenceDaily.jsonc", import.meta.url), "utf8"));
 const companyFinancialsTwiceWeekly = JSON.parse(await readFile(new URL("../base44/workflows/CompanyFinancialsTwiceWeekly.jsonc", import.meta.url), "utf8"));
-assert.deepEqual([marketQuarterHour.trigger.config.cron_expression, marketClose.trigger.config.cron_expression], ["*/15 10-15 * * 0-4", "0 16 * * 0-4"]);
-assert.equal(marketQuarterHour.trigger.config.timezone, "Asia/Riyadh");
-assert.equal(marketClose.trigger.config.timezone, "Asia/Riyadh");
-assert.equal(marketQuarterHour.definition.do[0].refresh_market.with.args.batch_size, 270);
-assert.equal(marketClose.definition.do[0].reconcile_close.with.args.batch_size, 270);
+assert.equal(schedule.automations.length, 5, "market ingestion must define the bounded T+15 schedules in function.jsonc");
+assert.deepEqual(schedule.automations.map((automation) => automation.cron_expression), [
+  "15,30,45 7 * * 0-4",
+  "0,15,30,45 8-11 * * 0-4",
+  "0,15 12 * * 0-4",
+  "26 12 * * 0-4",
+  "36 12 * * 0-4",
+]);
+assert.ok(schedule.automations.every((automation) => automation.is_active === false), "licensed market automations must remain inactive before provider approval");
+assert.ok(schedule.automations.every((automation) => automation.function_args.market_code === "SA_MAIN"));
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
 assert.equal(companyFinancialsTwiceWeekly.trigger.config.cron_expression, "0 16 * * 1,4");
 assert.equal(companyIntelligenceDaily.trigger.config.timezone, "Asia/Riyadh");
@@ -68,10 +75,10 @@ assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh"
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
 const allEntityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc")).sort();
 const entityFiles = allEntityFiles.filter((name) => /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/.test(name));
-assert.equal(entityFiles.length, 44, "all 44 canonical Base44 entity schemas must be present");
+assert.equal(entityFiles.length, 45, "all 45 canonical Base44 entity schemas must be present");
 // Base44 materializes server-side entity representations beside the checked-in
 // kebab-case schemas inside its managed /app sandbox. The GitHub checkout must
-// remain canonical-only; the sandbox still validates the 44 source schemas.
+// remain canonical-only; the sandbox still validates the 45 source schemas.
 const isManagedBase44Sandbox = process.cwd().replaceAll("\\", "/") === "/app";
 if (!isManagedBase44Sandbox) {
   assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "legacy duplicate entity schema files must not remain beside the canonical kebab-case files");
@@ -91,7 +98,7 @@ for (const name of entityFiles) {
 }
 assert.ok(!entityNames.has("User"), "built-in Base44 User fields and permissions must not be redefined");
 const entityNamesLower = new Set([...entityNames].map((name) => name.toLowerCase()));
-for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "UsageCounter", "Market", "InstrumentAlias", "ProviderInstrumentMap"]) {
+for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "QuoteObservation", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "UsageCounter", "Market", "InstrumentAlias", "ProviderInstrumentMap"]) {
   assert.ok(entityNamesLower.has(required.toLowerCase()), `required entity is missing: ${required}`);
 }
 const customerProfile = JSON.parse(await readFile(new URL("../base44/entities/customer-profile.jsonc", import.meta.url), "utf8"));
@@ -100,7 +107,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 19, "all 19 backend functions must be present");
+assert.equal(functionNames.length, 20, "all 20 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -221,7 +228,7 @@ assert.match(authLoginFunction, /acquisition_source === "platform_owner_bootstra
 assert.match(authLoginFunction, /role:\s*owner \? "owner" : "admin"/, "the deployed authLogin function must not downgrade the owner");
 assert.match(loginPage, /base44\.auth\.setToken\(login\.access_token,true\)/, "Base44 authentication must persist across same-origin tabs");
 assert.match(loginPage, /kmy_device_id/, "all tabs on one browser device must share a stable device identity");
-for (const fileName of ["adminCustomers", "adminSubscriptions", "adminRoles", "identityContext", "operationsQuality"]) {
+for (const fileName of ["adminCustomers", "adminSubscriptions", "adminRoles", "identityContext", "operationsQuality", "adminMarketData"]) {
   const deployed = await readFile(new URL(`../base44/functions/${fileName}/entry.ts`, import.meta.url), "utf8");
   assert.match(deployed, /authorizationContext|requirePermission/, `${fileName} must enforce the centralized backend authorization context`);
 }
