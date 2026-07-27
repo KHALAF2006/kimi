@@ -1,0 +1,44 @@
+{
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "market_session_final",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "reconcile_market_session_final": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "marketIngestion",
+            "args": {
+              "slot_kind": "session_final",
+              "source": "session_final"
+            }
+          },
+          "then": "end"
+        }
+      }
+    ]
+  },
+  "description": "تثبيت إحصاءات جلسة التداول النهائية عند 15:36.",
+  "name": "تثبيت إغلاق جلسة السوق",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "36 15 * * 0-4",
+      "one_time_date": null,
+      "timezone": "Asia/Riyadh",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  }
+}

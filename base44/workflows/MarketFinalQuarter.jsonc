@@ -1,0 +1,44 @@
+{
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "market_final_quarter",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "refresh_market_final_quarter": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "marketIngestion",
+            "args": {
+              "slot_kind": "quarter_hour",
+              "source": "experimental_t15"
+            }
+          },
+          "then": "end"
+        }
+      }
+    ]
+  },
+  "description": "آخر دورة T+15 للجلسة المستمرة عند 15:15.",
+  "name": "تحديث السوق — الربع الأخير",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "15 15 * * 0-4",
+      "one_time_date": null,
+      "timezone": "Asia/Riyadh",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "market_close_price",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "reconcile_market_close_price": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "marketIngestion",
+            "args": {
+              "slot_kind": "close_price",
+              "source": "close_price"
+            }
+          },
+          "then": "end"
+        }
+      }
+    ]
+  },
+  "description": "مصالحة سعر مزاد الإغلاق المتأخر عند 15:26.",
+  "name": "مصالحة سعر إغلاق السوق",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "26 15 * * 0-4",
+      "one_time_date": null,
+      "timezone": "Asia/Riyadh",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  }
+}
