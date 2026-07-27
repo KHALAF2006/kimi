@@ -5299,7 +5299,7 @@ async function chartResponse(base44, body, sources) {
     .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
     .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
   if (!chunks.length) {
-    throw Object.assign(new Error("Stored chart data is not available until a licensed ingestion run provides it"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
+    throw Object.assign(new Error("Stored chart data is not available until a market ingestion run provides it"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   }
   const latestChunk = chunks[chunks.length - 1];
   const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : new Date(latestChunk.end_time).getTime() - RANGE_MILLISECONDS[range];
@@ -5365,12 +5365,6 @@ function latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMar
   };
   const candidates = instruments.map((instrument) => quoteByInstrument.get(instrument.id)).filter(Boolean)
     .filter((quote) => quote.snapshot_version)
-    .filter((quote) => {
-      const source = sourceById.get(quote.source_id);
-      return source?.source_type === "licensed"
-        && source?.license_status === "approved"
-        && source?.public_enabled === true;
-    })
     .sort((a, b) => new Date(b.received_time || b.updated_date || 0).getTime() - new Date(a.received_time || a.updated_date || 0).getTime());
   if (!candidates.length) {
     const reference = instruments.map((instrument) => quoteByInstrument.get(instrument.id)).filter(Boolean)
@@ -5381,11 +5375,24 @@ function latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMar
       received_at: reference.received_time || reference.updated_date || null
     } : fallback;
   }
-  const snapshotVersion = candidates[0].snapshot_version;
+  const licensedCandidate = candidates.find((quote) => {
+    const source = sourceById.get(quote.source_id);
+    return source?.source_type === "licensed"
+      && source?.license_status === "approved"
+      && source?.public_enabled === true;
+  });
+  const selected = licensedCandidate || candidates[0];
+  const selectedSource = sourceById.get(selected.source_id);
+  const licensed = selectedSource?.source_type === "licensed"
+    && selectedSource?.license_status === "approved"
+    && selectedSource?.public_enabled === true;
+  const snapshotVersion = selected.snapshot_version;
   const current = candidates.filter((quote) => quote.snapshot_version === snapshotVersion);
   const denominator = requestedMarket === "SA_MAIN" ? EXPECTED_INSTRUMENT_COUNT : Math.max(instruments.length, 1);
   const coveragePercent = Math.round(current.length / denominator * 10000) / 100;
-  const freshness = current.some((quote) => quote.freshness_status === "stale")
+  const freshness = !licensed
+    ? "experimental"
+    : current.some((quote) => quote.freshness_status === "stale")
     ? "stale"
     : coveragePercent >= COVERAGE_HEALTHY_PERCENT
       ? "healthy"
@@ -5399,7 +5406,7 @@ function latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMar
     session_phase: current[0].market_phase || marketPhase(clock),
     as_of: latestValue("provider_as_of", "source_time"),
     received_at: latestValue("received_time", "updated_date"),
-    delay_seconds: SAUDI_DELAY_SECONDS,
+    delay_seconds: Math.max(0, ...current.map((quote) => Number(quote.delay_seconds || selectedSource?.delay_seconds || SAUDI_DELAY_SECONDS))),
     snapshot_version: snapshotVersion,
     coverage_percent: coveragePercent,
     freshness_status: freshness,

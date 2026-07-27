@@ -8,6 +8,7 @@ var EXPECTED_INSTRUMENT_COUNT = 270;
 var COVERAGE_HEALTHY_PERCENT = 99;
 var COVERAGE_FAILED_PERCENT = 95;
 var PROVIDER_FRESHNESS_GRACE_SECONDS = 5 * 60;
+var EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
 var RIYADH_TIMEZONE = "Asia/Riyadh";
 var TRADING_WEEKDAYS = /* @__PURE__ */ new Set(["Sun", "Mon", "Tue", "Wed", "Thu"]);
 function finiteNumber(value) {
@@ -64,11 +65,13 @@ function slotDecision({ now = /* @__PURE__ */ new Date(), slotKind = "quarter_ho
   if (!scheduled) return { run: true, clock, phase: marketPhase(clock, slotKind) };
   if (!TRADING_WEEKDAYS.has(clock.weekday)) return { run: false, reason: "non_trading_weekday", clock, phase: "closed" };
   const minuteOfDay = clock.hour * 60 + clock.minute;
-  const allowed = slotKind === "close_price" ? minuteOfDay >= 15 * 60 + 24 && minuteOfDay <= 15 * 60 + 29 : slotKind === "session_final" ? minuteOfDay >= 15 * 60 + 34 && minuteOfDay <= 15 * 60 + 39 : minuteOfDay >= 10 * 60 + 14 && minuteOfDay <= 15 * 60 + 16;
+  const allowed = slotKind === "close_price" ? minuteOfDay >= 15 * 60 + 24 && minuteOfDay <= 16 * 60 + 10 : slotKind === "session_final" ? minuteOfDay >= 15 * 60 + 34 && minuteOfDay <= 16 * 60 + 10 : minuteOfDay >= 10 * 60 + 14 && minuteOfDay <= 15 * 60 + 16;
   return allowed ? { run: true, clock, phase: marketPhase(clock, slotKind) } : { run: false, reason: "outside_scheduled_slot", clock, phase: marketPhase(clock, slotKind) };
 }
 function expectedProviderAsOf(now = /* @__PURE__ */ new Date()) {
-  return new Date(now.getTime() - SAUDI_DELAY_SECONDS * 1e3).toISOString();
+  const delayed = new Date(now.getTime() - SAUDI_DELAY_SECONDS * 1e3);
+  delayed.setUTCMinutes(Math.floor(delayed.getUTCMinutes() / 15) * 15, 0, 0);
+  return delayed.toISOString();
 }
 function coverageStatus(successCount, totalCount) {
   const coveragePercent = totalCount > 0 ? successCount / totalCount * 100 : 0;
@@ -99,18 +102,21 @@ function normalizeLicensedSnapshot({
   runId,
   snapshotVersion,
   receivedAt = (/* @__PURE__ */ new Date()).toISOString(),
-  slotKind = "quarter_hour"
+  slotKind = "quarter_hour",
+  validationMode = "licensed_t15"
 }) {
   const { root, quotes } = quoteRows(payload);
   const providerAsOf = isoTime(root.provider_as_of || root.as_of, "provider_as_of");
   const receivedIso = isoTime(receivedAt, "received_time");
   const providerAgeSeconds = (new Date(receivedIso).getTime() - new Date(providerAsOf).getTime()) / 1e3;
-  if (providerAgeSeconds < SAUDI_DELAY_SECONDS - 2 * 60) {
+  if (validationMode === "licensed_t15" && providerAgeSeconds < SAUDI_DELAY_SECONDS - 2 * 60) {
     throw new Error("Provider snapshot is not delayed by the contracted 15 minutes");
   }
-  if (providerAgeSeconds > SAUDI_DELAY_SECONDS + PROVIDER_FRESHNESS_GRACE_SECONDS) {
+  if (validationMode === "licensed_t15" && providerAgeSeconds > SAUDI_DELAY_SECONDS + PROVIDER_FRESHNESS_GRACE_SECONDS) {
     throw new Error("Provider snapshot missed the expected T+15 freshness window");
   }
+  if (providerAgeSeconds < -60) throw new Error("Provider snapshot time is in the future");
+  const reportedDelaySeconds = validationMode === "licensed_t15" ? SAUDI_DELAY_SECONDS : Math.max(0, Math.round(providerAgeSeconds));
   const instrumentById = new Map(instruments.map((instrument) => [instrument.id, instrument]));
   const rawByProviderSymbol = /* @__PURE__ */ new Map();
   for (const row of quotes) {
@@ -158,7 +164,7 @@ function normalizeLicensedSnapshot({
         continue;
       }
     }
-    const freshness = freshnessStatus(providerAsOf, receivedIso);
+    const freshness = validationMode === "licensed_t15" ? freshnessStatus(providerAsOf, receivedIso) : providerAgeSeconds <= EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS ? "fresh" : "stale";
     accepted.push({
       market_code: SAUDI_MAIN_MARKET,
       session_date: clock.date,
@@ -180,8 +186,8 @@ function normalizeLicensedSnapshot({
       provider_as_of: providerAsOf,
       ...lastTradeTime ? { last_trade_time: lastTradeTime } : {},
       received_time: receivedIso,
-      delay_seconds: SAUDI_DELAY_SECONDS,
-      license_status: "approved",
+      delay_seconds: reportedDelaySeconds,
+      license_status: validationMode === "licensed_t15" ? "approved" : "pending",
       quote_time: providerAsOf,
       market_phase: phase,
       freshness_status: freshness,
@@ -192,6 +198,151 @@ function normalizeLicensedSnapshot({
     });
   }
   return { providerAsOf, phase, isFinal: final, accepted, rejected };
+}
+function chartBars(result) {
+  const timestamps = Array.isArray(result?.timestamp) ? result.timestamp : [];
+  const quote = result?.indicators?.quote?.[0] || {};
+  return timestamps.map((timestamp, index) => {
+    const time = new Date(Number(timestamp) * 1e3);
+    const open = positiveNumber(quote.open?.[index]);
+    const high = positiveNumber(quote.high?.[index]);
+    const low = positiveNumber(quote.low?.[index]);
+    const close = positiveNumber(quote.close?.[index]);
+    const volume = nonNegativeNumber(quote.volume?.[index]);
+    if (!Number.isFinite(time.getTime()) || [open, high, low, close].some((value) => value === null) || high < Math.max(open, close) || low > Math.min(open, close)) return null;
+    return {
+      time: time.toISOString(),
+      session_date: riyadhClock(time).date,
+      open,
+      high,
+      low,
+      close,
+      volume
+    };
+  }).filter(Boolean).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+}
+function normalizePublicDelayedCharts(chartResults) {
+  const quotes = [];
+  const candles = [];
+  const rejected = [];
+  let providerAsOf = "";
+  for (const item of chartResults) {
+    const symbol = String(item?.symbol || "").trim();
+    const bars = chartBars(item?.result);
+    const sessions = /* @__PURE__ */ new Map();
+    for (const bar of bars) {
+      if (!sessions.has(bar.session_date)) sessions.set(bar.session_date, []);
+      sessions.get(bar.session_date).push(bar);
+    }
+    const dates = [...sessions.keys()].sort();
+    if (!symbol || dates.length < 2) {
+      rejected.push({ symbol, issue_type: "public_chart_incomplete", message: "Public delayed chart did not include two valid trading sessions" });
+      continue;
+    }
+    const sessionDate = dates[dates.length - 1];
+    const currentBars = sessions.get(sessionDate);
+    const previousBars = sessions.get(dates[dates.length - 2]);
+    const first = currentBars[0];
+    const last = currentBars[currentBars.length - 1];
+    const previousClose = previousBars[previousBars.length - 1]?.close;
+    if (!positiveNumber(previousClose)) {
+      rejected.push({ symbol, issue_type: "previous_close_missing", message: "Public delayed chart did not include a valid previous-session close" });
+      continue;
+    }
+    const high = Math.max(...currentBars.map((bar) => bar.high));
+    const low = Math.min(...currentBars.map((bar) => bar.low));
+    const volume = currentBars.reduce((sum, bar) => sum + nonNegativeNumber(bar.volume), 0);
+    const changePercent = (last.close - previousClose) / previousClose * 100;
+    const providerSymbol = `${symbol}.SR`;
+    const metaTradeTime = new Date(Number(item?.result?.meta?.regularMarketTime) * 1e3);
+    const lastTradeTime = Number.isFinite(metaTradeTime.getTime()) && riyadhClock(metaTradeTime).date === sessionDate && metaTradeTime.getTime() >= new Date(last.time).getTime() ? metaTradeTime.toISOString() : last.time;
+    quotes.push({
+      provider_symbol: providerSymbol,
+      last_price: last.close,
+      previous_close: previousClose,
+      open: first.open,
+      high,
+      low,
+      volume,
+      change_percent: changePercent,
+      last_trade_time: lastTradeTime
+    });
+    candles.push({
+      provider_symbol: providerSymbol,
+      bars: currentBars.map(({ time, open, high: barHigh, low: barLow, close, volume: barVolume }) => ({
+        time,
+        open,
+        high: barHigh,
+        low: barLow,
+        close,
+        volume: barVolume
+      }))
+    });
+    if (!providerAsOf || new Date(lastTradeTime).getTime() > new Date(providerAsOf).getTime()) providerAsOf = lastTradeTime;
+  }
+  if (!providerAsOf) throw new Error("Public delayed charts did not contain any usable quotes");
+  return { provider_as_of: providerAsOf, quotes, candles, rejected };
+}
+async function fetchPublicDelayedCharts({
+  symbols,
+  fetchImpl = fetch,
+  concurrency = 15,
+  attempts = 2,
+  timeoutMilliseconds = 15e3
+}) {
+  const queue = [...new Set(symbols.map((value) => String(value).trim()).filter((value) => /^\d{4}$/.test(value)))];
+  const results = [];
+  const failures = [];
+  let cursor = 0;
+  let requestCount = 0;
+  async function fetchOne(symbol) {
+    let lastError = null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      requestCount += 1;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMilliseconds);
+      try {
+        const providerSymbol = `${symbol}.SR`;
+        const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(providerSymbol)}`);
+        url.searchParams.set("interval", "15m");
+        url.searchParams.set("range", "5d");
+        url.searchParams.set("includePrePost", "false");
+        url.searchParams.set("events", "div,splits");
+        const response = await fetchImpl(url, {
+          headers: { Accept: "application/json", "User-Agent": "KMY-Experimental-Market-Data/1.0" },
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error(`Public delayed source returned ${response.status}`);
+        const payload = await response.json();
+        const result = payload?.chart?.result?.[0];
+        if (!result) throw new Error("Public delayed source returned no chart");
+        results.push({ symbol, result });
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    failures.push({ symbol, issue_type: "public_chart_request_failed", message: lastError?.message || "Public delayed chart request failed" });
+  }
+  async function worker() {
+    while (cursor < queue.length) {
+      const symbol = queue[cursor];
+      cursor += 1;
+      await fetchOne(symbol);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, () => worker()));
+  const normalized = normalizePublicDelayedCharts(results);
+  return {
+    payload: {
+      ...normalized,
+      rejected: [...failures, ...normalized.rejected]
+    },
+    requestCount
+  };
 }
 function normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate) {
   const root = payload?.data && typeof payload.data === "object" ? payload.data : payload;
@@ -5546,6 +5697,18 @@ async function licensedSource(base44, providerCode, providerUrl) {
   };
   return existing ? await base44.asServiceRole.entities.DataSource.update(existing.id, common) : await base44.asServiceRole.entities.DataSource.create({ code: providerCode, ...common });
 }
+async function experimentalPublicSource(base44) {
+  return await source(base44, "EXPERIMENTAL_PUBLIC_DELAYED_15M", {
+    name: "Experimental public delayed 15-minute charts",
+    source_type: "reference",
+    market_code: SAUDI_MAIN_MARKET,
+    quote_mode: "delayed",
+    delay_seconds: SAUDI_DELAY_SECONDS,
+    license_status: "restricted",
+    public_enabled: false,
+    base_url: "https://query1.finance.yahoo.com",
+  });
+}
 async function recordQualityIssues(base44, sourceId, runId, snapshotVersion, issues) {
   if (!issues.length) return;
   const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -5607,24 +5770,23 @@ Deno.serve(async (req) => {
     } catch {
       user = null;
     }
-    const scheduledSources = /* @__PURE__ */ new Set([
-      "scheduled_licensed_t15",
-      "scheduled_licensed_close",
-      "scheduled_licensed_final"
-    ]);
+    const serviceAuthorization = req.headers.get("Base44-Service-Authorization");
     if (user) {
       await requireDataIngestionPermission(base44, body.session_id);
     } else {
-      const serviceAuthorization = req.headers.get("Base44-Service-Authorization");
-      if (!serviceAuthorization || !scheduledSources.has(String(body.source || "")) || body.force === true) {
+      if (!serviceAuthorization || body.force === true) {
         throw Object.assign(new Error("Unauthorized"), { status: 401 });
       }
     }
+    const effectiveSource = user
+      ? String(body.source || "manual")
+      : `scheduled_${String(body.source || "experimental_t15").replace(/^scheduled_/, "")}`;
     const marketCode = String(body.market_code || SAUDI_MAIN_MARKET);
     if (marketCode !== SAUDI_MAIN_MARKET) throw ingestionFailure("The requested market feed is not configured", "MARKET_FEED_NOT_CONFIGURED");
-    const slotKind = ["quarter_hour", "close_price", "session_final"].includes(String(body.slot_kind)) ? String(body.slot_kind) : user ? "manual" : "quarter_hour";
+    const inferredSlotKind = effectiveSource.includes("final") ? "session_final" : effectiveSource.includes("close") ? "close_price" : "quarter_hour";
+    const slotKind = ["quarter_hour", "close_price", "session_final"].includes(String(body.slot_kind)) ? String(body.slot_kind) : user ? "manual" : inferredSlotKind;
     const now = /* @__PURE__ */ new Date();
-    const schedule = slotDecision({ now, slotKind, source: body.source });
+    const schedule = slotDecision({ now, slotKind, source: effectiveSource });
     if (!schedule.run) return Response.json({ status: "skipped", reason: schedule.reason, clock: schedule.clock, phase: schedule.phase });
     const [holidays, sessions] = await Promise.all([
       base44.asServiceRole.entities.MarketHoliday.filter({ holiday_date: schedule.clock.date }),
@@ -5633,10 +5795,16 @@ Deno.serve(async (req) => {
     if (holidays.length || sessions[0]?.is_trading_day === false) {
       return Response.json({ status: "skipped", reason: holidays.length ? "official_market_holiday" : "market_session_closed", clock: schedule.clock });
     }
-    const providerCode = String(Deno.env.get("KMY_MARKET_DATA_PROVIDER_CODE") || "LICENSED_SAUDI_MARKET_T15").trim();
     const providerUrl = String(Deno.env.get("KMY_MARKET_DATA_URL") || "").trim();
     const providerToken = String(Deno.env.get("KMY_MARKET_DATA_TOKEN") || "").trim();
-    const provider = await licensedSource(base44, providerCode, providerUrl);
+    const configuredMode = String(Deno.env.get("KMY_MARKET_DATA_MODE") || "experimental_public").trim();
+    const useLicensedProvider = configuredMode === "licensed";
+    const providerCode = useLicensedProvider
+      ? String(Deno.env.get("KMY_MARKET_DATA_PROVIDER_CODE") || "LICENSED_SAUDI_MARKET_T15").trim()
+      : "EXPERIMENTAL_PUBLIC_DELAYED_15M";
+    const provider = useLicensedProvider
+      ? await licensedSource(base44, providerCode, providerUrl)
+      : await experimentalPublicSource(base44);
     await upsertMany(base44, "Market", GCC_MARKETS, ["market_code"]);
     await upsertMany(base44, "Instrument", official_main_market_catalog_2026_07_21_default.companies.map(exactInstrument), ["symbol"]);
     const instruments = (await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((row) => MAIN_MARKET_SYMBOLS.has(row.symbol));
@@ -5667,15 +5835,20 @@ Deno.serve(async (req) => {
     if (!body.force && (completed || active)) {
       return Response.json({ status: "skipped", reason: completed ? "slot_already_promoted" : "slot_already_running", slot_key: slotKey });
     }
-    const mappings = (await base44.asServiceRole.entities.ProviderInstrumentMap.filter({
-      market_code: marketCode,
-      provider_code: providerCode,
-      quote_mode: "delayed",
-      license_status: "approved",
-      active: true
-    })).filter((mapping) => instruments.some((instrument) => instrument.id === mapping.instrument_id));
+    const mappings = useLicensedProvider
+      ? (await base44.asServiceRole.entities.ProviderInstrumentMap.filter({
+        market_code: marketCode,
+        provider_code: providerCode,
+        quote_mode: "delayed",
+        license_status: "approved",
+        active: true
+      })).filter((mapping) => instruments.some((instrument) => instrument.id === mapping.instrument_id))
+      : instruments.map((instrument) => ({
+        instrument_id: instrument.id,
+        provider_symbol: `${instrument.symbol}.SR`
+      }));
     run = await base44.asServiceRole.entities.IngestionRun.create({
-      run_type: body.source || "manual_licensed_t15",
+      run_type: effectiveSource,
       market_code: marketCode,
       slot_key: slotKey,
       slot_kind: slotKind,
@@ -5689,9 +5862,13 @@ Deno.serve(async (req) => {
       attempt_count: 0,
       status: "running",
       source_id: provider.id,
-      notes: JSON.stringify({ provider_configured: Boolean(providerUrl && providerToken), mapping_count: mappings.length })
+      notes: JSON.stringify({
+        mode: useLicensedProvider ? "licensed_t15" : "experimental_public",
+        provider_configured: useLicensedProvider ? Boolean(providerUrl && providerToken) : true,
+        mapping_count: mappings.length
+      })
     });
-    if (!providerUrl || !providerToken) {
+    if (useLicensedProvider && (!providerUrl || !providerToken)) {
       await recordQualityIssues(base44, provider.id, run.id, "", [{
         issue_type: "provider_not_configured",
         severity: "critical",
@@ -5699,7 +5876,7 @@ Deno.serve(async (req) => {
       }]);
       throw ingestionFailure("Licensed market-data credentials are not configured", "MARKET_FEED_NOT_CONFIGURED");
     }
-    if (provider.license_status !== "approved" || provider.public_enabled !== true) {
+    if (useLicensedProvider && (provider.license_status !== "approved" || provider.public_enabled !== true)) {
       await recordQualityIssues(base44, provider.id, run.id, "", [{
         issue_type: "provider_license_not_approved",
         severity: "critical",
@@ -5707,7 +5884,7 @@ Deno.serve(async (req) => {
       }]);
       throw ingestionFailure("Licensed market-data redistribution is not approved", "MARKET_LICENSE_NOT_APPROVED");
     }
-    if (mappings.length !== EXPECTED_INSTRUMENT_COUNT) {
+    if (useLicensedProvider && mappings.length !== EXPECTED_INSTRUMENT_COUNT) {
       await recordQualityIssues(base44, provider.id, run.id, "", [{
         issue_type: "provider_mapping_incomplete",
         severity: "critical",
@@ -5718,26 +5895,34 @@ Deno.serve(async (req) => {
     let payload;
     let attemptCount = 0;
     try {
-      const providerResult = await fetchLicensedSnapshot({
-        url: providerUrl,
-        token: providerToken,
-        requestBody: {
-          market_code: marketCode,
-          provider_symbols: mappings.map((mapping) => mapping.provider_symbol),
-          expected_as_of: expectedAsOf,
-          delay_seconds: SAUDI_DELAY_SECONDS,
-          slot_kind: slotKind
-        }
-      });
-      payload = providerResult.payload;
-      attemptCount = providerResult.attemptCount;
+      if (useLicensedProvider) {
+        const providerResult = await fetchLicensedSnapshot({
+          url: providerUrl,
+          token: providerToken,
+          requestBody: {
+            market_code: marketCode,
+            provider_symbols: mappings.map((mapping) => mapping.provider_symbol),
+            expected_as_of: expectedAsOf,
+            delay_seconds: SAUDI_DELAY_SECONDS,
+            slot_kind: slotKind
+          }
+        });
+        payload = providerResult.payload;
+        attemptCount = providerResult.attemptCount;
+      } else {
+        const providerResult = await fetchPublicDelayedCharts({
+          symbols: instruments.map((instrument) => instrument.symbol)
+        });
+        payload = providerResult.payload;
+        attemptCount = Math.max(1, Math.ceil(providerResult.requestCount / instruments.length));
+      }
     } catch (error) {
       await recordQualityIssues(base44, provider.id, run.id, "", [{
         issue_type: "provider_request_failed",
         severity: "critical",
-        message: "Licensed provider request failed after bounded retries"
+        message: "Market-data source request failed after bounded retries"
       }]);
-      throw ingestionFailure(error?.message || "Licensed provider request failed", "PROVIDER_REQUEST_FAILED");
+      throw ingestionFailure(error?.message || "Market-data source request failed", "PROVIDER_REQUEST_FAILED");
     }
     const providerAsOf = String(payload?.data?.provider_as_of || payload?.provider_as_of || payload?.data?.as_of || payload?.as_of || "");
     const snapshotVersion = await stableSnapshotVersion({ marketCode, providerCode, providerAsOf, slotKey });
@@ -5749,13 +5934,15 @@ Deno.serve(async (req) => {
       runId: run.id,
       snapshotVersion,
       receivedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      slotKind
+      slotKind,
+      validationMode: useLicensedProvider ? "licensed_t15" : "experimental_public"
     });
     const coverage = coverageStatus(normalized.accepted.length, EXPECTED_INSTRUMENT_COUNT);
     if (normalized.accepted.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(normalized.accepted);
-    await recordQualityIssues(base44, provider.id, run.id, snapshotVersion, normalized.rejected);
+    const publicSourceIssues = Array.isArray(payload?.rejected) ? payload.rejected : [];
+    await recordQualityIssues(base44, provider.id, run.id, snapshotVersion, [...publicSourceIssues, ...normalized.rejected]);
     if (coverage.status === "failed") {
-      throw ingestionFailure(`Licensed snapshot coverage failed: ${coverage.coveragePercent.toFixed(2)}%`, "MARKET_COVERAGE_FAILED");
+      throw ingestionFailure(`Market snapshot coverage failed: ${coverage.coveragePercent.toFixed(2)}%`, "MARKET_COVERAGE_FAILED");
     }
     await upsertMany(base44, "QuoteLatest", normalized.accepted, ["instrument_id"]);
     await markMissingQuotesStale(base44, instruments.map((instrument) => instrument.id), normalized.accepted);
@@ -5776,7 +5963,12 @@ Deno.serve(async (req) => {
       attempt_count: attemptCount,
       status: finalStatus,
       promoted_at: finishedAt,
-      notes: JSON.stringify({ candle_chunks: candleChunks.length, rejected_count: normalized.rejected.length })
+      notes: JSON.stringify({
+        mode: useLicensedProvider ? "licensed_t15" : "experimental_public",
+        candle_chunks: candleChunks.length,
+        rejected_count: normalized.rejected.length,
+        source_issue_count: publicSourceIssues.length
+      })
     });
     await base44.asServiceRole.entities.DataSource.update(provider.id, { last_verified_at: normalized.providerAsOf });
     return Response.json({

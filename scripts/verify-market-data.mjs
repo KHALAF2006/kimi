@@ -3,8 +3,10 @@ import {
   SAUDI_DELAY_SECONDS,
   MARKET_AUTOMATION_SPECS,
   coverageStatus,
+  expectedProviderAsOf,
   freshnessStatus,
   normalizeLicensedSnapshot,
+  normalizePublicDelayedCharts,
   normalizeProviderCandles,
   slotDecision,
 } from "../base44/shared/market-data.ts";
@@ -27,6 +29,9 @@ assert.equal(quarterSlot.phase, "continuous");
 const sundayClose = slotDecision({ now: new Date("2026-07-26T12:26:00.000Z"), source: "scheduled_licensed_close", slotKind: "close_price" });
 assert.equal(sundayClose.run, true);
 assert.equal(sundayClose.phase, "trade_at_last");
+const workflowClose = slotDecision({ now: new Date("2026-07-26T13:03:00.000Z"), source: "scheduled_experimental_close", slotKind: "close_price" });
+assert.equal(workflowClose.run, true, "the existing 4:00 PM Riyadh close workflow must be accepted");
+assert.equal(expectedProviderAsOf(new Date("2026-07-26T07:16:42.000Z")), "2026-07-26T07:00:00.000Z", "delayed slots must be rounded to their quarter-hour boundary");
 
 const saturday = slotDecision({ now: new Date("2026-07-25T07:15:00.000Z"), source: "scheduled_licensed_t15", slotKind: "quarter_hour" });
 assert.equal(saturday.run, false);
@@ -103,10 +108,36 @@ assert.equal(chunks.length, 1);
 assert.equal(chunks[0].bars.length, 1, "invalid OHLC bars must be discarded");
 assert.equal(chunks[0].interval, "15m");
 
+const publicCharts = normalizePublicDelayedCharts([{
+  symbol: "1321",
+  result: {
+    timestamp: [
+      Date.parse("2026-07-26T11:45:00.000Z") / 1000,
+      Date.parse("2026-07-27T07:00:00.000Z") / 1000,
+      Date.parse("2026-07-27T07:15:00.000Z") / 1000,
+    ],
+    indicators: {
+      quote: [{
+        open: [190, 187.5, 194],
+        high: [191, 195, 199.2],
+        low: [188, 187.5, 193],
+        close: [188.8, 194, 196.6],
+        volume: [100, 120, 150],
+      }],
+    },
+  },
+}]);
+assert.equal(publicCharts.quotes.length, 1);
+assert.equal(publicCharts.quotes[0].previous_close, 188.8, "public delayed quotes must use the previous trading session close");
+assert.equal(publicCharts.quotes[0].last_price, 196.6);
+assert.equal(Number(publicCharts.quotes[0].change_percent.toFixed(2)), 4.13);
+assert.equal(publicCharts.candles[0].bars.length, 2, "only the latest trading session belongs in the current 15-minute chunk");
+
 console.log(JSON.stringify({
   status: "verified",
   quarterHourScheduling: true,
   t15Freshness: true,
   canonicalChangeCalculation: true,
+  experimentalPublicPreviousClose: true,
   explicitCandlesOnly: true,
 }, null, 2));
