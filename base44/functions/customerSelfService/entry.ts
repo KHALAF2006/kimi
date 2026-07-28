@@ -60,6 +60,7 @@ Deno.serve(async (req) => {
     if (body.action === "toggle_alert") {
       const rule = await owned(base44, "AlertRule", body.rule_id, profile);
       const updated = await base44.asServiceRole.entities.AlertRule.update(rule.id, { enabled: Boolean(body.enabled) });
+      await audit(base44, user.id, "alert.toggle", "AlertRule", rule.id, "success", Boolean(body.enabled) ? "enabled" : "disabled", { enabled: rule.enabled }, { enabled: updated.enabled });
       return Response.json({ rule: updated });
     }
     if (body.action === "delete_alert") {
@@ -70,6 +71,7 @@ Deno.serve(async (req) => {
     }
     if (body.action === "create_recipient_group") {
       const group = await base44.asServiceRole.entities.RecipientGroup.create({ customer_id: profile.id, name: text(body.name, "name", 2, 80), channel: "whatsapp" });
+      await audit(base44, user.id, "recipient_group.create", "RecipientGroup", group.id, "success");
       return Response.json({ group });
     }
     if (body.action === "add_recipient") {
@@ -80,6 +82,7 @@ Deno.serve(async (req) => {
       const duplicate = await base44.asServiceRole.entities.Recipient.filter({ group_id: group.id, phone_e164: phone });
       const recipient = duplicate[0] || await base44.asServiceRole.entities.Recipient.create({ group_id: group.id, phone_e164: phone, phone_masked: maskPhone(phone), consent_status: "granted", active: true });
       if (!duplicate[0]) await base44.asServiceRole.entities.CustomerConsent.create({ customer_id: profile.id, recipient_id: recipient.id, channel: "whatsapp", purpose: "market_alerts", status: "granted", source: "owner_confirmed", captured_at: (/* @__PURE__ */ new Date()).toISOString() });
+      await audit(base44, user.id, "recipient.add", "Recipient", recipient.id, "success", `group:${group.id}`);
       return Response.json({ recipient: { ...recipient, phone_e164: void 0 }, created: !duplicate[0] });
     }
     if (body.action === "create_destination") {
@@ -97,6 +100,7 @@ Deno.serve(async (req) => {
         secret_ref: channel === "telegram" ? "TELEGRAM_BOT_TOKEN" : "WHATSAPP_ACCESS_TOKEN",
         active: false
       });
+      await audit(base44, user.id, "destination.create", "AlertDestination", destination.id, "success", channel);
       return Response.json({ destination: { ...destination, secret_ref: void 0 } });
     }
     if (body.action === "verify_destination") {
@@ -122,6 +126,48 @@ Deno.serve(async (req) => {
       const destinationUpdated = await base44.asServiceRole.entities.AlertDestination.update(destination.id, { active: true, verified_at: (/* @__PURE__ */ new Date()).toISOString() });
       await audit(base44, user.id, "destination.verify", "AlertDestination", destination.id, "success");
       return Response.json({ destination: { ...destinationUpdated, secret_ref: void 0 } });
+    }
+    if (body.action === "toggle_destination") {
+      const destination = await owned(base44, "AlertDestination", body.destination_id, profile);
+      const active = Boolean(body.active);
+      if (active && !destination.verified_at) return Response.json({ error: "Verify destination before enabling it" }, { status: 422 });
+      const updated = await base44.asServiceRole.entities.AlertDestination.update(destination.id, { active });
+      await audit(base44, user.id, "destination.toggle", "AlertDestination", destination.id, "success", active ? "enabled" : "disabled", { active: destination.active }, { active });
+      return Response.json({ destination: { ...updated, secret_ref: void 0 } });
+    }
+    if (body.action === "delete_destination") {
+      const destination = await owned(base44, "AlertDestination", body.destination_id, profile);
+      const events = await base44.asServiceRole.entities.DeliveryEvent.filter({ destination_id: destination.id });
+      if (events.some((event) => ["pending", "retry"].includes(event.status))) {
+        return Response.json({ error: "Destination has pending delivery events" }, { status: 409 });
+      }
+      await base44.asServiceRole.entities.AlertDestination.delete(destination.id);
+      await audit(base44, user.id, "destination.delete", "AlertDestination", destination.id, "success");
+      return Response.json({ removed: true });
+    }
+    if (body.action === "remove_recipient") {
+      const group = await owned(base44, "RecipientGroup", body.group_id, profile);
+      const recipient = await base44.asServiceRole.entities.Recipient.get(String(body.recipient_id || ""));
+      if (!recipient || recipient.group_id !== group.id) return Response.json({ error: "Recipient not found" }, { status: 404 });
+      const consents = await base44.asServiceRole.entities.CustomerConsent.filter({ customer_id: profile.id, recipient_id: recipient.id });
+      for (const consent of consents) await base44.asServiceRole.entities.CustomerConsent.delete(consent.id);
+      await base44.asServiceRole.entities.Recipient.delete(recipient.id);
+      await audit(base44, user.id, "recipient.delete", "Recipient", recipient.id, "success", `group:${group.id}`);
+      return Response.json({ removed: true });
+    }
+    if (body.action === "delete_recipient_group") {
+      const group = await owned(base44, "RecipientGroup", body.group_id, profile);
+      const destinations = await base44.asServiceRole.entities.AlertDestination.filter({ customer_id: profile.id, channel: "whatsapp", external_id: group.id });
+      if (destinations.length) return Response.json({ error: "Remove the WhatsApp destination before deleting this group" }, { status: 409 });
+      const recipients = await base44.asServiceRole.entities.Recipient.filter({ group_id: group.id });
+      for (const recipient of recipients) {
+        const consents = await base44.asServiceRole.entities.CustomerConsent.filter({ customer_id: profile.id, recipient_id: recipient.id });
+        for (const consent of consents) await base44.asServiceRole.entities.CustomerConsent.delete(consent.id);
+        await base44.asServiceRole.entities.Recipient.delete(recipient.id);
+      }
+      await base44.asServiceRole.entities.RecipientGroup.delete(group.id);
+      await audit(base44, user.id, "recipient_group.delete", "RecipientGroup", group.id, "success");
+      return Response.json({ removed: true });
     }
     if (body.action === "update") {
       const allowed = {};
