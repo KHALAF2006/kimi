@@ -5565,9 +5565,17 @@ async function sectorChartResponse(base44, body) {
   };
 }
 Deno.serve(async (req) => {
+  let requestDetails = {};
   try {
     const base44 = createClientFromRequest(req);
     const body = await req.json();
+    requestDetails = {
+      action: body?.action || "snapshot",
+      symbol: body?.symbol || null,
+      sector: body?.sector || null,
+      interval: body?.interval || null,
+      range: body?.range || null,
+    };
     await requireMarketAccess(base44, body);
     const sources = await optionalRows(
       () => base44.asServiceRole.entities.DataSource.list("-last_verified_at", 20),
@@ -5658,6 +5666,12 @@ Deno.serve(async (req) => {
         : "\u0628\u064A\u0627\u0646\u0627\u062A \u0633\u0648\u0642 \u0645\u062A\u0623\u062E\u0631\u0629 15 \u062F\u0642\u064A\u0642\u0629"
     });
   } catch (error) {
+    console.error("marketRead request failed", {
+      ...requestDetails,
+      status: Number(error?.status) || 500,
+      code: error?.code || "BACKEND_FAILURE",
+      message: error?.message || "Request failed",
+    });
     return replyError(error);
   }
 });

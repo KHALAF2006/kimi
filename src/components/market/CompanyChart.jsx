@@ -483,7 +483,13 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     chart.timeScale().resetTimeScale();
     chart.timeScale().fitContent();
     chart.priceScale("right").applyOptions({ autoScale: true, scaleMargins: { top: 0.08, bottom: 0.08 } });
-    overlayUpdateRef.current();
+    window.requestAnimationFrame(() => {
+      const panes = chart.panes();
+      panes[0]?.setHeight(470);
+      if (showVolume) panes[1]?.setHeight(115);
+      if (showRsi) panes[showVolume ? 2 : 1]?.setHeight(165);
+      overlayUpdateRef.current();
+    });
   }
 
   async function toggleFullscreen() {

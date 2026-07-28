@@ -159,6 +159,9 @@ assert.doesNotMatch(marketService, /referenceApi\s*=\s*import\.meta\.env\.DEV/, 
 assert.match(marketService, /message\s*===\s*["']Active device session required["']/, "an expired or revoked KMY session must be detected");
 assert.match(marketService, /localStorage\.removeItem\(["']kmy_session_id["']\)/, "an invalid KMY session must be cleared before returning to login");
 
+const appParamsSource = await readFile(new URL("../src/lib/app-params.js", import.meta.url), "utf8");
+assert.match(appParamsSource, /functionsVersion:[\s\S]*persist:\s*false,[\s\S]*useStored:\s*false/, "published pages must not reuse a stale preview function version");
+
 const base44Client = await readFile(new URL("../src/api/base44Client.js", import.meta.url), "utf8");
 assert.match(base44Client, /localBrowserHosts\.has\(window\.location\.hostname\)/, "the Base44 SDK stub must be limited to localhost browsers");
 assert.doesNotMatch(base44Client, /isLocalReferencePreview\s*=\s*import\.meta\.env\.DEV/, "Base44 editor preview must initialize the real Base44 SDK");
@@ -188,6 +191,9 @@ assert.match(companyChart, /axisPressedMouseMove:\s*\{\s*time:\s*true,\s*price:\
 assert.match(companyChart, /axisDoubleClickReset:\s*\{\s*time:\s*true,\s*price:\s*true\s*\}/, "price and time axes must support direct reset");
 assert.match(companyChart, /toggleAllIndicators/, "the chart must expose one action for all indicators");
 assert.match(companyChart, /toggleAllChartObjects/, "the chart must expose one action for drawings and indicators together");
+assert.match(companyChart, /function resetChartView\(\)[\s\S]*panes\[0\]\?\.setHeight\(470\)/, "resetting the chart must restore the main price pane height");
+assert.match(companyChart, /if \(showVolume\) panes\[1\]\?\.setHeight\(115\)/, "resetting the chart must restore the volume pane height");
+assert.match(companyChart, /if \(showRsi\) panes\[showVolume \? 2 : 1\]\?\.setHeight\(165\)/, "resetting the chart must restore the RSI pane height");
 
 const chartDrawingsFunction = await readFile(new URL("../base44/functions/chartDrawings/entry.ts", import.meta.url), "utf8");
 assert.match(chartDrawingsFunction, /requireActiveSession\(base44, profile, body\.session_id\)/, "drawing storage must require the verified KMY session");

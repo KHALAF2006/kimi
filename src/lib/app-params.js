@@ -12,7 +12,12 @@ const toSnakeCase = (str) => {
 	return str.replace(/([A-Z])/g, '_$1').toLowerCase();
 }
 
-const getAppParamValue = (paramName, { defaultValue = undefined, removeFromUrl = false } = {}) => {
+const getAppParamValue = (paramName, {
+	defaultValue = undefined,
+	removeFromUrl = false,
+	persist = true,
+	useStored = true,
+} = {}) => {
 	if (isNode) {
 		return defaultValue;
 	}
@@ -26,14 +31,18 @@ const getAppParamValue = (paramName, { defaultValue = undefined, removeFromUrl =
 		window.history.replaceState({}, document.title, newUrl);
 	}
 	if (searchParam) {
-		storage.setItem(storageKey, searchParam);
+		if (persist) {
+			storage.setItem(storageKey, searchParam);
+		}
 		return searchParam;
 	}
 	if (defaultValue) {
-		storage.setItem(storageKey, defaultValue);
+		if (persist) {
+			storage.setItem(storageKey, defaultValue);
+		}
 		return defaultValue;
 	}
-	const storedValue = storage.getItem(storageKey);
+	const storedValue = useStored ? storage.getItem(storageKey) : null;
 	if (storedValue) {
 		return storedValue;
 	}
@@ -49,7 +58,13 @@ const getAppParams = () => {
 		appId: getAppParamValue("app_id", { defaultValue: import.meta.env.VITE_BASE44_APP_ID }),
 		token: getAppParamValue("access_token", { removeFromUrl: true }),
 		fromUrl: getAppParamValue("from_url", { defaultValue: window.location.href }),
-		functionsVersion: getAppParamValue("functions_version", { defaultValue: import.meta.env.VITE_BASE44_FUNCTIONS_VERSION }),
+		// Preview URLs may pin a backend version, but that pin must never leak
+		// into the published app through localStorage.
+		functionsVersion: getAppParamValue("functions_version", {
+			defaultValue: import.meta.env.VITE_BASE44_FUNCTIONS_VERSION,
+			persist: false,
+			useStored: false,
+		}),
 		appBaseUrl: getAppParamValue("app_base_url", { defaultValue: import.meta.env.VITE_BASE44_APP_BASE_URL }),
 	}
 }
