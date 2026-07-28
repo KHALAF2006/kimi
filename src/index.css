@@ -211,7 +211,7 @@
   .drawing-toolbar-drag-handle { @apply cursor-move touch-none bg-slate-100 dark:bg-slate-800; }
   .drawing-tools-separator { @apply mx-1 h-6 w-px bg-slate-200 dark:bg-slate-700; }
   .drawing-tools-vertical .drawing-tools-separator { @apply my-1 h-px w-6; }
-  .drawing-tools-restore { @apply absolute end-2 top-2 z-[10] flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white/95 px-2 text-slate-600 shadow-lg backdrop-blur hover:border-amber-400 dark:border-slate-700 dark:bg-slate-950/95 dark:text-slate-300; }
+  .drawing-tools-restore { @apply pointer-events-auto absolute end-2 top-2 z-[40] flex min-h-10 min-w-[124px] items-center justify-center gap-2 rounded-xl border-2 border-amber-400 bg-white/95 px-3 text-xs font-black text-slate-800 shadow-xl backdrop-blur transition hover:bg-amber-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 dark:border-amber-400 dark:bg-slate-950/95 dark:text-white dark:hover:bg-slate-900; }
   .drawing-object-tree { @apply absolute end-2 top-14 z-[11] w-64 overflow-hidden rounded-xl border border-slate-200 bg-white/95 text-[11px] shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
   .drawing-object-tree header { @apply flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800; }
   .drawing-object-tree header button, .drawing-object-tree > div > button:not(.drawing-object-select) { @apply grid h-7 w-7 place-items-center rounded-md hover:bg-slate-100 dark:hover:bg-slate-800; }
@@ -220,7 +220,7 @@
   .drawing-object-tree > div.active { @apply bg-amber-50 dark:bg-amber-400/10; }
   .drawing-object-select { @apply truncate rounded-md px-2 py-1.5 text-start font-bold hover:bg-slate-100 dark:hover:bg-slate-800; }
   .drawing-object-tree .danger { @apply text-red-600 dark:text-red-400; }
-  .chart-drawing-canvas { @apply pointer-events-none absolute left-0 top-0 z-[5] touch-none; width:calc(100% - 74px); }
+  .chart-drawing-canvas { @apply pointer-events-none absolute left-0 top-0 z-[5] touch-none; width:calc(100% - var(--drawing-price-axis-width, 74px)); }
   .chart-drawing-canvas-active { @apply pointer-events-auto cursor-crosshair; }
   .drawing-selection-toolbar { @apply absolute z-[12] flex max-w-[calc(100%-16px)] flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 text-[10px] shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
   .drawing-selection-toolbar > b { @apply px-2 text-slate-700 dark:text-slate-200; }
@@ -320,6 +320,11 @@
   .hero-section { @apply min-h-0; }
   .hero-section h1 { @apply text-4xl; }
   .console-card { @apply min-h-32 p-4; }
+  .drawing-tools-bar { @apply max-h-[min(52vh,330px)] max-w-[calc(100%-8px)] overflow-y-auto overscroll-contain; }
+  .drawing-tools-horizontal { @apply w-[calc(100%-8px)]; }
+  .drawing-tools-restore { @apply end-1 top-1 min-h-11 min-w-[136px]; }
+  .drawing-object-tree { @apply end-1 top-14 max-h-[58vh] w-[calc(100%-8px)] overflow-y-auto; }
+  .drawing-selection-toolbar { @apply max-h-[44vh] max-w-[calc(100%-8px)] overflow-y-auto; }
 }
 @keyframes kmy-ticker { from { transform:translateX(0); } to { transform:translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) {

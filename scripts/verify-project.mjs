@@ -207,6 +207,7 @@ for (const tool of ["trend_line", "ray", "horizontal_line", "vertical_line", "ar
 assert.match(drawingTools, /deleteChartDrawing\(symbol, current, force\)/, "drawing deletion must wait for persistence and use the protected backend service");
 assert.match(drawingTools, /pendingSavesRef/, "drawing deletion must not race an in-flight save");
 assert.match(drawingTools, /duplicateChartDrawing/, "paste must use the protected backend duplication action");
+assert.match(drawingTools, /offsetPointsForPaste/, "pasted drawings must be visibly offset in chart coordinates");
 assert.match(drawingTools, /Ctrl\+V/, "the drawing clipboard must expose a real paste command");
 assert.match(drawingTools, /contextmenu/, "the chart must expose a right-click context menu");
 assert.match(drawingTools, /onResetChart/, "the chart context menu must provide a complete view reset");
@@ -219,6 +220,9 @@ assert.match(drawingTools, /setAllChartDrawingsVisibility/, "hide/show all drawi
 assert.match(drawingTools, /deleteAllChartDrawings/, "clear all drawings must use the protected backend");
 assert.match(drawingTools, /smoothPath/, "curve and brush strokes must use a smoothed path");
 assert.match(drawingTools, /simplifyFreehand/, "freehand input must be sampled before persistence");
+assert.match(drawingTools, /bezierCurveTo/, "curve and brush strokes must use a continuous cubic spline");
+assert.match(drawingTools, /squareDistanceToSegment/, "freehand simplification must preserve meaningful turns");
+assert.match(drawingTools, /Show and reset drawing tools/, "the hidden drawing toolbar must expose an explicit restore control");
 assert.match(drawingTools, /function wheelZoom\(event\)/, "mouse-wheel zoom must remain available while the drawing layer is active");
 assert.match(drawingTools, /aria-orientation/, "the drawing toolbar must expose its orientation");
 assert.match(drawingTools, /LayoutList/, "the drawing object tree must be available");
@@ -233,8 +237,10 @@ assert.match(marketReadFunction, /body\.action === "sector_chart"/, "sector char
 assert.match(marketReadFunction, /sectorWeights/, "sector index construction must use an explicit weighting function");
 const dashboardPage = await readFile(new URL("../src/pages/Dashboard.jsx", import.meta.url), "utf8");
 assert.match(dashboardPage, /SectorPanel/, "sector selection must open a sector profile, not only filter the table");
-const customerMarketStatus = await readFile(new URL("../src/components/market/MarketDataStatus.jsx", import.meta.url), "utf8");
-assert.doesNotMatch(customerMarketStatus, /تجريبي|تجريبية|experimental|Unlicensed/i, "customer market status must not expose removed staging copy");
+assert.doesNotMatch(dashboardPage, /MarketDataStatus/, "the removed market-status banner must not be mounted on the dashboard");
+assert.match(marketReadFunction, /fallbackIntervals\(interval\)/, "weekly and monthly chart requests must fall back to stored daily or intraday candles");
+assert.match(marketReadFunction, /aggregateStoredBars\(storedBars, interval\)/, "fallback chart candles must be aggregated on the protected backend");
+assert.match(marketReadFunction, /storedCandlesForInterval\(base44, instrument\.id, interval\)/, "company and sector charts must share the same candle aggregation path");
 const customerMarketTable = await readFile(new URL("../src/components/market/MarketTable.jsx", import.meta.url), "utf8");
 assert.doesNotMatch(customerMarketTable, /data_state\?\.label/, "the market table must not replay obsolete labels stored with old quotes");
 const customerMarketTicker = await readFile(new URL("../src/components/market/MarketTicker.jsx", import.meta.url), "utf8");

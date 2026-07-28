@@ -60,14 +60,14 @@ export async function deleteChartDrawing(symbol, drawing, confirmAlertDelete = f
   });
 }
 
-export async function duplicateChartDrawing(symbol, drawing, clientId) {
+export async function duplicateChartDrawing(symbol, drawing, clientId, points = drawing.points) {
   if (isReferencePreview()) {
     const copy = {
       ...drawing,
       clientId,
       serverId: null,
       alert: null,
-      points: drawing.points.map((point) => ({ ...point, logical: Number(point.logical || 0) + 1 })),
+      points,
     };
     const interval = drawing.intervalScope || "all";
     const drawings = readLocal(symbol, interval);
@@ -81,6 +81,7 @@ export async function duplicateChartDrawing(symbol, drawing, clientId) {
     drawing_id: drawing.serverId,
     client_id: drawing.clientId,
     new_client_id: clientId,
+    points,
   });
   return normalizedDrawing(result.drawing);
 }

@@ -5256,6 +5256,85 @@ var RANGE_MILLISECONDS = {
   "5y": 5 * 366 * 24 * 60 * 60 * 1e3,
   "10y": 10 * 366 * 24 * 60 * 60 * 1e3
 };
+var RIYADH_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Riyadh",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit"
+});
+function riyadhDateKey(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const parts = RIYADH_DATE_FORMATTER.formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+function candleBucket(value, interval) {
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return "";
+  if (interval === "1h") return `hour:${Math.floor(time / (60 * 60 * 1e3))}`;
+  const dateKey = riyadhDateKey(time);
+  if (!dateKey) return "";
+  if (interval === "1d") return `day:${dateKey}`;
+  if (interval === "1mo") return `month:${dateKey.slice(0, 7)}`;
+  if (interval === "1wk") {
+    const start = new Date(`${dateKey}T00:00:00.000Z`);
+    start.setUTCDate(start.getUTCDate() - start.getUTCDay());
+    return `week:${start.toISOString().slice(0, 10)}`;
+  }
+  return new Date(time).toISOString();
+}
+function normalizedStoredBars(chunks) {
+  const byTime = new Map();
+  for (const chunk of chunks) for (const bar of chunk.bars || []) {
+    const time = new Date(bar.time).getTime();
+    const open = Number(bar.open);
+    const high = Number(bar.high);
+    const low = Number(bar.low);
+    const close = Number(bar.close);
+    const volume = Math.max(0, Number(bar.volume || 0));
+    if (!Number.isFinite(time) || ![open, high, low, close].every((value) => Number.isFinite(value) && value > 0)) continue;
+    if (high < Math.max(open, close) || low > Math.min(open, close)) continue;
+    byTime.set(new Date(time).toISOString(), { time: new Date(time).toISOString(), open, high, low, close, volume });
+  }
+  return [...byTime.values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+}
+function aggregateStoredBars(bars, interval) {
+  if (interval === "15m") return bars;
+  const grouped = new Map();
+  for (const bar of bars) {
+    const bucket = candleBucket(bar.time, interval);
+    if (!bucket) continue;
+    const current = grouped.get(bucket);
+    if (!current) {
+      grouped.set(bucket, { ...bar });
+      continue;
+    }
+    current.high = Math.max(current.high, bar.high);
+    current.low = Math.min(current.low, bar.low);
+    current.close = bar.close;
+    current.volume += bar.volume;
+  }
+  return [...grouped.values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+}
+function fallbackIntervals(interval) {
+  if (interval === "1wk" || interval === "1mo") return [interval, "1d", "15m"];
+  if (interval === "1d" || interval === "1h") return [interval, "15m"];
+  return [interval];
+}
+async function storedCandlesForInterval(base44, instrumentId, interval) {
+  for (const storedInterval of fallbackIntervals(interval)) {
+    const chunks = entityRows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrumentId, interval: storedInterval }))
+      .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
+      .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
+    if (!chunks.length) continue;
+    const storedBars = normalizedStoredBars(chunks);
+    if (!storedBars.length) continue;
+    const bars = storedInterval === interval ? storedBars : aggregateStoredBars(storedBars, interval);
+    if (bars.length) return { bars, chunks, latestChunk: chunks[chunks.length - 1], storedInterval };
+  }
+  return { bars: [], chunks: [], latestChunk: null, storedInterval: null };
+}
 async function chartResponse(base44, body, sources) {
   const instrument = await instrumentFor(base44, body);
   const interval = String(body.interval || "1d");
@@ -5263,21 +5342,14 @@ async function chartResponse(base44, body, sources) {
   if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range)) {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
-  const chunks = (await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrument.id, interval }))
-    .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
-    .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
-  if (!chunks.length) {
+  const stored = await storedCandlesForInterval(base44, instrument.id, interval);
+  if (!stored.bars.length) {
     throw Object.assign(new Error("Stored chart data is not available until a market ingestion run provides it"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   }
-  const latestChunk = chunks[chunks.length - 1];
-  const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : new Date(latestChunk.end_time).getTime() - RANGE_MILLISECONDS[range];
-  const candleByTime = new Map();
-  for (const chunk of chunks) {
-    for (const bar of chunk.bars) {
-      if (new Date(bar.time).getTime() >= cutoff) candleByTime.set(bar.time, bar);
-    }
-  }
-  const candles = [...candleByTime.values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  const latestChunk = stored.latestChunk;
+  const latestBarTime = new Date(stored.bars[stored.bars.length - 1].time).getTime();
+  const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : latestBarTime - RANGE_MILLISECONDS[range];
+  const candles = stored.bars.filter((bar) => new Date(bar.time).getTime() >= cutoff);
   if (!candles.length) throw Object.assign(new Error("Stored chart data contains no valid candles for the requested range"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   const source = sources.find((item) => item.id === latestChunk.source_id) || null;
   const asOf = latestChunk.end_time || candles[candles.length - 1].time;
@@ -5290,7 +5362,9 @@ async function chartResponse(base44, body, sources) {
       received_time: latestChunk.updated_date || latestChunk.created_date || asOf,
       delay_seconds: Number(source?.delay_seconds || SAUDI_DELAY_SECONDS),
       quality_status: latestChunk.quality_status,
-      license_status: source?.license_status || "restricted"
+      license_status: source?.license_status || "restricted",
+      requested_interval: interval,
+      stored_interval: stored.storedInterval
     }
   };
 }
@@ -5449,21 +5523,15 @@ async function sectorChartResponse(base44, body) {
   const quoteByInstrument = new Map();
   for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
   const weights = sectorWeights(instruments, quoteByInstrument);
-  const chunksByInstrument = await Promise.all(instruments.map(async (instrument) => ({
+  const candlesByInstrument = await Promise.all(instruments.map(async (instrument) => ({
     instrument,
-    chunks: entityRows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrument.id, interval }))
-      .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
+    stored: await storedCandlesForInterval(base44, instrument.id, interval)
   })));
-  const latestTime = Math.max(...chunksByInstrument.flatMap(({ chunks }) => chunks.map((chunk) => new Date(chunk.end_time).getTime())).filter(Number.isFinite));
+  const latestTime = Math.max(...candlesByInstrument.flatMap(({ stored }) => stored.bars.map((bar) => new Date(bar.time).getTime())).filter(Number.isFinite));
   if (!Number.isFinite(latestTime)) throw Object.assign(new Error("Stored sector chart data is not available"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : latestTime - RANGE_MILLISECONDS[range];
-  const series = chunksByInstrument.map(({ instrument, chunks }) => {
-    const byTime = new Map();
-    for (const chunk of chunks) for (const bar of chunk.bars) {
-      const time = new Date(bar.time).getTime();
-      if (Number.isFinite(time) && time >= cutoff && Number(bar.close) > 0) byTime.set(new Date(time).toISOString(), bar);
-    }
-    const bars = [...byTime.values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  const series = candlesByInstrument.map(({ instrument, stored }) => {
+    const bars = stored.bars.filter((bar) => new Date(bar.time).getTime() >= cutoff && Number(bar.close) > 0);
     const base = Number(bars[0]?.close);
     return { instrument, weight: weights.get(instrument.id) || 0, base, bars };
   }).filter((item) => Number.isFinite(item.base) && item.base > 0 && item.bars.length);

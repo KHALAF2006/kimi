@@ -33,15 +33,17 @@ const TOOLBAR_STORAGE_KEY = "si_drawing_toolbar_layout";
 const SELECTION_TOOLBAR_STORAGE_KEY = "si_drawing_selection_toolbar_layout";
 const DRAWING_CLIPBOARD_STORAGE_KEY = "kmy_drawing_clipboard_v1";
 const DRAWING_CLIPBOARD_PREFIX = "KMY_DRAWING:";
+const DEFAULT_TOOLBAR_LAYOUT = { x: null, y: 8, orientation: "horizontal", collapsed: false, hidden: false };
 
 function storedToolbarLayout() {
   try {
     const value = JSON.parse(localStorage.getItem(TOOLBAR_STORAGE_KEY) || "null");
-    return value && typeof value === "object"
-      ? { x: Number(value.x), y: Number(value.y), orientation: value.orientation === "vertical" ? "vertical" : "horizontal", collapsed: Boolean(value.collapsed), hidden: Boolean(value.hidden) }
-      : { x: null, y: 8, orientation: "horizontal", collapsed: false, hidden: false };
+    if (!value || typeof value !== "object") return { ...DEFAULT_TOOLBAR_LAYOUT };
+    const x = value.x === null || value.x === undefined || !Number.isFinite(Number(value.x)) ? null : Math.max(4, Number(value.x));
+    const y = Number.isFinite(Number(value.y)) ? Math.max(4, Number(value.y)) : DEFAULT_TOOLBAR_LAYOUT.y;
+    return { x, y, orientation: value.orientation === "vertical" ? "vertical" : "horizontal", collapsed: Boolean(value.collapsed), hidden: Boolean(value.hidden) };
   } catch {
-    return { x: null, y: 8, orientation: "horizontal", collapsed: false, hidden: false };
+    return { ...DEFAULT_TOOLBAR_LAYOUT };
   }
 }
 
@@ -65,23 +67,45 @@ function storedClipboardDrawing() {
   }
 }
 
-function smoothPath(context, points) {
+function smoothPath(context, points, tension = 0.85) {
   if (!points.length) return;
   context.beginPath();
   context.moveTo(points[0].x, points[0].y);
   if (points.length === 2) {
     context.lineTo(points[1].x, points[1].y);
   } else {
-    for (let index = 1; index < points.length - 1; index += 1) {
-      const midpoint = {
-        x: (points[index].x + points[index + 1].x) / 2,
-        y: (points[index].y + points[index + 1].y) / 2,
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const previous = points[index - 1] || points[index];
+      const start = points[index];
+      const end = points[index + 1];
+      const next = points[index + 2] || end;
+      const firstControl = {
+        x: start.x + (end.x - previous.x) / 6 * tension,
+        y: start.y + (end.y - previous.y) / 6 * tension,
       };
-      context.quadraticCurveTo(points[index].x, points[index].y, midpoint.x, midpoint.y);
+      const secondControl = {
+        x: end.x - (next.x - start.x) / 6 * tension,
+        y: end.y - (next.y - start.y) / 6 * tension,
+      };
+      context.bezierCurveTo(firstControl.x, firstControl.y, secondControl.x, secondControl.y, end.x, end.y);
     }
-    context.lineTo(points.at(-1).x, points.at(-1).y);
   }
   context.stroke();
+}
+
+function squareDistanceToSegment(point, start, end) {
+  let x = start.x;
+  let y = start.y;
+  const dx = end.x - x;
+  const dy = end.y - y;
+  if (dx || dy) {
+    const ratio = Math.max(0, Math.min(1, ((point.x - x) * dx + (point.y - y) * dy) / (dx * dx + dy * dy)));
+    x += dx * ratio;
+    y += dy * ratio;
+  }
+  const offsetX = point.x - x;
+  const offsetY = point.y - y;
+  return offsetX * offsetX + offsetY * offsetY;
 }
 
 function simplifyFreehand(points, tolerance = 1.6) {
@@ -98,7 +122,28 @@ function simplifyFreehand(points, tolerance = 1.6) {
       previous = point;
     }
   }
-  return radial.slice(0, 500);
+  if (radial.length <= 2) return radial;
+  const keep = new Uint8Array(radial.length);
+  keep[0] = 1;
+  keep[radial.length - 1] = 1;
+  const stack = [[0, radial.length - 1]];
+  while (stack.length) {
+    const [startIndex, endIndex] = stack.pop();
+    let furthestIndex = 0;
+    let furthestDistance = squareTolerance;
+    for (let index = startIndex + 1; index < endIndex; index += 1) {
+      const distance = squareDistanceToSegment(radial[index], radial[startIndex], radial[endIndex]);
+      if (distance > furthestDistance) {
+        furthestIndex = index;
+        furthestDistance = distance;
+      }
+    }
+    if (furthestIndex) {
+      keep[furthestIndex] = 1;
+      stack.push([startIndex, furthestIndex], [furthestIndex, endIndex]);
+    }
+  }
+  return radial.filter((_point, index) => keep[index]).slice(0, 500);
 }
 
 function displayError(error, isArabic) {
@@ -124,6 +169,25 @@ function toCanvasPoint(point, chart, series) {
   const y = series.priceToCoordinate(Number(point.price));
   const x = timeX == null ? logicalX : timeX;
   return x == null || y == null ? null : { x, y };
+}
+
+function offsetPointsForPaste(drawing, chart, series, canvas) {
+  const rect = canvas?.getBoundingClientRect();
+  if (!rect) return drawing.points.map((point) => ({ ...point }));
+  return drawing.points.map((point) => {
+    const projected = toCanvasPoint(point, chart, series);
+    if (!projected) return { ...point, logical: Number(point.logical || 0) + 1 };
+    const x = Math.max(0, Math.min(rect.width - 1, projected.x + 18));
+    const y = Math.max(0, Math.min(rect.height - 1, projected.y + 12));
+    const time = chart.timeScale().coordinateToTime(x);
+    const logical = chart.timeScale().coordinateToLogical(x);
+    const price = series.coordinateToPrice(y);
+    return {
+      ...(Number.isFinite(Number(time)) ? { time: Number(time) } : {}),
+      ...(Number.isFinite(Number(logical)) ? { logical: Number(logical) } : {}),
+      price: Number.isFinite(Number(price)) && Number(price) > 0 ? Number(price) : Number(point.price),
+    };
+  });
 }
 
 function drawArrowHead(context, start, end, color, width) {
@@ -310,6 +374,36 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   }, [toolbarLayout]);
 
   useEffect(() => {
+    if (toolbarLayout.hidden) return undefined;
+    let frame = 0;
+    const ensureInside = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+      const toolbar = toolbarRef.current;
+      const boundary = canvasRef.current?.parentElement;
+      if (!toolbar || !boundary) return;
+      const toolbarRect = toolbar.getBoundingClientRect();
+      const boundaryRect = boundary.getBoundingClientRect();
+      const outside = toolbarRect.right < boundaryRect.left + 8
+        || toolbarRect.left > boundaryRect.right - 8
+        || toolbarRect.bottom < boundaryRect.top + 8
+        || toolbarRect.top > boundaryRect.top + mainPaneHeight - 8;
+      if (outside) setToolbarLayout({ ...DEFAULT_TOOLBAR_LAYOUT });
+      });
+    };
+    ensureInside();
+    const boundary = canvasRef.current?.parentElement;
+    const observer = boundary ? new ResizeObserver(ensureInside) : null;
+    if (boundary) observer.observe(boundary);
+    window.addEventListener("resize", ensureInside);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", ensureInside);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [toolbarLayout.hidden, toolbarLayout.orientation, toolbarLayout.collapsed, mainPaneHeight]);
+
+  useEffect(() => {
     localStorage.setItem(SELECTION_TOOLBAR_STORAGE_KEY, JSON.stringify(selectionToolbarLayout));
   }, [selectionToolbarLayout]);
 
@@ -325,6 +419,12 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !chart || !series) return;
+    try {
+      const priceScaleWidth = Number(chart.priceScale?.("right")?.width?.());
+      canvas.style.setProperty("--drawing-price-axis-width", `${Number.isFinite(priceScaleWidth) ? Math.max(48, Math.ceil(priceScaleWidth)) : 74}px`);
+    } catch {
+      canvas.style.setProperty("--drawing-price-axis-width", "74px");
+    }
     const rect = canvas.getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
     if (canvas.width !== Math.round(rect.width * ratio) || canvas.height !== Math.round(rect.height * ratio)) {
@@ -662,8 +762,9 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       if (pending) source = await pending;
       const newClientId = crypto.randomUUID();
       const canDuplicate = sourceSymbol === symbol && source.serverId;
+      const pastedPoints = offsetPointsForPaste(source, chart, series, canvasRef.current);
       const copy = canDuplicate
-        ? await duplicateChartDrawing(symbol, source, newClientId)
+        ? await duplicateChartDrawing(symbol, source, newClientId, pastedPoints)
         : await saveChartDrawing(symbol, interval, {
           ...source,
           clientId: newClientId,
@@ -672,7 +773,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
           locked: false,
           visible: true,
           zIndex: Math.max(0, ...drawingsRef.current.map((item) => Number(item.zIndex || 0))) + 1,
-          points: source.points.map((point) => ({ ...point, logical: Number(point.logical || 0) + 1 })),
+          points: pastedPoints,
         });
       replaceDrawings([...drawingsRef.current, copy]);
       setSelectedId(copy.clientId);
@@ -858,23 +959,31 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     event.preventDefault();
   }
 
+  function resetToolbarLayout() {
+    setShowDrawingList(false);
+    setToolbarLayout({ ...DEFAULT_TOOLBAR_LAYOUT });
+    setStatus(isArabic ? "تمت استعادة أدوات الرسم في موضعها الافتراضي." : "Drawing tools were restored to their default position.");
+  }
+
   const selectedType = useMemo(() => DRAWING_TYPES.find((item) => item.id === selected?.type), [selected]);
 
   return <>
-    {toolbarLayout.hidden && <button type="button" className="drawing-tools-restore" onClick={() => setToolbarLayout((value) => ({ ...value, hidden: false }))} title={isArabic ? "إظهار أدوات الرسم" : "Show drawing tools"}><PenLine size={16} /><Eye size={14} /></button>}
+    {toolbarLayout.hidden && <button type="button" className="drawing-tools-restore" onClick={resetToolbarLayout} title={isArabic ? "إظهار أدوات الرسم وإعادتها لموضعها" : "Show and reset drawing tools"} aria-label={isArabic ? "إظهار أدوات الرسم وإعادتها لموضعها" : "Show and reset drawing tools"}><PenLine size={17} /><span>{isArabic ? "أدوات الرسم" : "Drawing tools"}</span><Eye size={15} /></button>}
     {!toolbarLayout.hidden && <div ref={toolbarRef} style={toolbarStyle} onKeyDown={toolbarKeyDown} className={"drawing-tools-bar " + (toolbarLayout.orientation === "vertical" ? "drawing-tools-vertical" : "drawing-tools-horizontal") + (toolbarLayout.collapsed ? " drawing-tools-collapsed" : "")} data-drawing-instance={instanceRef.current} data-active-tool={activeTool || ""} role="toolbar" aria-orientation={toolbarLayout.orientation === "vertical" ? "vertical" : "horizontal"} aria-label={isArabic ? "أدوات الرسم" : "Drawing tools"}>
-      <button type="button" className="drawing-toolbar-drag-handle" onPointerDown={beginToolbarDrag} onPointerMove={moveToolbar} onPointerUp={finishToolbarDrag} onPointerCancel={finishToolbarDrag} title={isArabic ? "اسحب لتحريك شريط الأدوات" : "Drag to move toolbar"}><Grip size={16} /></button>
+      <button type="button" className="drawing-toolbar-drag-handle" onPointerDown={beginToolbarDrag} onPointerMove={moveToolbar} onPointerUp={finishToolbarDrag} onPointerCancel={finishToolbarDrag} title={isArabic ? "اسحب لتحريك شريط الأدوات" : "Drag to move toolbar"} aria-label={isArabic ? "تحريك شريط أدوات الرسم" : "Move drawing toolbar"}><Grip size={16} /></button>
       <div className="drawing-toolbar-controls">
-        <button type="button" onClick={() => setToolbarLayout((value) => ({ ...value, orientation: value.orientation === "horizontal" ? "vertical" : "horizontal" }))} title={isArabic ? "تبديل اتجاه الشريط" : "Change toolbar orientation"}>{toolbarLayout.orientation === "horizontal" ? <PanelLeftClose size={15} /> : <PanelTopClose size={15} />}</button>
-        <button type="button" onClick={() => setToolbarLayout((value) => ({ ...value, collapsed: !value.collapsed }))} title={toolbarLayout.collapsed ? (isArabic ? "توسيع الأدوات" : "Expand tools") : (isArabic ? "تصغير الأدوات" : "Collapse tools")}>{toolbarLayout.collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>
-        <button type="button" onClick={() => setShowDrawingList((value) => !value)} className={showDrawingList ? "active" : ""} title={isArabic ? "قائمة الرسومات" : "Object tree"}><LayoutList size={15} /></button>
-        <button type="button" onClick={() => { setShowDrawingList(false); setToolbarLayout((value) => ({ ...value, hidden: true })); }} title={isArabic ? "إخفاء شريط الأدوات" : "Hide toolbar"}><EyeOff size={15} /></button>
+        <button type="button" onClick={() => setToolbarLayout((value) => ({ ...value, orientation: value.orientation === "horizontal" ? "vertical" : "horizontal" }))} title={isArabic ? "تبديل اتجاه الشريط" : "Change toolbar orientation"} aria-label={isArabic ? "تبديل اتجاه شريط الرسم" : "Change drawing toolbar orientation"}>{toolbarLayout.orientation === "horizontal" ? <PanelLeftClose size={15} /> : <PanelTopClose size={15} />}</button>
+        <button type="button" onClick={resetToolbarLayout} title={isArabic ? "إعادة الشريط لموضعه" : "Reset toolbar position"} aria-label={isArabic ? "إعادة شريط الرسم لموضعه الافتراضي" : "Reset drawing toolbar position"}><RefreshCcw size={15} /></button>
+        <button type="button" onClick={() => setToolbarLayout((value) => ({ ...value, collapsed: !value.collapsed }))} title={toolbarLayout.collapsed ? (isArabic ? "توسيع الأدوات" : "Expand tools") : (isArabic ? "تصغير الأدوات" : "Collapse tools")} aria-label={toolbarLayout.collapsed ? (isArabic ? "توسيع أدوات الرسم" : "Expand drawing tools") : (isArabic ? "تصغير أدوات الرسم" : "Collapse drawing tools")}>{toolbarLayout.collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>
+        <button type="button" onClick={() => setShowDrawingList((value) => !value)} className={showDrawingList ? "active" : ""} title={isArabic ? "قائمة الرسومات" : "Object tree"} aria-label={isArabic ? "قائمة الرسومات" : "Drawing object tree"}><LayoutList size={15} /></button>
+        <button type="button" onClick={() => { setShowDrawingList(false); setToolbarLayout((value) => ({ ...value, hidden: true })); }} title={isArabic ? "إخفاء شريط الأدوات" : "Hide toolbar"} aria-label={isArabic ? "إخفاء شريط أدوات الرسم" : "Hide drawing toolbar"}><EyeOff size={15} /></button>
       </div>
       {!toolbarLayout.collapsed && <div className="drawing-toolbar-tools">
-      <button type="button" className={activeTool === "select" ? "active" : ""} onClick={() => setActiveTool(activeTool === "select" ? null : "select")} title={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"}><MousePointer2 size={16} /></button>
+      <button type="button" className={activeTool === "select" ? "active" : ""} onClick={() => setActiveTool(activeTool === "select" ? null : "select")} title={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"} aria-label={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"}><MousePointer2 size={16} /></button>
       {DRAWING_TYPES.map((tool) => {
         const Icon = icons[tool.id];
-        return <button type="button" key={tool.id} className={activeTool === tool.id ? "active" : ""} onClick={() => { setActiveTool(tool.id); setSelectedId(""); setDraft(null); }} title={isArabic ? tool.ar : tool.en}><Icon size={16} /></button>;
+        const label = isArabic ? tool.ar : tool.en;
+        return <button type="button" key={tool.id} className={activeTool === tool.id ? "active" : ""} onClick={() => { setActiveTool(tool.id); setSelectedId(""); setDraft(null); }} title={label} aria-label={label}><Icon size={16} /></button>;
       })}
       <span className="drawing-tools-separator" />
       <button type="button" onClick={undo} disabled={!undoStack.length} title={isArabic ? "تراجع" : "Undo"}><Undo2 size={16} /></button>

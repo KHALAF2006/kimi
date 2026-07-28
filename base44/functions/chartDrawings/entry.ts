@@ -129,10 +129,12 @@ Deno.serve(async (req) => {
       if (conflicts[0]) throw Object.assign(new Error("Drawing identifier conflict"), { status: 409, code: "DRAWING_ID_CONFLICT" });
       const siblings = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, symbol: drawing.symbol });
       const maxZIndex = Math.max(0, ...siblings.map((item) => Number(item.z_index || 0)));
-      const points = (drawing.points || []).map((point) => ({
-        ...point,
-        ...(Number.isFinite(Number(point.logical)) ? { logical: Number(point.logical) + 1 } : {}),
-      }));
+      const points = Array.isArray(body.points) && body.points.length
+        ? body.points.map(cleanPoint)
+        : (drawing.points || []).map((point) => ({
+          ...point,
+          ...(Number.isFinite(Number(point.logical)) ? { logical: Number(point.logical) + 1 } : {}),
+        }));
       const copy = await base44.asServiceRole.entities.ChartDrawing.create({
         customer_id: profile.id,
         instrument_id: drawing.instrument_id,
