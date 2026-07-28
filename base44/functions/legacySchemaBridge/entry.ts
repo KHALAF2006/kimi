@@ -14,9 +14,51 @@ const CHILD_ENTITIES = {
 };
 
 const STATUS_ENTITIES = {
+  Account: "account",
+  AccountMember: "account-member",
+  ActiveDeviceSession: "active-device-session",
+  AlertDestination: "alert-destination",
+  AlertRule: "alert-rule",
+  AuditLog: "audit-log",
+  CandleChunk: "candle-chunk",
+  ChartDrawing: "chart-drawing",
+  CompanyAnnouncement: "company-announcement",
+  CompanyFinancial: "company-financial",
+  CorporateAction: "corporate-action",
+  CustomerConsent: "customer-consent",
+  CustomerNote: "customer-note",
   CustomerProfile: "customer-profile",
+  DataQualityIssue: "data-quality-issue",
+  DataSource: "data-source",
+  DeliveryEvent: "delivery-event",
+  IndicatorDefinition: "indicator-definition",
+  IndicatorSnapshot: "indicator-snapshot",
+  IngestionRun: "ingestion-run",
   Instrument: "instrument",
-  ...Object.fromEntries(Object.entries(CHILD_ENTITIES).map(([target, config]) => [target, config.source])),
+  InstrumentAlias: "instrument-alias",
+  LoginChallenge: "login-challenge",
+  LossClassification: "loss-classification",
+  MajorShareholder: "major-shareholder",
+  Market: "market",
+  MarketHoliday: "market-holiday",
+  MarketSession: "market-session",
+  MemberRoleAssignment: "member-role-assignment",
+  OperationUsage: "operation-usage",
+  PermissionDefinition: "permission-definition",
+  PlanEntitlement: "plan-entitlement",
+  ProviderInstrumentMap: "provider-instrument-map",
+  QuoteLatest: "quote-latest",
+  QuoteObservation: "quote-observation",
+  Recipient: "recipient",
+  RecipientGroup: "recipient-group",
+  RoleDefinition: "role-definition",
+  RolePermission: "role-permission",
+  SavedScreen: "saved-screen",
+  Subscription: "subscription",
+  SubscriptionPlan: "subscription-plan",
+  UsageCounter: "usage-counter",
+  Watchlist: "watchlist",
+  WatchlistItem: "watchlist-item",
 };
 
 function stripServerFields(row) {
@@ -50,14 +92,34 @@ async function trustedOwner(base44) {
   return { user, profile };
 }
 
+async function entityCount(base44, name) {
+  try {
+    const rows = await base44.asServiceRole.entities[name].list("-created_date", 5000);
+    return { exists: true, count: rows.length, capped: rows.length === 5000 };
+  } catch (error) {
+    if ([400, 404].includes(Number(error?.status || error?.response?.status))) {
+      return { exists: false, count: null, capped: false };
+    }
+    throw error;
+  }
+}
+
 async function status(base44) {
   const result = {};
   for (const [targetName, sourceName] of Object.entries(STATUS_ENTITIES)) {
-    const [sourceRows, targetRows] = await Promise.all([
-      base44.asServiceRole.entities[sourceName].list("-created_date", 5000),
-      base44.asServiceRole.entities[targetName].list("-created_date", 5000),
+    const [legacyStatus, officialStatus] = await Promise.all([
+      entityCount(base44, sourceName),
+      entityCount(base44, targetName),
     ]);
-    result[targetName] = { legacy: sourceRows.length, official: targetRows.length };
+    result[targetName] = {
+      legacy_name: sourceName,
+      official_name: targetName,
+      legacy: legacyStatus.count,
+      official: officialStatus.count,
+      legacy_exists: legacyStatus.exists,
+      official_exists: officialStatus.exists,
+      count_capped: legacyStatus.capped || officialStatus.capped,
+    };
   }
   return result;
 }

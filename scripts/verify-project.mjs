@@ -309,6 +309,9 @@ assert.match(legacySchemaBridge, /profile\?\.acquisition_source === "platform_ow
 assert.match(legacySchemaBridge, /user\.id !== PLATFORM_OWNER_USER_ID/, "the production bridge must require the immutable Base44 owner identity");
 assert.doesNotMatch(legacySchemaBridge, /\.delete\(|deleteMany|updateMany/, "the legacy bridge must never delete or bulk-update production records");
 assert.match(legacySchemaBridge, /Math\.min\(100,/, "legacy migration batches must be bounded");
+assert.match(legacySchemaBridge, /QuoteObservation:\s*"quote-observation"/, "the schema audit must cover every canonical/legacy entity pair");
+assert.match(legacySchemaBridge, /official_exists/, "the schema audit must distinguish missing official schemas from empty schemas");
+assert.match(legacySchemaBridge, /count_capped/, "the schema audit must disclose bounded-count results");
 
 const { calculateRsiSeries, calculateMomentumSnapshot } = await import(new URL("../src/lib/market.js", import.meta.url));
 const risingBars = Array.from({ length: 40 }, (_, index) => ({
