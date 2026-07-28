@@ -11,6 +11,7 @@ export const PERMISSION_CATALOG = [
   { code: "data.ingestion.run", group_code: "data", name_ar: "تشغيل جلب البيانات", name_en: "Run data ingestion", sensitive: true, owner_only: false },
   { code: "data.quality.manage", group_code: "data", name_ar: "معالجة جودة البيانات", name_en: "Manage data quality", sensitive: true, owner_only: false },
   { code: "alerts.operations.read", group_code: "alerts", name_ar: "عرض تشغيل التنبيهات", name_en: "View alert operations", sensitive: false, owner_only: false },
+  { code: "alerts.operations.manage", group_code: "alerts", name_ar: "إدارة تشغيل التنبيهات", name_en: "Manage alert operations", sensitive: true, owner_only: false },
   { code: "audit.read", group_code: "audit", name_ar: "عرض سجل التدقيق", name_en: "View audit log", sensitive: true, owner_only: false },
   { code: "audit.export", group_code: "audit", name_ar: "تصدير سجل التدقيق", name_en: "Export audit log", sensitive: true, owner_only: true },
   { code: "roles.manage", group_code: "administration", name_ar: "إدارة الأدوار والصلاحيات", name_en: "Manage roles and permissions", sensitive: true, owner_only: true },
@@ -33,6 +34,7 @@ export const LEGACY_ROLE_PERMISSIONS = {
     "data.ingestion.run",
     "data.quality.manage",
     "alerts.operations.read",
+    "alerts.operations.manage",
     "audit.read",
   ],
 };

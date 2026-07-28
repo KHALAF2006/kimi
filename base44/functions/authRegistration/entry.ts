@@ -1,27 +1,6 @@
-// GENERATED from base44/functions/authRegistration/entry.ts — do not edit directly.
+import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
+import { audit, ensurePersonalAccount, profileFor, replyError, requireUser } from "../../shared/security.ts";
 
-// base44/functions/authRegistration/entry.ts
-import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
-async function requireUser(base44) {
-  const user = await base44.auth.me();
-  if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
-  return user;
-}
-async function profileFor(base44, user) {
-  const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  return rows[0] || null;
-}
-function replyError(error) {
-  const status = Number(error?.status) || 500;
-  if (status >= 500) console.error("KMY backend error", error);
-  return Response.json({
-    error: status >= 500 ? "Backend operation failed" : error?.message || "Request failed",
-    code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
-  }, { status });
-}
-async function audit(base44, userId, action, entityType, entityId, result, reason = "") {
-  return await base44.asServiceRole.entities.AuditLog.create({ actor_user_id: userId, action, entity_type: entityType, entity_id: entityId || "system", reason, before: {}, after: {}, result, ip_hash: "server-managed" });
-}
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -34,9 +13,28 @@ Deno.serve(async (req) => {
     if (await profileFor(base44, user)) return Response.json({ error: "Profile already exists" }, { status: 409 });
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const customerNumber = `KMY-${(/* @__PURE__ */ new Date()).getUTCFullYear()}-${user.id.slice(-6).toUpperCase()}`;
-    const profile = await base44.asServiceRole.entities.CustomerProfile.create({ customer_number: customerNumber, auth_user_id: user.id, email_normalized: user.email.toLowerCase(), phone_e164: phone, full_name: String(body.full_name || user.full_name || ""), country_code: country, preferred_language: body.preferred_language === "en" ? "en" : "ar", account_status: "pending_verification", role: "user", tags: [], email_verified_at: now, last_seen_at: now });
-    await audit(base44, user.id, "customer.registered", "CustomerProfile", profile.id, "success");
-    return Response.json({ profile, phone_verification: "blocked_until_sms_provider_connected" });
+    const profile = await base44.asServiceRole.entities.CustomerProfile.create({
+      customer_number: customerNumber,
+      auth_user_id: user.id,
+      email_normalized: user.email.toLowerCase(),
+      phone_e164: phone,
+      full_name: String(body.full_name || user.full_name || ""),
+      country_code: country,
+      preferred_language: body.preferred_language === "en" ? "en" : "ar",
+      account_status: "active",
+      role: "user",
+      tags: ["email_verified"],
+      email_verified_at: now,
+      last_seen_at: now,
+    });
+    await ensurePersonalAccount(base44, profile, user.id);
+    await audit(base44, user.id, "customer.registered", "CustomerProfile", profile.id, "success", "email verified");
+    return Response.json({
+      profile,
+      account_ready: true,
+      email_verification: "verified",
+      phone_verification: "not_required_for_sign_in",
+    });
   } catch (error) {
     return replyError(error);
   }

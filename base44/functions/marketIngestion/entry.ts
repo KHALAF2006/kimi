@@ -1,5 +1,5 @@
 // base44/functions/marketIngestion/entry.ts
-import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
+import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 
 // base44/shared/market-data.ts
 var SAUDI_MAIN_MARKET = "SA_MAIN";

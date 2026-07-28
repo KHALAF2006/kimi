@@ -1,19 +1,11 @@
-import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
+import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
+import { replyError, requirePermission } from "../../shared/security.ts";
 
 const MODES = new Set(["daily", "financials", "bootstrap"]);
 const OFFICIAL_HOST = /(^|\.)saudiexchange\.sa$/i;
 
 function fail(message, status = 400, code = "COMPANY_INTELLIGENCE_INVALID") {
   throw Object.assign(new Error(message), { status, code });
-}
-
-function replyError(error) {
-  const status = Number(error?.status) || 500;
-  if (status >= 500) console.error("Smart Investor company intelligence error", error);
-  return Response.json({
-    error: status >= 500 ? "Company intelligence refresh failed" : error?.message || "Request failed",
-    code: error?.code || (status >= 500 ? "COMPANY_INTELLIGENCE_FAILED" : "REQUEST_FAILED"),
-  }, { status });
 }
 
 function rows(value) {
@@ -49,16 +41,11 @@ async function sha256(value) {
   return Array.from(new Uint8Array(bytes)).map((item) => item.toString(16).padStart(2, "0")).join("");
 }
 
-async function authorize(base44, req, mode) {
+async function authorize(base44, req, mode, sessionId) {
   const serviceAuthorization = req.headers.get("Base44-Service-Authorization");
   if (serviceAuthorization) return { actor: "scheduled-service", mode };
-  const user = await base44.auth.me();
-  if (!user) fail("Unauthorized", 401, "UNAUTHORIZED");
-  const profiles = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  const profile = profiles[0];
-  const trustedOwner = profile?.acquisition_source === "platform_owner_bootstrap" && Array.isArray(profile?.tags) && profile.tags.includes("owner");
-  if (!trustedOwner && profile?.role !== "admin") fail("Forbidden", 403, "FORBIDDEN");
-  return { actor: user.id, mode };
+  const context = await requirePermission(base44, sessionId, "data.quality.manage");
+  return { actor: context.user.id, mode };
 }
 
 async function sourceRecord(base44) {
@@ -116,7 +103,7 @@ Deno.serve(async (req) => {
     const body = { ...requestBody, ...(requestBody.args || {}) };
     const mode = String(body.mode || "daily");
     if (!MODES.has(mode)) fail("Unsupported company intelligence mode");
-    const authorization = await authorize(base44, req, mode);
+    const authorization = await authorize(base44, req, mode, body.session_id);
     const startedAt = new Date().toISOString();
     const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500));
     if (instruments.length < 270) fail(`Main-market catalog is incomplete: ${instruments.length}/270`, 503, "CATALOG_INCOMPLETE");

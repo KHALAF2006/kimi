@@ -1,7 +1,8 @@
 // GENERATED from base44/functions/marketRead/entry.ts — do not edit directly.
 
 // base44/functions/marketRead/entry.ts
-import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
+import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
+import { authorizationContext, replyError } from "../../shared/security.ts";
 import {
   COVERAGE_FAILED_PERCENT,
   COVERAGE_HEALTHY_PERCENT,
@@ -5155,29 +5156,6 @@ var official_main_market_catalog_2026_07_21_default = {
     }
   ]
 };
-async function requireUser(base44) {
-  const user = await base44.auth.me();
-  if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
-  return user;
-}
-async function profileFor(base44, user) {
-  const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  return rows[0] || null;
-}
-async function requireActiveSession(base44, profile, sessionId) {
-  if (!profile || !sessionId) throw Object.assign(new Error("Active device session required"), { status: 403 });
-  const session = await base44.asServiceRole.entities.ActiveDeviceSession.get(sessionId);
-  if (!session || session.customer_id !== profile.id || session.revoked_at || new Date(session.expires_at) <= /* @__PURE__ */ new Date()) throw Object.assign(new Error("Active device session required"), { status: 403 });
-  return session;
-}
-function replyError(error) {
-  const status = Number(error?.status) || 500;
-  if (status >= 500) console.error("KMY backend error", error);
-  return Response.json({
-    error: status >= 500 ? "Backend operation failed" : error?.message || "Request failed",
-    code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
-  }, { status });
-}
 var ALLOWED_INTERVALS = /* @__PURE__ */ new Set(["15m", "1h", "1d", "1wk", "1mo"]);
 var ALLOWED_RANGES = /* @__PURE__ */ new Set(["5d", "1mo", "3mo", "1y", "2y", "5y", "10y", "max"]);
 var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
@@ -5238,18 +5216,11 @@ function stateFor(value, source, now = Date.now(), options = {}) {
   };
 }
 async function requireMarketAccess(base44, body) {
-  const user = await requireUser(base44);
-  const profile = await profileFor(base44, user);
-  await requireActiveSession(base44, profile, body.session_id);
-  if (!profile || ["suspended", "banned", "closed"].includes(profile.account_status)) {
-    throw Object.assign(new Error("Forbidden"), { status: 403 });
+  const context = await authorizationContext(base44, body.session_id);
+  if (!["admin", "owner"].includes(context.role) && !context.subscription) {
+    throw Object.assign(new Error("Active subscription required"), { status: 403, code: "SUBSCRIPTION_REQUIRED" });
   }
-  if (!["admin", "owner"].includes(profile.role)) {
-    const subscriptions = await base44.asServiceRole.entities.Subscription.filter({ customer_id: profile.id, status: "active" });
-    const active = subscriptions.some((item) => new Date(item.ends_at) > /* @__PURE__ */ new Date());
-    if (!active) throw Object.assign(new Error("Active subscription required"), { status: 403 });
-  }
-  return { user, profile };
+  return context;
 }
 async function instrumentFor(base44, body) {
   const marketCode = String(body.market_code || "").trim();

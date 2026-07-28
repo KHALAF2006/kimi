@@ -1,31 +1,5 @@
-// GENERATED from base44/functions/indicatorEngine/entry.ts — do not edit directly.
-
-// base44/functions/indicatorEngine/entry.ts
-import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
-async function requireUser(base44) {
-  const user = await base44.auth.me();
-  if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
-  return user;
-}
-async function profileFor(base44, user) {
-  const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  return rows[0] || null;
-}
-async function requireRole(base44, roles) {
-  const user = await requireUser(base44);
-  const profile = await profileFor(base44, user);
-  const role = profile?.role || user.role;
-  if (!roles.includes(role)) throw Object.assign(new Error("Forbidden"), { status: 403 });
-  return { user, profile, role };
-}
-function replyError(error) {
-  const status = Number(error?.status) || 500;
-  if (status >= 500) console.error("KMY backend error", error);
-  return Response.json({
-    error: status >= 500 ? "Backend operation failed" : error?.message || "Request failed",
-    code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
-  }, { status });
-}
+import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
+import { replyError, requirePermission } from "../../shared/security.ts";
 var MOMENTUM_FORMULA_VERSION = "momentum-zones-v1";
 var LOOKBACK_DAYS = 20;
 var HISTORY_BARS = 500;
@@ -120,8 +94,8 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    await requireRole(base44, ["admin", "owner"]);
     const body = await req.json();
+    await requirePermission(base44, body.session_id, "data.operations.read");
     if (!Array.isArray(body.bars) || body.bars.length < 2) {
       return Response.json({ status: "insufficient_history", required: 2 }, { status: 422 });
     }

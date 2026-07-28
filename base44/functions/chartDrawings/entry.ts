@@ -1,35 +1,5 @@
-// GENERATED from base44/functions/chartDrawings/entry.ts — do not edit directly.
-
-// base44/functions/chartDrawings/entry.ts
-import { createClientFromRequest } from "npm:@base44/sdk@0.8.38";
-
-// base44/shared/security.ts
-async function requireUser(base44) {
-  const user = await base44.auth.me();
-  if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
-  return user;
-}
-async function profileFor(base44, user) {
-  const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  return rows[0] || null;
-}
-async function requireActiveSession(base44, profile, sessionId) {
-  if (!profile || !sessionId) throw Object.assign(new Error("Active device session required"), { status: 403 });
-  const session = await base44.asServiceRole.entities.ActiveDeviceSession.get(sessionId);
-  if (!session || session.customer_id !== profile.id || session.revoked_at || new Date(session.expires_at) <= /* @__PURE__ */ new Date()) throw Object.assign(new Error("Active device session required"), { status: 403 });
-  return session;
-}
-function replyError(error) {
-  const status = Number(error?.status) || 500;
-  if (status >= 500) console.error("KMY backend error", error);
-  return Response.json({
-    error: status >= 500 ? "Backend operation failed" : error?.message || "Request failed",
-    code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
-  }, { status });
-}
-async function audit(base44, userId, action, entityType, entityId, result, reason = "") {
-  return await base44.asServiceRole.entities.AuditLog.create({ actor_user_id: userId, action, entity_type: entityType, entity_id: entityId || "system", reason, before: {}, after: {}, result, ip_hash: "server-managed" });
-}
+import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
+import { audit, profileFor, replyError, requireActiveSession, requireUser } from "../../shared/security.ts";
 
 // base44/functions/chartDrawings/entry.ts
 var TYPES = /* @__PURE__ */ new Set(["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure", "price_range", "date_range", "date_and_price_range"]);

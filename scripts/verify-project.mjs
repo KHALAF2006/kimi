@@ -278,8 +278,8 @@ assert.match(sharedSecurity, /profile\.tags\.includes\("owner"\)/, "owner access
 assert.doesNotMatch(sharedSecurity, /if \(profile\.role !== "admin"/, "administrative login must never downgrade the owner to admin");
 assert.match(sharedSecurity, /try\s*\{\s*session = await base44\.asServiceRole\.entities\.ActiveDeviceSession\.get\(sessionId\);\s*\}\s*catch\s*\{\s*session = null;/, "unknown session identifiers must be normalized to the same authorization denial");
 const authLoginFunction = await readFile(new URL("../base44/functions/authLogin/entry.ts", import.meta.url), "utf8");
-assert.match(authLoginFunction, /acquisition_source === "platform_owner_bootstrap"/, "the deployed authLogin function must reconcile the trusted owner");
-assert.match(authLoginFunction, /role:\s*owner \? "owner" : "admin"/, "the deployed authLogin function must not downgrade the owner");
+assert.match(authLoginFunction, /ensureAdministrativeProfile/, "the deployed authLogin function must use the centralized trusted-owner reconciliation");
+assert.match(authLoginFunction, /shared\/security\.ts/, "the deployed authLogin function must not duplicate security policy");
 assert.match(loginPage, /base44\.auth\.setToken\(login\.access_token,true\)/, "Base44 authentication must persist across same-origin tabs");
 assert.match(loginPage, /kmy_device_id/, "all tabs on one browser device must share a stable device identity");
 for (const fileName of ["adminCustomers", "adminSubscriptions", "adminRoles", "identityContext", "operationsQuality", "adminMarketData"]) {
