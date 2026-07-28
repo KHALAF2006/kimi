@@ -11,6 +11,20 @@ var PROVIDER_FRESHNESS_GRACE_SECONDS = 5 * 60;
 var EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
 var RIYADH_TIMEZONE = "Asia/Riyadh";
 var TRADING_WEEKDAYS = /* @__PURE__ */ new Set(["Sun", "Mon", "Tue", "Wed", "Thu"]);
+function groupRowsByKey(rows, keyFor) {
+  const grouped = /* @__PURE__ */ new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const key = String(keyFor(row));
+    const current = grouped.get(key);
+    if (current) {
+      current.row = { ...current.row, ...row };
+      current.count += 1;
+    } else {
+      grouped.set(key, { key, row: { ...row }, count: 1 });
+    }
+  }
+  return [...grouped.values()];
+}
 function finiteNumber(value) {
   if (value === null || value === void 0 || value === "") return null;
   const parsed = Number(value);
@@ -5606,10 +5620,19 @@ async function upsertMany(base44, entity, rows, keyFields) {
   const existing = await base44.asServiceRole.entities[entity].list("-updated_date", 5e3);
   const key = (row) => keyFields.map((field) => row[field]).join("|");
   const byKey = new Map(existing.map((row) => [key(row), row]));
-  const creates = rows.filter((row) => !byKey.has(key(row)));
-  const updates = rows.filter((row) => byKey.has(key(row))).map((row) => ({ id: byKey.get(key(row)).id, ...row }));
+  const uniqueRows = groupRowsByKey(rows, key).map((group) => group.row);
+  const creates = uniqueRows.filter((row) => !byKey.has(key(row)));
+  const updates = uniqueRows.filter((row) => byKey.has(key(row))).map((row) => ({ id: byKey.get(key(row)).id, ...row }));
   if (creates.length) await base44.asServiceRole.entities[entity].bulkCreate(creates);
-  if (updates.length) await base44.asServiceRole.entities[entity].bulkUpdate(updates);
+  await bulkUpdateUnique(base44.asServiceRole.entities[entity], updates);
+}
+async function bulkUpdateUnique(entityApi, rows) {
+  if (!rows.length) return;
+  const grouped = groupRowsByKey(rows, (row) => row.id);
+  if (grouped.some((group) => !group.key || group.key === "undefined" || group.key === "null")) {
+    throw ingestionFailure("Bulk update row is missing its entity ID", "INVALID_BULK_UPDATE");
+  }
+  await entityApi.bulkUpdate(grouped.map((group) => group.row));
 }
 function exactInstrument(row) {
   return {
@@ -5713,12 +5736,13 @@ async function recordQualityIssues(base44, sourceId, runId, snapshotVersion, iss
   if (!issues.length) return;
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const existing = await base44.asServiceRole.entities.DataQualityIssue.filter({ status: "open", source_id: sourceId });
-  const keyFor = (row) => `${row.instrument_id || "market"}:${row.issue_type}`;
+  const keyFor = (row) => `${row.instrument_id || row.symbol || "market"}:${row.issue_type}`;
   const byKey = new Map(existing.map((row) => [keyFor(row), row]));
   const creates = [];
   const updates = [];
-  for (const issue of issues) {
-    const current = byKey.get(keyFor(issue));
+  for (const group of groupRowsByKey(issues, keyFor)) {
+    const issue = group.row;
+    const current = byKey.get(group.key);
     const values = {
       instrument_id: issue.instrument_id || void 0,
       symbol: issue.symbol || void 0,
@@ -5731,13 +5755,13 @@ async function recordQualityIssues(base44, sourceId, runId, snapshotVersion, iss
       snapshot_version: snapshotVersion || void 0,
       first_seen_at: current?.first_seen_at || now,
       last_seen_at: now,
-      occurrence_count: Number(current?.occurrence_count || 0) + 1
+      occurrence_count: Number(current?.occurrence_count || 0) + group.count
     };
     if (current) updates.push({ id: current.id, ...values });
     else creates.push(values);
   }
   if (creates.length) await base44.asServiceRole.entities.DataQualityIssue.bulkCreate(creates);
-  if (updates.length) await base44.asServiceRole.entities.DataQualityIssue.bulkUpdate(updates);
+  await bulkUpdateUnique(base44.asServiceRole.entities.DataQualityIssue, updates);
 }
 async function markMissingQuotesStale(base44, instrumentIds, acceptedQuotes) {
   const acceptedIds = new Set(acceptedQuotes.map((quote) => quote.instrument_id));
@@ -5748,7 +5772,7 @@ async function markMissingQuotesStale(base44, instrumentIds, acceptedQuotes) {
     freshness_status: "stale",
     quality_status: "stale"
   }));
-  if (updates.length) await base44.asServiceRole.entities.QuoteLatest.bulkUpdate(updates);
+  await bulkUpdateUnique(base44.asServiceRole.entities.QuoteLatest, updates);
 }
 async function providerCandleChunks(payload, mappings, instruments, sourceId, sessionDate) {
   const chunks = normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate);
@@ -5760,6 +5784,7 @@ function ingestionFailure(message, code = "MARKET_INGESTION_FAILED", status = 50
 Deno.serve(async (req) => {
   let base44 = null;
   let run = null;
+  let stage = "request";
   try {
     base44 = createClientFromRequest(req);
     const requestBody = await req.json();
@@ -5792,6 +5817,7 @@ Deno.serve(async (req) => {
     const slotKind = ["quarter_hour", "close_price", "session_final"].includes(String(body.slot_kind)) ? String(body.slot_kind) : isServiceInvocation ? inferredSlotKind : "manual";
     const schedule = slotDecision({ now, slotKind, source: effectiveSource });
     if (!schedule.run) return Response.json({ status: "skipped", reason: schedule.reason, clock: schedule.clock, phase: schedule.phase });
+    stage = "market_calendar";
     const [holidays, sessions] = await Promise.all([
       base44.asServiceRole.entities.MarketHoliday.filter({ holiday_date: schedule.clock.date }),
       base44.asServiceRole.entities.MarketSession.filter({ session_date: schedule.clock.date })
@@ -5806,10 +5832,13 @@ Deno.serve(async (req) => {
     const providerCode = useLicensedProvider
       ? String(Deno.env.get("KMY_MARKET_DATA_PROVIDER_CODE") || "LICENSED_SAUDI_MARKET_T15").trim()
       : "EXPERIMENTAL_PUBLIC_DELAYED_15M";
+    stage = "provider_source";
     const provider = useLicensedProvider
       ? await licensedSource(base44, providerCode, providerUrl)
       : await experimentalPublicSource(base44);
+    stage = "market_upsert";
     await upsertMany(base44, "Market", GCC_MARKETS, ["market_code"]);
+    stage = "instrument_upsert";
     await upsertMany(base44, "Instrument", official_main_market_catalog_2026_07_21_default.companies.map(exactInstrument), ["symbol"]);
     const instruments = (await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((row) => MAIN_MARKET_SYMBOLS.has(row.symbol));
     if (instruments.length !== EXPECTED_INSTRUMENT_COUNT) {
@@ -5828,6 +5857,7 @@ Deno.serve(async (req) => {
     });
     const bySymbol = new Map(instruments.map((row) => [row.symbol, row]));
     const lossRows = official_main_market_catalog_2026_07_21_default.companies.map((row) => lossClassification(row, bySymbol.get(row.symbol)?.id, officialSource.id)).filter((row) => row.instrument_id);
+    stage = "loss_classification_upsert";
     await upsertMany(base44, "LossClassification", lossRows, ["instrument_id"]);
     const expectedAsOfDate = new Date(expectedProviderAsOf(now));
     expectedAsOfDate.setUTCSeconds(0, 0);
@@ -5851,6 +5881,7 @@ Deno.serve(async (req) => {
         instrument_id: instrument.id,
         provider_symbol: `${instrument.symbol}.SR`
       }));
+    stage = "ingestion_run_create";
     run = await base44.asServiceRole.entities.IngestionRun.create({
       run_type: effectiveSource,
       market_code: marketCode,
@@ -5899,6 +5930,7 @@ Deno.serve(async (req) => {
     let payload;
     let attemptCount = 0;
     try {
+      stage = "provider_fetch";
       if (useLicensedProvider) {
         const providerResult = await fetchLicensedSnapshot({
           url: providerUrl,
@@ -5930,6 +5962,7 @@ Deno.serve(async (req) => {
     }
     const providerAsOf = String(payload?.data?.provider_as_of || payload?.provider_as_of || payload?.data?.as_of || payload?.as_of || "");
     const snapshotVersion = await stableSnapshotVersion({ marketCode, providerCode, providerAsOf, slotKey });
+    stage = "snapshot_normalization";
     const normalized = normalizeLicensedSnapshot({
       payload,
       mappings,
@@ -5942,19 +5975,26 @@ Deno.serve(async (req) => {
       validationMode: useLicensedProvider ? "licensed_t15" : "experimental_public"
     });
     const coverage = coverageStatus(normalized.accepted.length, EXPECTED_INSTRUMENT_COUNT);
+    stage = "quote_observation_create";
     if (normalized.accepted.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(normalized.accepted);
     const publicSourceIssues = Array.isArray(payload?.rejected) ? payload.rejected : [];
+    stage = "quality_issue_upsert";
     await recordQualityIssues(base44, provider.id, run.id, snapshotVersion, [...publicSourceIssues, ...normalized.rejected]);
     if (coverage.status === "failed") {
       throw ingestionFailure(`Market snapshot coverage failed: ${coverage.coveragePercent.toFixed(2)}%`, "MARKET_COVERAGE_FAILED");
     }
+    stage = "quote_latest_upsert";
     await upsertMany(base44, "QuoteLatest", normalized.accepted, ["instrument_id"]);
+    stage = "missing_quote_mark_stale";
     await markMissingQuotesStale(base44, instruments.map((instrument) => instrument.id), normalized.accepted);
+    stage = "candle_chunk_upsert";
     const candleChunks = await providerCandleChunks(payload, mappings, instruments, provider.id, schedule.clock.date);
     await upsertMany(base44, "CandleChunk", candleChunks, ["instrument_id", "interval", "chunk_key"]);
+    stage = "drawing_alert_evaluation";
     const drawingAlerts = await evaluateDrawingAlerts(base44, normalized.accepted);
     const finishedAt = (/* @__PURE__ */ new Date()).toISOString();
     const finalStatus = coverage.status === "healthy" ? "success" : "partial";
+    stage = "ingestion_run_finalize";
     await base44.asServiceRole.entities.IngestionRun.update(run.id, {
       finished_at: finishedAt,
       provider_as_of: normalized.providerAsOf,
@@ -5992,6 +6032,13 @@ Deno.serve(async (req) => {
       is_final: normalized.isFinal
     });
   } catch (error) {
+    console.error("KMY market ingestion failed", {
+      stage,
+      run_id: run?.id || null,
+      slot_key: run?.slot_key || null,
+      code: error?.code || "MARKET_INGESTION_FAILED",
+      message: error?.message || "Market ingestion failed"
+    });
     if (base44 && run?.id) {
       try {
         const finishedAt = (/* @__PURE__ */ new Date()).toISOString();

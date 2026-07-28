@@ -5,6 +5,7 @@ import {
   coverageStatus,
   expectedProviderAsOf,
   freshnessStatus,
+  groupRowsByKey,
   normalizeLicensedSnapshot,
   normalizePublicDelayedCharts,
   normalizeProviderCandles,
@@ -44,6 +45,24 @@ assert.equal(coverageStatus(267, 270).status, "degraded");
 assert.equal(coverageStatus(256, 270).status, "failed");
 assert.equal(freshnessStatus("2026-07-26T07:00:00.000Z", "2026-07-26T07:15:00.000Z"), "fresh");
 assert.equal(freshnessStatus("2026-07-26T06:54:00.000Z", "2026-07-26T07:15:00.000Z"), "stale");
+
+const groupedQualityIssues = groupRowsByKey([
+  { symbol: "1010", issue_type: "public_chart_request_failed", message: "attempt 1" },
+  { symbol: "1010", issue_type: "public_chart_request_failed", message: "attempt 2" },
+  { symbol: "1020", issue_type: "public_chart_request_failed", message: "attempt 1" },
+], (row) => `${row.instrument_id || row.symbol || "market"}:${row.issue_type}`);
+assert.equal(groupedQualityIssues.length, 2, "quality issues must remain distinct per symbol");
+assert.equal(groupedQualityIssues.find((group) => group.key.startsWith("1010:")).count, 2, "repeated issues in one cycle must increment one record");
+
+const groupedEntityUpdates = groupRowsByKey([
+  { id: "entity-1", status: "stale" },
+  { id: "entity-1", quality_status: "stale" },
+], (row) => row.id);
+assert.deepEqual(groupedEntityUpdates, [{
+  key: "entity-1",
+  row: { id: "entity-1", status: "stale", quality_status: "stale" },
+  count: 2,
+}], "bulk updates must send each entity ID exactly once");
 
 const mappings = [{ instrument_id: "instrument-1", provider_symbol: "1321", active: true, license_status: "approved", delay_seconds: SAUDI_DELAY_SECONDS }];
 const instruments = [{ id: "instrument-1", symbol: "1321" }];

@@ -310,6 +310,10 @@ assert.match(adminRolesFunction, /REVISION_CONFLICT/, "role updates must reject 
 const marketIngestionFunction = await readFile(new URL("../base44/functions/marketIngestion/entry.ts", import.meta.url), "utf8");
 assert.match(marketIngestionFunction, /base44\.functions\.invoke\("identityContext"/, "manual market ingestion must delegate authorization to the centralized identity context");
 assert.match(marketIngestionFunction, /context\.permissions\.includes\("data\.ingestion\.run"\)/, "manual market ingestion must require the dedicated backend permission");
+assert.match(marketIngestionFunction, /groupRowsByKey\(issues,\s*keyFor\)/, "quality issue batches must coalesce duplicate logical records before persistence");
+assert.match(marketIngestionFunction, /row\.instrument_id\s*\|\|\s*row\.symbol\s*\|\|\s*"market"/, "source issues without instrument IDs must remain distinct per symbol");
+assert.match(marketIngestionFunction, /bulkUpdateUnique\(base44\.asServiceRole\.entities\.DataQualityIssue,\s*updates\)/, "quality issue updates must send every entity ID at most once");
+assert.match(marketIngestionFunction, /bulkUpdateUnique\(base44\.asServiceRole\.entities\.QuoteLatest,\s*updates\)/, "stale quote updates must send every entity ID at most once");
 const legacySchemaBridge = await readFile(new URL("../base44/functions/legacySchemaBridge/entry.ts", import.meta.url), "utf8");
 assert.match(legacySchemaBridge, /profile\?\.acquisition_source === "platform_owner_bootstrap"/, "the additive legacy bridge must be restricted to the trusted platform owner");
 assert.match(legacySchemaBridge, /user\.id !== PLATFORM_OWNER_USER_ID/, "the production bridge must require the immutable Base44 owner identity");

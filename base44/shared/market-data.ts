@@ -16,6 +16,21 @@ export const MARKET_AUTOMATION_SPECS = Object.freeze([
 const RIYADH_TIMEZONE = "Asia/Riyadh";
 const TRADING_WEEKDAYS = new Set(["Sun", "Mon", "Tue", "Wed", "Thu"]);
 
+export function groupRowsByKey(rows, keyFor) {
+  const grouped = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const key = String(keyFor(row));
+    const current = grouped.get(key);
+    if (current) {
+      current.row = { ...current.row, ...row };
+      current.count += 1;
+    } else {
+      grouped.set(key, { key, row: { ...row }, count: 1 });
+    }
+  }
+  return [...grouped.values()];
+}
+
 function finiteNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
