@@ -2,14 +2,18 @@ import assert from "node:assert/strict";
 import {
   SAUDI_DELAY_SECONDS,
   MARKET_AUTOMATION_SPECS,
+  buildPublicCandleContexts,
   coverageStatus,
   expectedProviderAsOf,
+  fetchPublicDelayedCharts,
   freshnessStatus,
   groupRowsByKey,
+  mergeIncrementalCandleChunks,
   mergeStoredCandleSeries,
   normalizeLicensedSnapshot,
   normalizePublicDelayedCharts,
   normalizeProviderCandles,
+  publicChartRequestWindow,
   slotDecision,
 } from "../base44/shared/market-data.ts";
 
@@ -195,6 +199,164 @@ assert.equal(publicCharts.quotes[0].last_price, 196.6);
 assert.equal(Number(publicCharts.quotes[0].change_percent.toFixed(2)), 4.13);
 assert.equal(publicCharts.candles[0].bars.length, 2, "only the latest trading session belongs in the current 15-minute chunk");
 
+assert.deepEqual(publicChartRequestWindow({
+  now: new Date("2026-07-29T08:30:00.000Z"),
+}), { mode: "bootstrap", range: "5d" }, "symbols without a cursor must bootstrap only once");
+const incrementalWindow = publicChartRequestWindow({
+  watermark: "2026-07-29T08:15:00.000Z",
+  now: new Date("2026-07-29T08:30:00.000Z"),
+});
+assert.equal(incrementalWindow.mode, "incremental");
+assert.equal(incrementalWindow.period1, Date.parse("2026-07-29T08:00:00.000Z") / 1000, "incremental requests must overlap only one candle");
+assert.equal(incrementalWindow.period2, Date.parse("2026-07-29T08:30:00.000Z") / 1000 + 60);
+assert.deepEqual(publicChartRequestWindow({
+  watermark: "2026-07-01T08:15:00.000Z",
+  now: new Date("2026-07-29T08:30:00.000Z"),
+}), { mode: "backfill", range: "5d" }, "stale cursors must use a bounded backfill instead of an unbounded request");
+
+const publicContexts = buildPublicCandleContexts({
+  instruments,
+  quotes: [{
+    instrument_id: "instrument-1",
+    session_date: "2026-07-29",
+    previous_close: 190,
+    last_price: 196,
+    last_trade_time: "2026-07-29T08:15:30.000Z",
+  }],
+  chunks: [{
+    instrument_id: "instrument-1",
+    symbol: "1321",
+    interval: "15m",
+    session_date: "2026-07-29",
+    chunk_key: "1321-15m-2026-07-29",
+    end_time: "2026-07-29T08:15:00.000Z",
+    bars: [
+      { time: "2026-07-29T08:00:00.000Z", open: 192, high: 194, low: 191, close: 193, volume: 100 },
+      { time: "2026-07-29T08:15:00.000Z", open: 193, high: 196, low: 192, close: 195, volume: 150 },
+    ],
+  }],
+  sessionDate: "2026-07-29",
+});
+assert.equal(publicContexts.get("1321").watermark, "2026-07-29T08:15:00.000Z", "the stored candle boundary must be the incremental cursor");
+assert.equal(publicContexts.get("1321").previous_close, 190);
+
+const incrementalPublicCharts = normalizePublicDelayedCharts([{
+  symbol: "1321",
+  result: {
+    timestamp: [Date.parse("2026-07-29T08:30:00.000Z") / 1000],
+    indicators: {
+      quote: [{
+        open: [195],
+        high: [198],
+        low: [194],
+        close: [197],
+        volume: [175],
+      }],
+    },
+  },
+}], publicContexts);
+assert.equal(incrementalPublicCharts.quotes.length, 1);
+assert.equal(incrementalPublicCharts.quotes[0].previous_close, 190, "incremental normalization must retain the stored previous close");
+assert.equal(incrementalPublicCharts.quotes[0].open, 192, "incremental normalization must retain the session open");
+assert.equal(incrementalPublicCharts.quotes[0].high, 198);
+assert.equal(incrementalPublicCharts.quotes[0].low, 191);
+assert.equal(incrementalPublicCharts.quotes[0].volume, 425);
+assert.equal(incrementalPublicCharts.candles[0].bars.length, 1, "only the new provider candle should enter the persistence merge");
+
+const nextSessionContexts = buildPublicCandleContexts({
+  instruments,
+  quotes: [{
+    instrument_id: "instrument-1",
+    session_date: "2026-07-29",
+    previous_close: 188,
+    last_price: 197,
+    last_trade_time: "2026-07-29T12:00:00.000Z",
+  }],
+  chunks: [],
+  sessionDate: "2026-07-30",
+});
+assert.equal(nextSessionContexts.get("1321").previous_close, 197, "the prior session last price must seed the next session previous close");
+const firstNextSessionCandle = normalizePublicDelayedCharts([{
+  symbol: "1321",
+  result: {
+    timestamp: [Date.parse("2026-07-30T07:00:00.000Z") / 1000],
+    indicators: {
+      quote: [{
+        open: [198],
+        high: [201],
+        low: [197],
+        close: [200],
+        volume: [250],
+      }],
+    },
+  },
+}], nextSessionContexts);
+assert.equal(firstNextSessionCandle.quotes[0].previous_close, 197);
+assert.equal(Number(firstNextSessionCandle.quotes[0].change_percent.toFixed(2)), 1.52);
+
+const mergedIncrementalChunks = mergeIncrementalCandleChunks(
+  normalizeProviderCandles({
+    candles: [{
+      provider_symbol: "1321",
+      bars: [
+        { time: "2026-07-29T08:15:00.000Z", open: 193, high: 197, low: 192, close: 196, volume: 160 },
+        { time: "2026-07-29T08:30:00.000Z", open: 196, high: 198, low: 195, close: 197, volume: 175 },
+      ],
+    }],
+  }, mappings, instruments, "source-1", "2026-07-29"),
+  [{
+    instrument_id: "instrument-1",
+    symbol: "1321",
+    interval: "15m",
+    session_date: "2026-07-29",
+    chunk_key: "1321-15m-2026-07-29",
+    bars: publicContexts.get("1321").bars,
+  }],
+);
+assert.equal(mergedIncrementalChunks.length, 1);
+assert.equal(mergedIncrementalChunks[0].bars.length, 3, "incremental persistence must append without duplicating the overlap candle");
+assert.equal(mergedIncrementalChunks[0].bars[1].close, 196, "the refreshed overlap candle must replace its stored version");
+assert.equal(mergedIncrementalChunks[0].bars[2].close, 197);
+assert.equal(mergedIncrementalChunks[0].session_date, "2026-07-29");
+assert.equal("session_date" in mergedIncrementalChunks[0].bars[0], false, "internal session keys must not leak into the stored candle schema");
+
+let requestedPublicUrl = "";
+const incrementalFetch = await fetchPublicDelayedCharts({
+  symbols: ["1321"],
+  contextsBySymbol: publicContexts,
+  now: new Date("2026-07-29T08:30:00.000Z"),
+  attempts: 1,
+  fetchImpl: async (url) => {
+    requestedPublicUrl = String(url);
+    return {
+      ok: true,
+      async json() {
+        return {
+          chart: {
+            result: [{
+              timestamp: [Date.parse("2026-07-29T08:30:00.000Z") / 1000],
+              indicators: {
+                quote: [{
+                  open: [195],
+                  high: [198],
+                  low: [194],
+                  close: [197],
+                  volume: [175],
+                }],
+              },
+            }],
+          },
+        };
+      },
+    };
+  },
+});
+const requestedPublicParams = new URL(requestedPublicUrl).searchParams;
+assert.equal(requestedPublicParams.has("range"), false, "normal cycles must not request the rolling five-day range");
+assert.equal(requestedPublicParams.get("period1"), String(incrementalWindow.period1));
+assert.equal(requestedPublicParams.get("period2"), String(incrementalWindow.period2));
+assert.deepEqual(incrementalFetch.requestModes, { incremental: 1, bootstrap: 0, backfill: 0 });
+
 console.log(JSON.stringify({
   status: "verified",
   quarterHourScheduling: true,
@@ -203,4 +365,7 @@ console.log(JSON.stringify({
   experimentalPublicPreviousClose: true,
   explicitCandlesOnly: true,
   mergedHigherIntervals: true,
+  incrementalCandleCursor: true,
+  boundedBootstrapAndBackfill: true,
+  appendWithoutDuplicateBars: true,
 }, null, 2));

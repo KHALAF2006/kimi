@@ -9,6 +9,8 @@ var COVERAGE_HEALTHY_PERCENT = 99;
 var COVERAGE_FAILED_PERCENT = 95;
 var PROVIDER_FRESHNESS_GRACE_SECONDS = 5 * 60;
 var EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
+var PUBLIC_CANDLE_OVERLAP_MILLISECONDS = 15 * 60 * 1e3;
+var PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS = 8 * 24 * 60 * 60 * 1e3;
 var RIYADH_TIMEZONE = "Asia/Riyadh";
 var TRADING_WEEKDAYS = /* @__PURE__ */ new Set(["Sun", "Mon", "Tue", "Wed", "Thu"]);
 function groupRowsByKey(rows, keyFor) {
@@ -235,32 +237,101 @@ function chartBars(result) {
     };
   }).filter(Boolean).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 }
-function normalizePublicDelayedCharts(chartResults) {
+function uniqueSortedBars(bars) {
+  const byTime = /* @__PURE__ */ new Map();
+  for (const bar of Array.isArray(bars) ? bars : []) {
+    const time = new Date(bar?.time).getTime();
+    if (!Number.isFinite(time)) continue;
+    const iso = new Date(time).toISOString();
+    byTime.set(iso, { ...bar, time: iso, session_date: bar.session_date || riyadhClock(new Date(time)).date });
+  }
+  return [...byTime.values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+}
+function contextForSymbol(contextsBySymbol, symbol) {
+  if (contextsBySymbol instanceof Map) return contextsBySymbol.get(symbol) || {};
+  return contextsBySymbol?.[symbol] || {};
+}
+function publicChartRequestWindow({
+  watermark,
+  now = /* @__PURE__ */ new Date(),
+  overlapMilliseconds = PUBLIC_CANDLE_OVERLAP_MILLISECONDS,
+  maxIncrementalLookbackMilliseconds = PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS
+} = {}) {
+  const nowTime = new Date(now).getTime();
+  if (!Number.isFinite(nowTime)) throw new Error("Public chart request time is invalid");
+  const watermarkTime = new Date(watermark || "").getTime();
+  if (!Number.isFinite(watermarkTime)) return { mode: "bootstrap", range: "5d" };
+  if (nowTime - watermarkTime > maxIncrementalLookbackMilliseconds) {
+    return { mode: "backfill", range: "5d" };
+  }
+  return {
+    mode: "incremental",
+    period1: Math.floor((watermarkTime - overlapMilliseconds) / 1e3),
+    period2: Math.ceil(nowTime / 1e3) + 60
+  };
+}
+function buildPublicCandleContexts({
+  instruments,
+  quotes,
+  chunks,
+  sessionDate
+}) {
+  const quoteByInstrument = new Map((Array.isArray(quotes) ? quotes : []).map((quote) => [quote.instrument_id, quote]));
+  const chunkByInstrument = /* @__PURE__ */ new Map();
+  for (const chunk of Array.isArray(chunks) ? chunks : []) {
+    if (chunk.interval !== "15m") continue;
+    const matchesSession = chunk.session_date === sessionDate || String(chunk.chunk_key || "").endsWith(`-${sessionDate}`);
+    if (!matchesSession) continue;
+    const current = chunkByInstrument.get(chunk.instrument_id);
+    if (!current || new Date(chunk.end_time || 0).getTime() > new Date(current.end_time || 0).getTime()) {
+      chunkByInstrument.set(chunk.instrument_id, chunk);
+    }
+  }
+  const contexts = /* @__PURE__ */ new Map();
+  for (const instrument of Array.isArray(instruments) ? instruments : []) {
+    const quote = quoteByInstrument.get(instrument.id) || {};
+    const chunk = chunkByInstrument.get(instrument.id) || {};
+    const bars = uniqueSortedBars((chunk.bars || []).filter((bar) => riyadhClock(new Date(bar.time)).date === sessionDate));
+    const latestBarTime = bars.at(-1)?.time || "";
+    const quoteSessionDate = String(quote.session_date || "");
+    const previousClose = quoteSessionDate === sessionDate ? positiveNumber(quote.previous_close) : positiveNumber(quote.last_price) || positiveNumber(quote.previous_close);
+    contexts.set(instrument.symbol, {
+      session_date: sessionDate,
+      bars,
+      watermark: latestBarTime || quote.last_trade_time || quote.provider_as_of || "",
+      previous_close: previousClose
+    });
+  }
+  return contexts;
+}
+function normalizePublicDelayedCharts(chartResults, contextsBySymbol = /* @__PURE__ */ new Map()) {
   const quotes = [];
   const candles = [];
   const rejected = [];
   let providerAsOf = "";
   for (const item of chartResults) {
     const symbol = String(item?.symbol || "").trim();
-    const bars = chartBars(item?.result);
+    const incomingBars = chartBars(item?.result);
+    const context = contextForSymbol(contextsBySymbol, symbol);
+    const bars = uniqueSortedBars([...(context.bars || []), ...incomingBars]);
     const sessions = /* @__PURE__ */ new Map();
     for (const bar of bars) {
       if (!sessions.has(bar.session_date)) sessions.set(bar.session_date, []);
       sessions.get(bar.session_date).push(bar);
     }
     const dates = [...sessions.keys()].sort();
-    if (!symbol || dates.length < 2) {
-      rejected.push({ symbol, issue_type: "public_chart_incomplete", message: "Public delayed chart did not include two valid trading sessions" });
+    if (!symbol || !incomingBars.length || !dates.length) {
+      rejected.push({ symbol, issue_type: "public_chart_incomplete", message: "Public delayed chart did not include a valid incremental candle" });
       continue;
     }
     const sessionDate = dates[dates.length - 1];
     const currentBars = sessions.get(sessionDate);
-    const previousBars = sessions.get(dates[dates.length - 2]);
+    const previousBars = dates.length > 1 ? sessions.get(dates[dates.length - 2]) : [];
     const first = currentBars[0];
     const last = currentBars[currentBars.length - 1];
-    const previousClose = previousBars[previousBars.length - 1]?.close;
+    const previousClose = positiveNumber(previousBars.at(-1)?.close) || positiveNumber(item?.result?.meta?.chartPreviousClose) || positiveNumber(item?.result?.meta?.previousClose) || positiveNumber(context.previous_close);
     if (!positiveNumber(previousClose)) {
-      rejected.push({ symbol, issue_type: "previous_close_missing", message: "Public delayed chart did not include a valid previous-session close" });
+      rejected.push({ symbol, issue_type: "previous_close_missing", message: "Public delayed chart and stored cursor did not include a valid previous-session close" });
       continue;
     }
     const high = Math.max(...currentBars.map((bar) => bar.high));
@@ -281,9 +352,10 @@ function normalizePublicDelayedCharts(chartResults) {
       change_percent: changePercent,
       last_trade_time: lastTradeTime
     });
+    const incomingCurrentBars = incomingBars.filter((bar) => bar.session_date === sessionDate);
     candles.push({
       provider_symbol: providerSymbol,
-      bars: currentBars.map(({ time, open, high: barHigh, low: barLow, close, volume: barVolume }) => ({
+      bars: incomingCurrentBars.map(({ time, open, high: barHigh, low: barLow, close, volume: barVolume }) => ({
         time,
         open,
         high: barHigh,
@@ -299,6 +371,8 @@ function normalizePublicDelayedCharts(chartResults) {
 }
 async function fetchPublicDelayedCharts({
   symbols,
+  contextsBySymbol = /* @__PURE__ */ new Map(),
+  now = /* @__PURE__ */ new Date(),
   fetchImpl = fetch,
   concurrency = 15,
   attempts = 2,
@@ -309,6 +383,7 @@ async function fetchPublicDelayedCharts({
   const failures = [];
   let cursor = 0;
   let requestCount = 0;
+  const requestModes = { incremental: 0, bootstrap: 0, backfill: 0 };
   async function fetchOne(symbol) {
     let lastError = null;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -319,7 +394,13 @@ async function fetchPublicDelayedCharts({
         const providerSymbol = `${symbol}.SR`;
         const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(providerSymbol)}`);
         url.searchParams.set("interval", "15m");
-        url.searchParams.set("range", "5d");
+        const context = contextForSymbol(contextsBySymbol, symbol);
+        const window = publicChartRequestWindow({ watermark: context.watermark, now });
+        if (window.range) url.searchParams.set("range", window.range);
+        else {
+          url.searchParams.set("period1", String(window.period1));
+          url.searchParams.set("period2", String(window.period2));
+        }
         url.searchParams.set("includePrePost", "false");
         url.searchParams.set("events", "div,splits");
         const response = await fetchImpl(url, {
@@ -331,6 +412,7 @@ async function fetchPublicDelayedCharts({
         const result = payload?.chart?.result?.[0];
         if (!result) throw new Error("Public delayed source returned no chart");
         results.push({ symbol, result });
+        requestModes[window.mode] += 1;
         return;
       } catch (error) {
         lastError = error;
@@ -349,13 +431,14 @@ async function fetchPublicDelayedCharts({
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, () => worker()));
-  const normalized = normalizePublicDelayedCharts(results);
+  const normalized = normalizePublicDelayedCharts(results, contextsBySymbol);
   return {
     payload: {
       ...normalized,
       rejected: [...failures, ...normalized.rejected]
     },
-    requestCount
+    requestCount,
+    requestModes
   };
 }
 function normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate) {
@@ -377,20 +460,47 @@ function normalizeProviderCandles(payload, mappings, instruments, sourceId, sess
       volume: nonNegativeNumber(bar.volume)
     })).filter((bar) => [bar.open, bar.high, bar.low, bar.close].every((value) => value !== null) && bar.high >= Math.max(bar.open, bar.close) && bar.low <= Math.min(bar.open, bar.close));
     if (!bars.length) continue;
-    chunks.push({
-      instrument_id: instrument.id,
-      symbol: instrument.symbol,
-      interval: "15m",
-      chunk_key: `${instrument.symbol}-15m-${sessionDate}`,
+    const bySession = /* @__PURE__ */ new Map();
+    for (const bar of bars) {
+      const barSessionDate = riyadhClock(new Date(bar.time)).date || sessionDate;
+      if (!bySession.has(barSessionDate)) bySession.set(barSessionDate, []);
+      bySession.get(barSessionDate).push(bar);
+    }
+    for (const [barSessionDate, sessionBars] of bySession) {
+      const ordered = uniqueSortedBars(sessionBars);
+      const storedBars = ordered.map(({ session_date: _sessionDate, ...bar }) => bar);
+      chunks.push({
+        instrument_id: instrument.id,
+        symbol: instrument.symbol,
+        interval: "15m",
+        session_date: barSessionDate,
+        chunk_key: `${instrument.symbol}-15m-${barSessionDate}`,
+        start_time: ordered[0].time,
+        end_time: ordered[ordered.length - 1].time,
+        bars: storedBars,
+        bar_count: storedBars.length,
+        source_id: sourceId,
+        quality_status: "verified"
+      });
+    }
+  }
+  return chunks;
+}
+function mergeIncrementalCandleChunks(incomingChunks, existingChunks) {
+  const existingByKey = new Map((Array.isArray(existingChunks) ? existingChunks : []).map((chunk) => [chunk.chunk_key, chunk]));
+  return (Array.isArray(incomingChunks) ? incomingChunks : []).map((incoming) => {
+    const existing = existingByKey.get(incoming.chunk_key);
+    const existingBars = (existing?.bars || []).filter((bar) => riyadhClock(new Date(bar.time)).date === incoming.session_date);
+    const mergedBars = uniqueSortedBars([...existingBars, ...(incoming.bars || [])]);
+    const bars = mergedBars.map(({ session_date: _sessionDate, ...bar }) => bar);
+    return {
+      ...incoming,
       start_time: bars[0].time,
       end_time: bars[bars.length - 1].time,
       bars,
-      bar_count: bars.length,
-      source_id: sourceId,
-      quality_status: "verified"
-    });
-  }
-  return chunks;
+      bar_count: bars.length
+    };
+  }).filter((chunk) => chunk.bars.length);
 }
 async function fetchLicensedSnapshot({
   url,
@@ -5774,8 +5884,48 @@ async function markMissingQuotesStale(base44, instrumentIds, acceptedQuotes) {
   }));
   await bulkUpdateUnique(base44.asServiceRole.entities.QuoteLatest, updates);
 }
-async function providerCandleChunks(payload, mappings, instruments, sourceId, sessionDate, provenance) {
-  const chunks = normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate);
+async function loadCurrentCandleState(base44, sessionDate, instrumentCount) {
+  const [quotes, exactChunks] = await Promise.all([
+    base44.asServiceRole.entities.QuoteLatest.list("-updated_date", 500),
+    base44.asServiceRole.entities.CandleChunk.filter({ interval: "15m", session_date: sessionDate })
+  ]);
+  const chunksByKey = new Map((Array.isArray(exactChunks) ? exactChunks : []).map((chunk) => [chunk.chunk_key, chunk]));
+  if (chunksByKey.size < Math.floor(instrumentCount * 0.95)) {
+    const recent = await base44.asServiceRole.entities.CandleChunk.list("-end_time", 1e3);
+    for (const chunk of Array.isArray(recent) ? recent : []) {
+      if (chunk.interval !== "15m") continue;
+      if (chunk.session_date !== sessionDate && !String(chunk.chunk_key || "").endsWith(`-${sessionDate}`)) continue;
+      if (!chunksByKey.has(chunk.chunk_key)) chunksByKey.set(chunk.chunk_key, chunk);
+    }
+  }
+  return {
+    quotes: Array.isArray(quotes) ? quotes : [],
+    chunks: [...chunksByKey.values()]
+  };
+}
+async function persistIncrementalCandleChunks(base44, rows, existingChunks) {
+  const uniqueRows = groupRowsByKey(rows, (row) => `${row.instrument_id}:${row.interval}:${row.chunk_key}`).map((group) => group.row);
+  const existingByKey = new Map((Array.isArray(existingChunks) ? existingChunks : []).map((row) => [
+    `${row.instrument_id}:${row.interval}:${row.chunk_key}`,
+    row
+  ]));
+  const creates = [];
+  const updates = [];
+  for (const row of uniqueRows) {
+    const key = `${row.instrument_id}:${row.interval}:${row.chunk_key}`;
+    const existing = existingByKey.get(key);
+    if (existing) updates.push({ id: existing.id, ...row });
+    else creates.push(row);
+  }
+  if (creates.length) await base44.asServiceRole.entities.CandleChunk.bulkCreate(creates);
+  await bulkUpdateUnique(base44.asServiceRole.entities.CandleChunk, updates);
+  return { created: creates.length, updated: updates.length };
+}
+async function providerCandleChunks(payload, mappings, instruments, sourceId, sessionDate, provenance, existingChunks = []) {
+  const chunks = mergeIncrementalCandleChunks(
+    normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate),
+    existingChunks
+  );
   return await Promise.all(chunks.map(async (chunk) => ({
     ...chunk,
     checksum: await checksum(chunk.bars),
@@ -5934,8 +6084,18 @@ Deno.serve(async (req) => {
       }]);
       throw ingestionFailure("Provider instrument mapping is incomplete", "PROVIDER_MAPPING_INCOMPLETE");
     }
+    stage = "candle_cursor_load";
+    const candleState = await loadCurrentCandleState(base44, schedule.clock.date, instruments.length);
+    const candleContexts = buildPublicCandleContexts({
+      instruments,
+      quotes: candleState.quotes,
+      chunks: candleState.chunks,
+      sessionDate: schedule.clock.date
+    });
+    const symbolByInstrumentId = new Map(instruments.map((instrument) => [instrument.id, instrument.symbol]));
     let payload;
     let attemptCount = 0;
+    let requestModes = { incremental: 0, bootstrap: 0, backfill: 0 };
     try {
       stage = "provider_fetch";
       if (useLicensedProvider) {
@@ -5945,6 +6105,10 @@ Deno.serve(async (req) => {
           requestBody: {
             market_code: marketCode,
             provider_symbols: mappings.map((mapping) => mapping.provider_symbol),
+            candle_cursors: mappings.map((mapping) => ({
+              provider_symbol: mapping.provider_symbol,
+              after: candleContexts.get(symbolByInstrumentId.get(mapping.instrument_id))?.watermark || null
+            })),
             expected_as_of: expectedAsOf,
             delay_seconds: SAUDI_DELAY_SECONDS,
             slot_kind: slotKind
@@ -5954,10 +6118,13 @@ Deno.serve(async (req) => {
         attemptCount = providerResult.attemptCount;
       } else {
         const providerResult = await fetchPublicDelayedCharts({
-          symbols: instruments.map((instrument) => instrument.symbol)
+          symbols: instruments.map((instrument) => instrument.symbol),
+          contextsBySymbol: candleContexts,
+          now
         });
         payload = providerResult.payload;
         attemptCount = Math.max(1, Math.ceil(providerResult.requestCount / instruments.length));
+        requestModes = providerResult.requestModes;
       }
     } catch (error) {
       await recordQualityIssues(base44, provider.id, run.id, "", [{
@@ -6001,8 +6168,8 @@ Deno.serve(async (req) => {
       snapshotVersion,
       providerAsOf: normalized.providerAsOf,
       receivedTime: receivedAt
-    });
-    await upsertMany(base44, "CandleChunk", candleChunks, ["instrument_id", "interval", "chunk_key"]);
+    }, candleState.chunks);
+    const candlePersistence = await persistIncrementalCandleChunks(base44, candleChunks, candleState.chunks);
     stage = "drawing_alert_evaluation";
     const drawingAlerts = await evaluateDrawingAlerts(base44, normalized.accepted);
     const finishedAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -6023,6 +6190,9 @@ Deno.serve(async (req) => {
       notes: JSON.stringify({
         mode: useLicensedProvider ? "licensed_t15" : "experimental_public",
         candle_chunks: candleChunks.length,
+        candle_chunks_created: candlePersistence.created,
+        candle_chunks_updated: candlePersistence.updated,
+        request_modes: requestModes,
         rejected_count: normalized.rejected.length,
         source_issue_count: publicSourceIssues.length
       })
@@ -6041,6 +6211,9 @@ Deno.serve(async (req) => {
       success_count: normalized.accepted.length,
       failed_count: normalized.rejected.length,
       candle_chunk_count: candleChunks.length,
+      candle_chunks_created: candlePersistence.created,
+      candle_chunks_updated: candlePersistence.updated,
+      request_modes: requestModes,
       drawing_alerts: drawingAlerts,
       is_final: normalized.isFinal
     });

@@ -45,7 +45,14 @@ assert.match(ingestion, /if \(!isServiceInvocation\)/, "manual ingestion must re
 assert.match(ingestion, /MAIN_MARKET_SYMBOLS\.has\(row\.symbol\)/, "ingestion must exclude records outside the verified main-market catalog");
 assert.match(ingestion, /KMY_MARKET_DATA_URL/, "licensed ingestion must require a provider endpoint secret");
 assert.match(ingestion, /fetchPublicDelayedCharts/, "experimental ingestion must support public delayed 15-minute charts without a paid key");
-assert.match(ingestion, /previousBars\[previousBars\.length - 1\]\?\.close/, "experimental ingestion must derive previous close from the previous trading session");
+assert.match(ingestion, /buildPublicCandleContexts/, "experimental ingestion must build a stored cursor before provider requests");
+assert.match(ingestion, /url\.searchParams\.set\("period1"/, "normal public-source cycles must request only after the stored candle cursor");
+assert.match(ingestion, /publicChartRequestWindow/, "bootstrap and incremental public-source windows must be selected explicitly");
+assert.match(ingestion, /mergeIncrementalCandleChunks/, "new candles must merge into their stored daily chunk");
+assert.match(ingestion, /previousBars\.at\(-1\)\?\.close/, "experimental ingestion must retain previous-session close precedence");
+assert.match(ingestion, /request_modes:\s*requestModes/, "ingestion runs must record incremental, bootstrap, and backfill counts");
+assert.match(ingestion, /persistIncrementalCandleChunks/, "current-session candle writes must avoid scanning the complete candle history");
+assert.doesNotMatch(ingestion, /upsertMany\(base44,\s*["']CandleChunk["']/, "incremental candle writes must not list every historical chunk before each cycle");
 assert.match(ingestion, /QuoteObservation\.bulkCreate/, "accepted provider readings must be stored before promotion");
 assert.match(ingestion, /query1\.finance\.yahoo\.com/, "experimental public source must be explicit and auditable in the backend");
 assert.doesNotMatch(ingestion, /from\s+["']\.\.\/\.\.\/shared\//, "scheduled market ingestion must be self-contained for Base44 function bundling");
@@ -60,6 +67,8 @@ assert.doesNotMatch(marketRead, /query1\.finance\.yahoo\.com|YAHOO_CHART/, "mark
 
 const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIngestion/function.jsonc", import.meta.url), "utf8"));
 assert.equal(schedule.name, "marketIngestion");
+const candleChunkSchema = JSON.parse(await readFile(new URL("../base44/entities/candle-chunk.jsonc", import.meta.url), "utf8"));
+assert.equal(candleChunkSchema.properties.session_date.format, "date", "15-minute chunks must be queryable by their market session");
 const companyIntelligenceDaily = JSON.parse(await readFile(new URL("../base44/workflows/CompanyIntelligenceDaily.jsonc", import.meta.url), "utf8"));
 const companyFinancialsTwiceWeekly = JSON.parse(await readFile(new URL("../base44/workflows/CompanyFinancialsTwiceWeekly.jsonc", import.meta.url), "utf8"));
 assert.equal(schedule.automations, undefined, "the production app uses Base44 Workflows and rejects function-level legacy automations");

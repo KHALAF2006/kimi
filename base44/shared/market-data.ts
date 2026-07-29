@@ -5,6 +5,8 @@ export const COVERAGE_HEALTHY_PERCENT = 99;
 export const COVERAGE_FAILED_PERCENT = 95;
 export const PROVIDER_FRESHNESS_GRACE_SECONDS = 5 * 60;
 export const EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
+export const PUBLIC_CANDLE_OVERLAP_MILLISECONDS = 15 * 60 * 1000;
+export const PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS = 8 * 24 * 60 * 60 * 1000;
 export const MARKET_AUTOMATION_SPECS = Object.freeze([
   { name: "saudi_t15_1015_1045_riyadh", cron: "15,30,45 7 * * 0-4", slotKind: "quarter_hour", active: false },
   { name: "saudi_t15_1100_1445_riyadh", cron: "0,15,30,45 8-11 * * 0-4", slotKind: "quarter_hour", active: false },
@@ -424,7 +426,81 @@ function chartBars(result) {
   }).filter(Boolean).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 }
 
-export function normalizePublicDelayedCharts(chartResults) {
+function uniqueSortedBars(bars) {
+  const byTime = new Map();
+  for (const bar of Array.isArray(bars) ? bars : []) {
+    const time = new Date(bar?.time).getTime();
+    if (!Number.isFinite(time)) continue;
+    const iso = new Date(time).toISOString();
+    byTime.set(iso, { ...bar, time: iso, session_date: bar.session_date || riyadhClock(new Date(time)).date });
+  }
+  return [...byTime.values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+}
+
+function contextForSymbol(contextsBySymbol, symbol) {
+  if (contextsBySymbol instanceof Map) return contextsBySymbol.get(symbol) || {};
+  return contextsBySymbol?.[symbol] || {};
+}
+
+export function publicChartRequestWindow({
+  watermark,
+  now = new Date(),
+  overlapMilliseconds = PUBLIC_CANDLE_OVERLAP_MILLISECONDS,
+  maxIncrementalLookbackMilliseconds = PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS,
+} = {}) {
+  const nowTime = new Date(now).getTime();
+  if (!Number.isFinite(nowTime)) throw new Error("Public chart request time is invalid");
+  const watermarkTime = new Date(watermark || "").getTime();
+  if (!Number.isFinite(watermarkTime)) return { mode: "bootstrap", range: "5d" };
+  if (nowTime - watermarkTime > maxIncrementalLookbackMilliseconds) {
+    return { mode: "backfill", range: "5d" };
+  }
+  return {
+    mode: "incremental",
+    period1: Math.floor((watermarkTime - overlapMilliseconds) / 1000),
+    period2: Math.ceil(nowTime / 1000) + 60,
+  };
+}
+
+export function buildPublicCandleContexts({
+  instruments,
+  quotes,
+  chunks,
+  sessionDate,
+}) {
+  const quoteByInstrument = new Map((Array.isArray(quotes) ? quotes : []).map((quote) => [quote.instrument_id, quote]));
+  const chunkByInstrument = new Map();
+  for (const chunk of Array.isArray(chunks) ? chunks : []) {
+    if (chunk.interval !== "15m") continue;
+    const matchesSession = chunk.session_date === sessionDate
+      || String(chunk.chunk_key || "").endsWith(`-${sessionDate}`);
+    if (!matchesSession) continue;
+    const current = chunkByInstrument.get(chunk.instrument_id);
+    if (!current || new Date(chunk.end_time || 0).getTime() > new Date(current.end_time || 0).getTime()) {
+      chunkByInstrument.set(chunk.instrument_id, chunk);
+    }
+  }
+  const contexts = new Map();
+  for (const instrument of Array.isArray(instruments) ? instruments : []) {
+    const quote = quoteByInstrument.get(instrument.id) || {};
+    const chunk = chunkByInstrument.get(instrument.id) || {};
+    const bars = uniqueSortedBars((chunk.bars || []).filter((bar) => riyadhClock(new Date(bar.time)).date === sessionDate));
+    const latestBarTime = bars.at(-1)?.time || "";
+    const quoteSessionDate = String(quote.session_date || "");
+    const previousClose = quoteSessionDate === sessionDate
+      ? positiveNumber(quote.previous_close)
+      : positiveNumber(quote.last_price) || positiveNumber(quote.previous_close);
+    contexts.set(instrument.symbol, {
+      session_date: sessionDate,
+      bars,
+      watermark: latestBarTime || quote.last_trade_time || quote.provider_as_of || "",
+      previous_close: previousClose,
+    });
+  }
+  return contexts;
+}
+
+export function normalizePublicDelayedCharts(chartResults, contextsBySymbol = new Map()) {
   const quotes = [];
   const candles = [];
   const rejected = [];
@@ -432,25 +508,30 @@ export function normalizePublicDelayedCharts(chartResults) {
 
   for (const item of chartResults) {
     const symbol = String(item?.symbol || "").trim();
-    const bars = chartBars(item?.result);
+    const incomingBars = chartBars(item?.result);
+    const context = contextForSymbol(contextsBySymbol, symbol);
+    const bars = uniqueSortedBars([...(context.bars || []), ...incomingBars]);
     const sessions = new Map();
     for (const bar of bars) {
       if (!sessions.has(bar.session_date)) sessions.set(bar.session_date, []);
       sessions.get(bar.session_date).push(bar);
     }
     const dates = [...sessions.keys()].sort();
-    if (!symbol || dates.length < 2) {
-      rejected.push({ symbol, issue_type: "public_chart_incomplete", message: "Public delayed chart did not include two valid trading sessions" });
+    if (!symbol || !incomingBars.length || !dates.length) {
+      rejected.push({ symbol, issue_type: "public_chart_incomplete", message: "Public delayed chart did not include a valid incremental candle" });
       continue;
     }
     const sessionDate = dates[dates.length - 1];
     const currentBars = sessions.get(sessionDate);
-    const previousBars = sessions.get(dates[dates.length - 2]);
+    const previousBars = dates.length > 1 ? sessions.get(dates[dates.length - 2]) : [];
     const first = currentBars[0];
     const last = currentBars[currentBars.length - 1];
-    const previousClose = previousBars[previousBars.length - 1]?.close;
+    const previousClose = positiveNumber(previousBars.at(-1)?.close)
+      || positiveNumber(item?.result?.meta?.chartPreviousClose)
+      || positiveNumber(item?.result?.meta?.previousClose)
+      || positiveNumber(context.previous_close);
     if (!positiveNumber(previousClose)) {
-      rejected.push({ symbol, issue_type: "previous_close_missing", message: "Public delayed chart did not include a valid previous-session close" });
+      rejected.push({ symbol, issue_type: "previous_close_missing", message: "Public delayed chart and stored cursor did not include a valid previous-session close" });
       continue;
     }
     const high = Math.max(...currentBars.map((bar) => bar.high));
@@ -475,9 +556,10 @@ export function normalizePublicDelayedCharts(chartResults) {
       change_percent: changePercent,
       last_trade_time: lastTradeTime,
     });
+    const incomingCurrentBars = incomingBars.filter((bar) => bar.session_date === sessionDate);
     candles.push({
       provider_symbol: providerSymbol,
-      bars: currentBars.map(({ time, open, high: barHigh, low: barLow, close, volume: barVolume }) => ({
+      bars: incomingCurrentBars.map(({ time, open, high: barHigh, low: barLow, close, volume: barVolume }) => ({
         time,
         open,
         high: barHigh,
@@ -495,6 +577,8 @@ export function normalizePublicDelayedCharts(chartResults) {
 
 export async function fetchPublicDelayedCharts({
   symbols,
+  contextsBySymbol = new Map(),
+  now = new Date(),
   fetchImpl = fetch,
   concurrency = 15,
   attempts = 2,
@@ -505,6 +589,7 @@ export async function fetchPublicDelayedCharts({
   const failures = [];
   let cursor = 0;
   let requestCount = 0;
+  const requestModes = { incremental: 0, bootstrap: 0, backfill: 0 };
 
   async function fetchOne(symbol) {
     let lastError = null;
@@ -516,7 +601,13 @@ export async function fetchPublicDelayedCharts({
         const providerSymbol = `${symbol}.SR`;
         const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(providerSymbol)}`);
         url.searchParams.set("interval", "15m");
-        url.searchParams.set("range", "5d");
+        const context = contextForSymbol(contextsBySymbol, symbol);
+        const window = publicChartRequestWindow({ watermark: context.watermark, now });
+        if (window.range) url.searchParams.set("range", window.range);
+        else {
+          url.searchParams.set("period1", String(window.period1));
+          url.searchParams.set("period2", String(window.period2));
+        }
         url.searchParams.set("includePrePost", "false");
         url.searchParams.set("events", "div,splits");
         const response = await fetchImpl(url, {
@@ -528,6 +619,7 @@ export async function fetchPublicDelayedCharts({
         const result = payload?.chart?.result?.[0];
         if (!result) throw new Error("Public delayed source returned no chart");
         results.push({ symbol, result });
+        requestModes[window.mode] += 1;
         return;
       } catch (error) {
         lastError = error;
@@ -548,13 +640,14 @@ export async function fetchPublicDelayedCharts({
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, () => worker()));
-  const normalized = normalizePublicDelayedCharts(results);
+  const normalized = normalizePublicDelayedCharts(results, contextsBySymbol);
   return {
     payload: {
       ...normalized,
       rejected: [...failures, ...normalized.rejected],
     },
     requestCount,
+    requestModes,
   };
 }
 
@@ -579,20 +672,48 @@ export function normalizeProviderCandles(payload, mappings, instruments, sourceI
       && bar.high >= Math.max(bar.open, bar.close)
       && bar.low <= Math.min(bar.open, bar.close));
     if (!bars.length) continue;
-    chunks.push({
-      instrument_id: instrument.id,
-      symbol: instrument.symbol,
-      interval: "15m",
-      chunk_key: `${instrument.symbol}-15m-${sessionDate}`,
+    const bySession = new Map();
+    for (const bar of bars) {
+      const barSessionDate = riyadhClock(new Date(bar.time)).date || sessionDate;
+      if (!bySession.has(barSessionDate)) bySession.set(barSessionDate, []);
+      bySession.get(barSessionDate).push(bar);
+    }
+    for (const [barSessionDate, sessionBars] of bySession) {
+      const ordered = uniqueSortedBars(sessionBars);
+      const storedBars = ordered.map(({ session_date: _sessionDate, ...bar }) => bar);
+      chunks.push({
+        instrument_id: instrument.id,
+        symbol: instrument.symbol,
+        interval: "15m",
+        session_date: barSessionDate,
+        chunk_key: `${instrument.symbol}-15m-${barSessionDate}`,
+        start_time: ordered[0].time,
+        end_time: ordered[ordered.length - 1].time,
+        bars: storedBars,
+        bar_count: storedBars.length,
+        source_id: sourceId,
+        quality_status: "verified",
+      });
+    }
+  }
+  return chunks;
+}
+
+export function mergeIncrementalCandleChunks(incomingChunks, existingChunks) {
+  const existingByKey = new Map((Array.isArray(existingChunks) ? existingChunks : []).map((chunk) => [chunk.chunk_key, chunk]));
+  return (Array.isArray(incomingChunks) ? incomingChunks : []).map((incoming) => {
+    const existing = existingByKey.get(incoming.chunk_key);
+    const existingBars = (existing?.bars || []).filter((bar) => riyadhClock(new Date(bar.time)).date === incoming.session_date);
+    const mergedBars = uniqueSortedBars([...existingBars, ...(incoming.bars || [])]);
+    const bars = mergedBars.map(({ session_date: _sessionDate, ...bar }) => bar);
+    return {
+      ...incoming,
       start_time: bars[0].time,
       end_time: bars[bars.length - 1].time,
       bars,
       bar_count: bars.length,
-      source_id: sourceId,
-      quality_status: "verified",
-    });
-  }
-  return chunks;
+    };
+  }).filter((chunk) => chunk.bars.length);
 }
 
 export async function fetchLicensedSnapshot({
