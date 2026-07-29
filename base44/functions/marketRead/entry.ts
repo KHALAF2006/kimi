@@ -9,6 +9,7 @@ import {
   EXPECTED_INSTRUMENT_COUNT,
   SAUDI_DELAY_SECONDS,
   marketPhase,
+  mergeStoredCandleSeries,
   riyadhClock
 } from "../../shared/market-data.ts";
 var official_main_market_catalog_2026_07_21_default = {
@@ -5256,34 +5257,6 @@ var RANGE_MILLISECONDS = {
   "5y": 5 * 366 * 24 * 60 * 60 * 1e3,
   "10y": 10 * 366 * 24 * 60 * 60 * 1e3
 };
-var RIYADH_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Riyadh",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit"
-});
-function riyadhDateKey(value) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  const parts = RIYADH_DATE_FORMATTER.formatToParts(date);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-function candleBucket(value, interval) {
-  const time = new Date(value).getTime();
-  if (!Number.isFinite(time)) return "";
-  if (interval === "1h") return `hour:${Math.floor(time / (60 * 60 * 1e3))}`;
-  const dateKey = riyadhDateKey(time);
-  if (!dateKey) return "";
-  if (interval === "1d") return `day:${dateKey}`;
-  if (interval === "1mo") return `month:${dateKey.slice(0, 7)}`;
-  if (interval === "1wk") {
-    const start = new Date(`${dateKey}T00:00:00.000Z`);
-    start.setUTCDate(start.getUTCDate() - start.getUTCDay());
-    return `week:${start.toISOString().slice(0, 10)}`;
-  }
-  return new Date(time).toISOString();
-}
 function normalizedStoredBars(chunks) {
   const byTime = new Map();
   for (const chunk of chunks) for (const bar of chunk.bars || []) {
@@ -5299,30 +5272,14 @@ function normalizedStoredBars(chunks) {
   }
   return [...byTime.values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 }
-function aggregateStoredBars(bars, interval) {
-  if (interval === "15m") return bars;
-  const grouped = new Map();
-  for (const bar of bars) {
-    const bucket = candleBucket(bar.time, interval);
-    if (!bucket) continue;
-    const current = grouped.get(bucket);
-    if (!current) {
-      grouped.set(bucket, { ...bar });
-      continue;
-    }
-    current.high = Math.max(current.high, bar.high);
-    current.low = Math.min(current.low, bar.low);
-    current.close = bar.close;
-    current.volume += bar.volume;
-  }
-  return [...grouped.values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-}
 function fallbackIntervals(interval) {
   if (interval === "1wk" || interval === "1mo") return [interval, "1d", "15m"];
   if (interval === "1d" || interval === "1h") return [interval, "15m"];
   return [interval];
 }
 async function storedCandlesForInterval(base44, instrumentId, interval) {
+  const series = [];
+  const allChunks = [];
   for (const storedInterval of fallbackIntervals(interval)) {
     const chunks = entityRows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrumentId, interval: storedInterval }))
       .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
@@ -5330,10 +5287,21 @@ async function storedCandlesForInterval(base44, instrumentId, interval) {
     if (!chunks.length) continue;
     const storedBars = normalizedStoredBars(chunks);
     if (!storedBars.length) continue;
-    const bars = storedInterval === interval ? storedBars : aggregateStoredBars(storedBars, interval);
-    if (bars.length) return { bars, chunks, latestChunk: chunks[chunks.length - 1], storedInterval };
+    series.push({ interval: storedInterval, bars: storedBars });
+    allChunks.push(...chunks);
   }
-  return { bars: [], chunks: [], latestChunk: null, storedInterval: null };
+  const merged = mergeStoredCandleSeries(series, interval);
+  const latestChunk = allChunks
+    .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime())
+    .at(-1) || null;
+  return {
+    bars: merged.bars,
+    chunks: allChunks,
+    latestChunk,
+    latestSourceTime: merged.latestSourceTime,
+    storedInterval: merged.storedIntervals.join("+") || null,
+    storedIntervals: merged.storedIntervals
+  };
 }
 async function chartResponse(base44, body, sources) {
   const instrument = await instrumentFor(base44, body);
@@ -5352,7 +5320,7 @@ async function chartResponse(base44, body, sources) {
   const candles = stored.bars.filter((bar) => new Date(bar.time).getTime() >= cutoff);
   if (!candles.length) throw Object.assign(new Error("Stored chart data contains no valid candles for the requested range"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   const source = sources.find((item) => item.id === latestChunk.source_id) || null;
-  const asOf = latestChunk.end_time || candles[candles.length - 1].time;
+  const asOf = latestChunk.provider_as_of || stored.latestSourceTime || latestChunk.end_time || candles[candles.length - 1].time;
   return {
     candles,
     as_of: asOf,
@@ -5364,7 +5332,11 @@ async function chartResponse(base44, body, sources) {
       quality_status: latestChunk.quality_status,
       license_status: source?.license_status || "restricted",
       requested_interval: interval,
-      stored_interval: stored.storedInterval
+      stored_interval: stored.storedInterval,
+      stored_intervals: stored.storedIntervals,
+      snapshot_version: latestChunk.snapshot_version || null,
+      run_id: latestChunk.run_id || null,
+      provider_as_of: latestChunk.provider_as_of || asOf
     }
   };
 }

@@ -6,6 +6,7 @@ import {
   expectedProviderAsOf,
   freshnessStatus,
   groupRowsByKey,
+  mergeStoredCandleSeries,
   normalizeLicensedSnapshot,
   normalizePublicDelayedCharts,
   normalizeProviderCandles,
@@ -129,6 +130,46 @@ assert.equal(chunks.length, 1);
 assert.equal(chunks[0].bars.length, 1, "invalid OHLC bars must be discarded");
 assert.equal(chunks[0].interval, "15m");
 
+const mergedDailyCandles = mergeStoredCandleSeries([
+  {
+    interval: "1d",
+    bars: [
+      { time: "2026-07-26T07:00:00.000Z", open: 180, high: 190, low: 179, close: 188, volume: 1000 },
+      { time: "2026-07-27T07:00:00.000Z", open: 188, high: 194, low: 187, close: 192, volume: 1200 },
+    ],
+  },
+  {
+    interval: "15m",
+    bars: [
+      { time: "2026-07-28T07:00:00.000Z", open: 192, high: 194, low: 191, close: 193, volume: 100 },
+      { time: "2026-07-28T07:15:00.000Z", open: 193, high: 196, low: 192, close: 195, volume: 150 },
+      { time: "2026-07-29T07:00:00.000Z", open: 195, high: 196, low: 188, close: 189, volume: 200 },
+      { time: "2026-07-29T07:15:00.000Z", open: 189, high: 191, low: 187, close: 190, volume: 250 },
+    ],
+  },
+], "1d");
+assert.equal(mergedDailyCandles.bars.length, 4, "fresh 15-minute sessions must extend stored daily history");
+assert.equal(mergedDailyCandles.bars.at(-1).close, 190);
+assert.equal(mergedDailyCandles.bars.at(-1).high, 196);
+assert.equal(mergedDailyCandles.bars.at(-1).low, 187);
+assert.equal(mergedDailyCandles.bars.at(-1).volume, 450);
+assert.equal(mergedDailyCandles.latestSourceTime, "2026-07-29T07:15:00.000Z");
+assert.deepEqual(mergedDailyCandles.storedIntervals, ["1d", "15m"]);
+
+const mergedWeeklyCandles = mergeStoredCandleSeries([
+  { interval: "1d", bars: mergedDailyCandles.bars },
+  {
+    interval: "15m",
+    bars: [
+      { time: "2026-07-30T07:00:00.000Z", open: 190, high: 193, low: 189, close: 192, volume: 300 },
+    ],
+  },
+], "1wk");
+assert.equal(mergedWeeklyCandles.bars.length, 1, "daily and intraday candles from one Riyadh trading week must form one weekly candle");
+assert.equal(mergedWeeklyCandles.bars[0].close, 192);
+assert.equal(mergedWeeklyCandles.bars[0].high, 196);
+assert.equal(mergedWeeklyCandles.bars[0].low, 179);
+
 const publicCharts = normalizePublicDelayedCharts([{
   symbol: "1321",
   result: {
@@ -161,4 +202,5 @@ console.log(JSON.stringify({
   canonicalChangeCalculation: true,
   experimentalPublicPreviousClose: true,
   explicitCandlesOnly: true,
+  mergedHigherIntervals: true,
 }, null, 2));

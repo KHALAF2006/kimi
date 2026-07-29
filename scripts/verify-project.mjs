@@ -245,8 +245,10 @@ const dashboardPage = await readFile(new URL("../src/pages/Dashboard.jsx", impor
 assert.match(dashboardPage, /SectorPanel/, "sector selection must open a sector profile, not only filter the table");
 assert.doesNotMatch(dashboardPage, /MarketDataStatus/, "the removed market-status banner must not be mounted on the dashboard");
 assert.match(marketReadFunction, /fallbackIntervals\(interval\)/, "weekly and monthly chart requests must fall back to stored daily or intraday candles");
-assert.match(marketReadFunction, /aggregateStoredBars\(storedBars, interval\)/, "fallback chart candles must be aggregated on the protected backend");
 assert.match(marketReadFunction, /storedCandlesForInterval\(base44, instrument\.id, interval\)/, "company and sector charts must share the same candle aggregation path");
+assert.match(marketReadFunction, /mergeStoredCandleSeries\(series, interval\)/, "stored historical and fresh intraday candles must be merged instead of returning the first stale interval");
+assert.doesNotMatch(marketReadFunction, /if \(bars\.length\) return \{ bars, chunks/, "chart storage must not stop at the first stale interval");
+assert.match(ingestion, /snapshot_version: provenance\.snapshotVersion/, "candle chunks must retain their ingestion snapshot provenance");
 const customerMarketTable = await readFile(new URL("../src/components/market/MarketTable.jsx", import.meta.url), "utf8");
 assert.doesNotMatch(customerMarketTable, /data_state\?\.label/, "the market table must not replay obsolete labels stored with old quotes");
 const customerMarketTicker = await readFile(new URL("../src/components/market/MarketTicker.jsx", import.meta.url), "utf8");

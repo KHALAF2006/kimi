@@ -5774,9 +5774,16 @@ async function markMissingQuotesStale(base44, instrumentIds, acceptedQuotes) {
   }));
   await bulkUpdateUnique(base44.asServiceRole.entities.QuoteLatest, updates);
 }
-async function providerCandleChunks(payload, mappings, instruments, sourceId, sessionDate) {
+async function providerCandleChunks(payload, mappings, instruments, sourceId, sessionDate, provenance) {
   const chunks = normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate);
-  return await Promise.all(chunks.map(async (chunk) => ({ ...chunk, checksum: await checksum(chunk.bars) })));
+  return await Promise.all(chunks.map(async (chunk) => ({
+    ...chunk,
+    checksum: await checksum(chunk.bars),
+    run_id: provenance.runId,
+    snapshot_version: provenance.snapshotVersion,
+    provider_as_of: provenance.providerAsOf,
+    received_time: provenance.receivedTime
+  })));
 }
 function ingestionFailure(message, code = "MARKET_INGESTION_FAILED", status = 503) {
   return Object.assign(new Error(message), { code, status });
@@ -5963,6 +5970,7 @@ Deno.serve(async (req) => {
     const providerAsOf = String(payload?.data?.provider_as_of || payload?.provider_as_of || payload?.data?.as_of || payload?.as_of || "");
     const snapshotVersion = await stableSnapshotVersion({ marketCode, providerCode, providerAsOf, slotKey });
     stage = "snapshot_normalization";
+    const receivedAt = (/* @__PURE__ */ new Date()).toISOString();
     const normalized = normalizeLicensedSnapshot({
       payload,
       mappings,
@@ -5970,7 +5978,7 @@ Deno.serve(async (req) => {
       sourceId: provider.id,
       runId: run.id,
       snapshotVersion,
-      receivedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      receivedAt,
       slotKind,
       validationMode: useLicensedProvider ? "licensed_t15" : "experimental_public"
     });
@@ -5988,7 +5996,12 @@ Deno.serve(async (req) => {
     stage = "missing_quote_mark_stale";
     await markMissingQuotesStale(base44, instruments.map((instrument) => instrument.id), normalized.accepted);
     stage = "candle_chunk_upsert";
-    const candleChunks = await providerCandleChunks(payload, mappings, instruments, provider.id, schedule.clock.date);
+    const candleChunks = await providerCandleChunks(payload, mappings, instruments, provider.id, schedule.clock.date, {
+      runId: run.id,
+      snapshotVersion,
+      providerAsOf: normalized.providerAsOf,
+      receivedTime: receivedAt
+    });
     await upsertMany(base44, "CandleChunk", candleChunks, ["instrument_id", "interval", "chunk_key"]);
     stage = "drawing_alert_evaluation";
     const drawingAlerts = await evaluateDrawingAlerts(base44, normalized.accepted);

@@ -31,6 +31,153 @@ export function groupRowsByKey(rows, keyFor) {
   return [...grouped.values()];
 }
 
+function candleBucket(value, interval) {
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return "";
+  if (interval === "15m") return `quarter:${Math.floor(time / (15 * 60 * 1000))}`;
+  if (interval === "1h") return `hour:${Math.floor(time / (60 * 60 * 1000))}`;
+  const dateKey = riyadhClock(new Date(time)).date;
+  if (interval === "1d") return `day:${dateKey}`;
+  if (interval === "1mo") return `month:${dateKey.slice(0, 7)}`;
+  if (interval === "1wk") {
+    const start = new Date(`${dateKey}T00:00:00.000Z`);
+    start.setUTCDate(start.getUTCDate() - start.getUTCDay());
+    return `week:${start.toISOString().slice(0, 10)}`;
+  }
+  return "";
+}
+
+function normalizedCandleBar(bar) {
+  const time = new Date(bar?.time).getTime();
+  const open = positiveNumber(bar?.open);
+  const high = positiveNumber(bar?.high);
+  const low = positiveNumber(bar?.low);
+  const close = positiveNumber(bar?.close);
+  const volume = nonNegativeNumber(bar?.volume);
+  if (!Number.isFinite(time)
+    || [open, high, low, close].some((value) => value === null)
+    || high < Math.max(open, close)
+    || low > Math.min(open, close)) return null;
+  return {
+    time: new Date(time).toISOString(),
+    open,
+    high,
+    low,
+    close,
+    volume,
+  };
+}
+
+export function mergeStoredCandleSeries(series, requestedInterval) {
+  const intervalPriority = new Map();
+  const storedIntervals = [];
+  const normalizedSeries = [];
+
+  for (const candidateSeries of Array.isArray(series) ? series : []) {
+    const sourceInterval = String(candidateSeries?.interval || "");
+    if (!sourceInterval || !Array.isArray(candidateSeries?.bars)) continue;
+    if (!intervalPriority.has(sourceInterval)) {
+      intervalPriority.set(sourceInterval, intervalPriority.size);
+      storedIntervals.push(sourceInterval);
+    }
+    normalizedSeries.push({
+      interval: sourceInterval,
+      bars: candidateSeries.bars,
+      rank: intervalPriority.get(sourceInterval),
+    });
+  }
+
+  function materialize(candidateSeries, bucketInterval) {
+    const grouped = new Map();
+    for (const rawBar of candidateSeries.bars) {
+      const bar = normalizedCandleBar(rawBar);
+      if (!bar) continue;
+      const bucket = candleBucket(bar.time, bucketInterval);
+      if (!bucket) continue;
+      const current = grouped.get(bucket);
+      if (!current) {
+        grouped.set(bucket, {
+          ...bar,
+          source_end: bar.time,
+          source_interval: candidateSeries.interval,
+          source_rank: candidateSeries.rank,
+        });
+        continue;
+      }
+      current.high = Math.max(current.high, bar.high);
+      current.low = Math.min(current.low, bar.low);
+      current.close = bar.close;
+      current.volume += bar.volume;
+      current.source_end = bar.time;
+    }
+    return [...grouped.values()];
+  }
+
+  function mergeByBucket(bars, bucketInterval) {
+    const merged = new Map();
+    for (const bar of bars) {
+      const bucket = candleBucket(bar.time, bucketInterval);
+      if (!bucket) continue;
+      const current = merged.get(bucket);
+      const candidateEnd = new Date(bar.source_end).getTime();
+      const currentEnd = new Date(current?.source_end || 0).getTime();
+      if (!current
+        || candidateEnd > currentEnd
+        || candidateEnd === currentEnd && bar.source_rank < current.source_rank) {
+        merged.set(bucket, bar);
+      }
+    }
+    return [...merged.values()]
+      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  }
+
+  function aggregateMaterialized(bars, bucketInterval) {
+    const grouped = new Map();
+    for (const bar of bars) {
+      const bucket = candleBucket(bar.time, bucketInterval);
+      if (!bucket) continue;
+      const current = grouped.get(bucket);
+      if (!current) {
+        grouped.set(bucket, { ...bar, source_rank: Number.MAX_SAFE_INTEGER });
+        continue;
+      }
+      current.high = Math.max(current.high, bar.high);
+      current.low = Math.min(current.low, bar.low);
+      current.close = bar.close;
+      current.volume += bar.volume;
+      current.source_end = bar.source_end;
+    }
+    return [...grouped.values()];
+  }
+
+  let ordered;
+  if (requestedInterval === "1wk" || requestedInterval === "1mo") {
+    const direct = normalizedSeries
+      .filter((candidateSeries) => candidateSeries.interval === requestedInterval)
+      .flatMap((candidateSeries) => materialize(candidateSeries, requestedInterval));
+    const dailyInputs = normalizedSeries
+      .filter((candidateSeries) => candidateSeries.interval !== requestedInterval)
+      .flatMap((candidateSeries) => materialize(candidateSeries, "1d"));
+    const mergedDaily = mergeByBucket(dailyInputs, "1d");
+    const derived = aggregateMaterialized(mergedDaily, requestedInterval);
+    ordered = mergeByBucket([...direct, ...derived], requestedInterval);
+  } else {
+    const materialized = normalizedSeries
+      .flatMap((candidateSeries) => materialize(candidateSeries, requestedInterval));
+    ordered = mergeByBucket(materialized, requestedInterval);
+  }
+
+  const latestSourceTime = ordered
+    .map((bar) => bar.source_end)
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+    .at(-1) || null;
+  return {
+    bars: ordered.map(({ source_end: _sourceEnd, source_interval: _sourceInterval, source_rank: _sourceRank, ...bar }) => bar),
+    storedIntervals,
+    latestSourceTime,
+  };
+}
+
 function finiteNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);

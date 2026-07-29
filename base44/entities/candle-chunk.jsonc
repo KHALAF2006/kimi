@@ -73,6 +73,20 @@
     "source_id": {
       "type": "string"
     },
+    "run_id": {
+      "type": "string"
+    },
+    "snapshot_version": {
+      "type": "string"
+    },
+    "provider_as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "received_time": {
+      "type": "string",
+      "format": "date-time"
+    },
     "quality_status": {
       "type": "string",
       "enum": [
