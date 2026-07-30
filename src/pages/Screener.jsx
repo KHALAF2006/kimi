@@ -21,13 +21,14 @@ const timeframeOptions = [
 
 function SignalEvidence({ row, timeframe, language, isArabic }) {
   const values = row.signals?.[timeframe]?.values || {};
+  const candleTimestamp = Date.parse(values.candle_time || "");
   return <div className="screener-evidence">
     <b>{row.symbol} · {isArabic ? row.name_ar : row.name_en}</b>
     <span>{isArabic ? "الإغلاق" : "Close"}: {formatNumber(values.close, language)}</span>
     <span>SMA 20: {formatNumber(values.sma20, language)}</span>
     <span>SMA 50: {formatNumber(values.sma50, language)}</span>
     {values.matching_zone && <span>{isArabic ? values.matching_zone.name_ar : values.matching_zone.name_en}</span>}
-    <span>{new Date(values.candle_time).toLocaleDateString(isArabic ? "ar-SA" : "en-US")}</span>
+    <span>{Number.isFinite(candleTimestamp) ? new Date(candleTimestamp).toLocaleDateString(isArabic ? "ar-SA" : "en-US") : "—"}</span>
   </div>;
 }
 
@@ -46,8 +47,10 @@ export default function Screener() {
   >
     {(data) => {
       const normalizedQuery = query.trim().toLocaleLowerCase(isArabic ? "ar" : "en");
-      const rows = (data.instruments || []).filter((row) => !normalizedQuery
-        || `${row.symbol} ${row.name_ar} ${row.name_en} ${row.sector_ar} ${row.sector_en}`.toLocaleLowerCase(isArabic ? "ar" : "en").includes(normalizedQuery));
+      const rows = (data.instruments || [])
+        .filter((row) => row.signals?.[timeframe]?.values)
+        .filter((row) => !normalizedQuery
+          || `${row.symbol} ${row.name_ar} ${row.name_en} ${row.sector_ar} ${row.sector_en}`.toLocaleLowerCase(isArabic ? "ar" : "en").includes(normalizedQuery));
       return <div className="space-y-4">
         <section className="surface-panel p-4">
           <div className="relative">
