@@ -237,6 +237,45 @@ function chartBars(result) {
     };
   }).filter(Boolean).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 }
+var QUARTER_HOUR_MILLISECONDS = 15 * 60 * 1e3;
+function canonicalizeQuarterHourBars(bars) {
+  const byBucket = /* @__PURE__ */ new Map();
+  for (const rawBar of Array.isArray(bars) ? bars : []) {
+    const rawTime = new Date(rawBar?.time).getTime();
+    const open = positiveNumber(rawBar?.open);
+    const high = positiveNumber(rawBar?.high);
+    const low = positiveNumber(rawBar?.low);
+    const close = positiveNumber(rawBar?.close);
+    const volume = nonNegativeNumber(rawBar?.volume);
+    if (!Number.isFinite(rawTime)
+      || [open, high, low, close].some((value) => value === null)
+      || high < Math.max(open, close)
+      || low > Math.min(open, close)) continue;
+    const bucketTime = Math.floor(rawTime / QUARTER_HOUR_MILLISECONDS) * QUARTER_HOUR_MILLISECONDS;
+    const exactGridTime = rawTime === bucketTime;
+    const current = byBucket.get(bucketTime);
+    if (current
+      && (current.exactGridTime && !exactGridTime
+        || current.exactGridTime === exactGridTime && current.rawTime > rawTime)) continue;
+    const bucketDate = new Date(bucketTime);
+    byBucket.set(bucketTime, {
+      bar: {
+        time: bucketDate.toISOString(),
+        session_date: rawBar?.session_date || riyadhClock(bucketDate).date,
+        open,
+        high,
+        low,
+        close,
+        volume
+      },
+      exactGridTime,
+      rawTime
+    });
+  }
+  return [...byBucket.values()]
+    .sort((a, b) => new Date(a.bar.time).getTime() - new Date(b.bar.time).getTime())
+    .map(({ bar }) => bar);
+}
 function uniqueSortedBars(bars) {
   const byTime = /* @__PURE__ */ new Map();
   for (const bar of Array.isArray(bars) ? bars : []) {
@@ -291,7 +330,7 @@ function buildPublicCandleContexts({
   for (const instrument of Array.isArray(instruments) ? instruments : []) {
     const quote = quoteByInstrument.get(instrument.id) || {};
     const chunk = chunkByInstrument.get(instrument.id) || {};
-    const bars = uniqueSortedBars((chunk.bars || []).filter((bar) => riyadhClock(new Date(bar.time)).date === sessionDate));
+    const bars = canonicalizeQuarterHourBars((chunk.bars || []).filter((bar) => riyadhClock(new Date(bar.time)).date === sessionDate));
     const latestBarTime = bars.at(-1)?.time || "";
     const quoteSessionDate = String(quote.session_date || "");
     const previousClose = quoteSessionDate === sessionDate ? positiveNumber(quote.previous_close) : positiveNumber(quote.last_price) || positiveNumber(quote.previous_close);
@@ -313,7 +352,7 @@ function normalizePublicDelayedCharts(chartResults, contextsBySymbol = /* @__PUR
     const symbol = String(item?.symbol || "").trim();
     const incomingBars = chartBars(item?.result);
     const context = contextForSymbol(contextsBySymbol, symbol);
-    const bars = uniqueSortedBars([...(context.bars || []), ...incomingBars]);
+    const bars = canonicalizeQuarterHourBars([...(context.bars || []), ...incomingBars]);
     const sessions = /* @__PURE__ */ new Map();
     for (const bar of bars) {
       if (!sessions.has(bar.session_date)) sessions.set(bar.session_date, []);
@@ -352,7 +391,7 @@ function normalizePublicDelayedCharts(chartResults, contextsBySymbol = /* @__PUR
       change_percent: changePercent,
       last_trade_time: lastTradeTime
     });
-    const incomingCurrentBars = incomingBars.filter((bar) => bar.session_date === sessionDate);
+    const incomingCurrentBars = canonicalizeQuarterHourBars(incomingBars.filter((bar) => bar.session_date === sessionDate));
     candles.push({
       provider_symbol: providerSymbol,
       bars: incomingCurrentBars.map(({ time, open, high: barHigh, low: barLow, close, volume: barVolume }) => ({
@@ -467,7 +506,7 @@ function normalizeProviderCandles(payload, mappings, instruments, sourceId, sess
       bySession.get(barSessionDate).push(bar);
     }
     for (const [barSessionDate, sessionBars] of bySession) {
-      const ordered = uniqueSortedBars(sessionBars);
+      const ordered = canonicalizeQuarterHourBars(sessionBars);
       const storedBars = ordered.map(({ session_date: _sessionDate, ...bar }) => bar);
       chunks.push({
         instrument_id: instrument.id,
@@ -491,7 +530,7 @@ function mergeIncrementalCandleChunks(incomingChunks, existingChunks) {
   return (Array.isArray(incomingChunks) ? incomingChunks : []).map((incoming) => {
     const existing = existingByKey.get(incoming.chunk_key);
     const existingBars = (existing?.bars || []).filter((bar) => riyadhClock(new Date(bar.time)).date === incoming.session_date);
-    const mergedBars = uniqueSortedBars([...existingBars, ...(incoming.bars || [])]);
+    const mergedBars = canonicalizeQuarterHourBars([...existingBars, ...(incoming.bars || [])]);
     const bars = mergedBars.map(({ session_date: _sessionDate, ...bar }) => bar);
     return {
       ...incoming,

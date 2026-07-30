@@ -3,6 +3,7 @@ import {
   SAUDI_DELAY_SECONDS,
   MARKET_AUTOMATION_SPECS,
   buildPublicCandleContexts,
+  canonicalizeQuarterHourBars,
   coverageStatus,
   expectedProviderAsOf,
   fetchPublicDelayedCharts,
@@ -16,6 +17,12 @@ import {
   publicChartRequestWindow,
   slotDecision,
 } from "../base44/shared/market-data.ts";
+import {
+  aggregateTechnicalBars,
+  calculateSmaSeries,
+  calculateTechnicalSignals,
+  detectBullishPinBar,
+} from "../base44/shared/technical-signals.ts";
 
 assert.equal(MARKET_AUTOMATION_SPECS.length, 5);
 assert.deepEqual(MARKET_AUTOMATION_SPECS.map((automation) => automation.cron), [
@@ -320,6 +327,48 @@ assert.equal(mergedIncrementalChunks[0].bars[2].close, 197);
 assert.equal(mergedIncrementalChunks[0].session_date, "2026-07-29");
 assert.equal("session_date" in mergedIncrementalChunks[0].bars[0], false, "internal session keys must not leak into the stored candle schema");
 
+const canonicalQuarterBars = canonicalizeQuarterHourBars([
+  { time: "2026-07-29T08:15:40.000Z", open: 193, high: 196, low: 192, close: 195, volume: 140 },
+  { time: "2026-07-29T08:15:00.000Z", open: 193, high: 197, low: 192, close: 196, volume: 160 },
+  { time: "2026-07-29T08:16:10.000Z", open: 193, high: 198, low: 192, close: 197, volume: 170 },
+  { time: "2026-07-29T08:30:12.000Z", open: 196, high: 199, low: 195, close: 198, volume: 180 },
+  { time: "2026-07-29T08:31:00.000Z", open: 196, high: 200, low: 195, close: 199, volume: 190 },
+]);
+assert.equal(canonicalQuarterBars.length, 2, "one canonical candle must survive per quarter-hour bucket");
+assert.equal(canonicalQuarterBars[0].time, "2026-07-29T08:15:00.000Z");
+assert.equal(canonicalQuarterBars[0].close, 196, "an exact boundary candle must outrank provisional off-grid updates");
+assert.equal(canonicalQuarterBars[1].time, "2026-07-29T08:30:00.000Z");
+assert.equal(canonicalQuarterBars[1].close, 199, "the latest provisional update must win when an exact boundary candle is unavailable");
+
+const fiftyOneBars = Array.from({ length: 51 }, (_, index) => {
+  const close = index < 49 ? 10 : index === 49 ? 9 : 12;
+  return {
+    time: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+    open: close,
+    high: close + 0.5,
+    low: close - 0.5,
+    close,
+    volume: 100,
+  };
+});
+assert.equal(calculateSmaSeries(fiftyOneBars, 20).length, 32, "SMA 20 must start only after a full 20-bar lookback");
+assert.equal(calculateSmaSeries(fiftyOneBars, 50).length, 2, "SMA 50 must start only after a full 50-bar lookback");
+const technicalCross = calculateTechnicalSignals(fiftyOneBars);
+assert.equal(technicalCross.price_cross_sma20, true);
+assert.equal(technicalCross.price_cross_sma50, true);
+assert.equal(technicalCross.sma20_cross_sma50, true, "the golden cross must compare the two previous and current SMA values");
+
+const pinBar = detectBullishPinBar({ open: 10, high: 10.4, low: 8, close: 10.2 });
+assert.equal(pinBar.matches, true, "a lower-wick bullish pin bar must pass the documented geometry");
+assert.equal(detectBullishPinBar({ open: 10, high: 11, low: 9, close: 10.8 }).matches, false);
+
+const weeklyBoundaryBars = [
+  { time: "2026-07-30T07:00:00.000Z", open: 10, high: 11, low: 9, close: 10.5, volume: 100 },
+  { time: "2026-08-02T07:00:00.000Z", open: 11, high: 12, low: 10, close: 11.5, volume: 120 },
+];
+assert.equal(aggregateTechnicalBars(weeklyBoundaryBars, "1wk").length, 2, "Saudi trading weeks must roll over on Sunday");
+assert.equal(aggregateTechnicalBars(weeklyBoundaryBars, "1mo").length, 2, "monthly projection must follow the Riyadh session month");
+
 let requestedPublicUrl = "";
 const incrementalFetch = await fetchPublicDelayedCharts({
   symbols: ["1321"],
@@ -368,4 +417,7 @@ console.log(JSON.stringify({
   incrementalCandleCursor: true,
   boundedBootstrapAndBackfill: true,
   appendWithoutDuplicateBars: true,
+  canonicalQuarterHourBuckets: true,
+  technicalSignals: true,
+  saudiHigherTimeframeBoundaries: true,
 }, null, 2));

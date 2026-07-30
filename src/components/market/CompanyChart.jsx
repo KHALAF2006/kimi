@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, LineStyle } from "lightweight-charts";
-import { BarChart3, ChevronLeft, ChevronRight, Eye, EyeOff, Layers3, Maximize2, Minus, Plus, RotateCcw, Settings2, Waves } from "lucide-react";
+import { BarChart3, ChevronLeft, ChevronRight, Eye, EyeOff, Layers3, Maximize2, Minus, Plus, RotateCcw, Settings2, TrendingUp, Waves } from "lucide-react";
 import { invokeAppFunction } from "@/services/marketService";
 import { calculateMomentumSnapshot, calculateRsiSeries, formatNumber, MOMENTUM_ZONE_DEFINITIONS, normalizeMomentum } from "@/lib/market";
+import { calculateSmaSeries } from "@/lib/technical-signals";
 import { usePreferences } from "@/lib/preferences";
 import ChartDrawingTools from "@/components/market/ChartDrawingTools";
 
@@ -138,6 +139,8 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const candleSeriesRef = useRef(null);
   const volumeSeriesRef = useRef(null);
   const rsiSeriesRef = useRef(null);
+  const sma20SeriesRef = useRef(null);
+  const sma50SeriesRef = useRef(null);
   const momentumLinesRef = useRef([]);
   const overlayUpdateRef = useRef(() => {});
   const overlayFrameRef = useRef(0);
@@ -152,6 +155,8 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const [showMomentumCard, setShowMomentumCard] = useState(() => localStorage.getItem("kmy_show_momentum_card") !== "false");
   const [showVolume, setShowVolume] = useState(() => localStorage.getItem("kmy_show_volume") !== "false");
   const [showRsi, setShowRsi] = useState(() => localStorage.getItem("kmy_show_rsi") !== "false");
+  const [showSma20, setShowSma20] = useState(() => localStorage.getItem("kmy_show_sma20") !== "false");
+  const [showSma50, setShowSma50] = useState(() => localStorage.getItem("kmy_show_sma50") !== "false");
   const [settingsPanel, setSettingsPanel] = useState("");
   const [rsiSettings, setRsiSettings] = useState(() => storedObject("kmy_rsi_settings", rsiDefaults));
   const [momentumSettings, setMomentumSettings] = useState(() => {
@@ -175,10 +180,16 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
 
   const orderedCandles = useMemo(() => normalizeCandles(candles), [candles]);
   const rsiData = useMemo(() => calculateRsiSeries(orderedCandles, rsiSettings.length, rsiSettings.source), [orderedCandles, rsiSettings.length, rsiSettings.source]);
+  const sma20Data = useMemo(() => calculateSmaSeries(orderedCandles, 20), [orderedCandles]);
+  const sma50Data = useMemo(() => calculateSmaSeries(orderedCandles, 50), [orderedCandles]);
   const orderedCandlesRef = useRef(orderedCandles);
   const rsiDataRef = useRef(rsiData);
+  const sma20DataRef = useRef(sma20Data);
+  const sma50DataRef = useRef(sma50Data);
   orderedCandlesRef.current = orderedCandles;
   rsiDataRef.current = rsiData;
+  sma20DataRef.current = sma20Data;
+  sma50DataRef.current = sma50Data;
   const fallbackMomentum = useMemo(() => normalizeMomentum(rawMomentum, theme), [rawMomentum, theme]);
   const calculatedMomentum = useMemo(() => calculateMomentumSnapshot(indicatorCandles, momentumSettings.peakLookbackDays, 500, theme), [indicatorCandles, momentumSettings.peakLookbackDays, theme]);
   const momentum = calculatedMomentum || fallbackMomentum;
@@ -187,7 +198,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const investorZoneLabel = isArabic
     ? { "15m": "مناطق المستثمر لفاصل 15 دقيقة", "1h": "مناطق المستثمر الساعية", "1d": "مناطق المستثمر اليومية", "1wk": "مناطق المستثمر الأسبوعية", "1mo": "مناطق المستثمر الشهرية" }[interval]
     : { "15m": "15-minute investor zones", "1h": "Hourly investor zones", "1d": "Daily investor zones", "1wk": "Weekly investor zones", "1mo": "Monthly investor zones" }[interval];
-  const anyIndicatorVisible = showVolume || showMomentum || showRsi;
+  const anyIndicatorVisible = showVolume || showMomentum || showRsi || showSma20 || showSma50;
   const onDrawingVisibilityChange = useCallback((visible) => setDrawingsVisible(visible), []);
 
   useEffect(() => {
@@ -230,7 +241,9 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     localStorage.setItem("kmy_show_momentum_card", String(showMomentumCard));
     localStorage.setItem("kmy_show_volume", String(showVolume));
     localStorage.setItem("kmy_show_rsi", String(showRsi));
-  }, [showMomentum, showMomentumCard, showVolume, showRsi]);
+    localStorage.setItem("kmy_show_sma20", String(showSma20));
+    localStorage.setItem("kmy_show_sma50", String(showSma50));
+  }, [showMomentum, showMomentumCard, showVolume, showRsi, showSma20, showSma50]);
 
   useEffect(() => { localStorage.setItem("kmy_rsi_settings", JSON.stringify(rsiSettings)); }, [rsiSettings]);
   useEffect(() => { localStorage.setItem("kmy_momentum_settings", JSON.stringify(momentumSettings)); }, [momentumSettings]);
@@ -312,6 +325,26 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
 
     chartRef.current = chart;
     candleSeriesRef.current = candlesSeries;
+    sma20SeriesRef.current = chart.addSeries(LineSeries, {
+      color: "#2563eb",
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: true,
+      visible: showSma20,
+      title: "SMA 20",
+    }, 0);
+    sma50SeriesRef.current = chart.addSeries(LineSeries, {
+      color: "#f59e0b",
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: true,
+      visible: showSma50,
+      title: "SMA 50",
+    }, 0);
+    sma20SeriesRef.current.setData(sma20DataRef.current);
+    sma50SeriesRef.current.setData(sma50DataRef.current);
     setChartRevision((value) => value + 1);
     volumeSeriesRef.current = null;
     rsiSeriesRef.current = null;
@@ -330,9 +363,16 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
       rsiSeriesRef.current = null;
+      sma20SeriesRef.current = null;
+      sma50SeriesRef.current = null;
       momentumLinesRef.current = [];
     };
   }, [theme, language, interval]);
+
+  useEffect(() => {
+    sma20SeriesRef.current?.applyOptions({ visible: showSma20 });
+    sma50SeriesRef.current?.applyOptions({ visible: showSma50 });
+  }, [showSma20, showSma50]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -386,9 +426,11 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     candleSeriesRef.current?.setData(orderedCandles.map(({ volume: _volume, ...candle }) => candle));
     volumeSeriesRef.current?.setData(orderedCandles.map((candle) => ({ time: candle.time, value: candle.volume, color: candle.close >= candle.open ? "#16a34acc" : "#dc2626cc" })));
     rsiSeriesRef.current?.setData(rsiData);
+    sma20SeriesRef.current?.setData(sma20Data);
+    sma50SeriesRef.current?.setData(sma50Data);
     if (orderedCandles.length) chartRef.current?.timeScale().fitContent();
     window.requestAnimationFrame(() => overlayUpdateRef.current());
-  }, [orderedCandles, rsiData]);
+  }, [orderedCandles, rsiData, sma20Data, sma50Data]);
 
   useEffect(() => {
     const series = candleSeriesRef.current;
@@ -405,13 +447,12 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     }
     momentum.zones.filter((zone) => zone.active !== false).forEach((zone) => {
       const zoneSetting = momentumSettings.zones[zone.key] || momentumDefaults.zones[zone.key];
-      const name = isArabic ? zone.nameAr : zone.nameEn;
       if (momentumSettings.showZones && zoneSetting.visible) {
-        momentumLinesRef.current.push(series.createPriceLine({ price: Number(zone.top), color: zoneSetting.color, lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: name + (isArabic ? " · من" : " · From") }));
-        momentumLinesRef.current.push(series.createPriceLine({ price: Number(zone.bottom), color: zoneSetting.color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: name + (isArabic ? " · إلى" : " · To") }));
+        momentumLinesRef.current.push(series.createPriceLine({ price: Number(zone.top), color: zoneSetting.color, lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: false, title: "" }));
+        momentumLinesRef.current.push(series.createPriceLine({ price: Number(zone.bottom), color: zoneSetting.color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "" }));
       }
       if (momentumSettings.showStopLines && zoneSetting.stopVisible) {
-        momentumLinesRef.current.push(series.createPriceLine({ price: Number(zone.stop), color: zoneSetting.stopColor, lineWidth: zone.key === "zone4" || zone.key === "zone5" ? 3 : 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: (isArabic ? "وقف · " : "Stop · ") + name }));
+        momentumLinesRef.current.push(series.createPriceLine({ price: Number(zone.stop), color: zoneSetting.stopColor, lineWidth: zone.key === "zone4" || zone.key === "zone5" ? 3 : 2, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "" }));
       }
     });
     window.requestAnimationFrame(() => overlayUpdateRef.current());
@@ -509,6 +550,8 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     setShowVolume(visible);
     setShowMomentum(visible);
     setShowRsi(visible);
+    setShowSma20(visible);
+    setShowSma50(visible);
     setShowMomentumCard(visible);
     if (!visible) setSettingsPanel("");
   }
@@ -560,6 +603,8 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       <ToggleButton active={showVolume} label={isArabic ? "أحجام التداول" : "Volume"} icon={BarChart3} onClick={() => setShowVolume((value) => !value)} isArabic={isArabic} />
       <ToggleButton active={showMomentum} label={investorZoneLabel} icon={Layers3} onClick={() => setShowMomentum((value) => !value)} onSettings={() => setSettingsPanel((value) => value === "momentum" ? "" : "momentum")} settings={settingsPanel === "momentum"} isArabic={isArabic} />
       <ToggleButton active={showRsi} label={isArabic ? "مؤشر القوة النسبية" : "RSI"} icon={Waves} onClick={() => setShowRsi((value) => !value)} onSettings={() => setSettingsPanel((value) => value === "rsi" ? "" : "rsi")} settings={settingsPanel === "rsi"} isArabic={isArabic} />
+      <ToggleButton active={showSma20} label={isArabic ? "المتوسط البسيط 20" : "SMA 20"} icon={TrendingUp} onClick={() => setShowSma20((value) => !value)} isArabic={isArabic} />
+      <ToggleButton active={showSma50} label={isArabic ? "المتوسط البسيط 50" : "SMA 50"} icon={TrendingUp} onClick={() => setShowSma50((value) => !value)} isArabic={isArabic} />
       <button type="button" className="indicator-global-button" data-action="toggle-all-indicators" onClick={toggleAllIndicators} title={anyIndicatorVisible ? (isArabic ? "إخفاء جميع المؤشرات ومناطق المستثمر" : "Hide all indicators and investor zones") : (isArabic ? "إظهار جميع المؤشرات ومناطق المستثمر" : "Show all indicators and investor zones")}>{anyIndicatorVisible ? <EyeOff size={15} /> : <Eye size={15} />}<span>{isArabic ? "كل المؤشرات" : "All indicators"}</span></button>
       {symbol && <button type="button" className="indicator-global-button" data-action="toggle-all-chart-objects" onClick={toggleAllChartObjects} title={anyIndicatorVisible || drawingsVisible ? (isArabic ? "إخفاء الرسومات والمؤشرات معاً" : "Hide drawings and indicators") : (isArabic ? "إظهار الرسومات والمؤشرات معاً" : "Show drawings and indicators")}>{anyIndicatorVisible || drawingsVisible ? <EyeOff size={15} /> : <Eye size={15} />}<span>{isArabic ? "الكل" : "Everything"}</span></button>}
     </div>
@@ -608,7 +653,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
 
     <div className={candles.length ? "chart-canvas-wrap" : "h-0"} style={candles.length ? { height: chartHeight } : undefined}>
       <div ref={containerRef} className="absolute inset-0" />
-      <div className="momentum-zone-overlay" aria-hidden="true">{zoneGeometry.map((zone) => <div key={zone.key} className="momentum-zone-box" style={{ left: zone.left, width: zone.width, top: zone.top, height: zone.height, borderColor: zone.color, backgroundColor: colorWithOpacity(zone.color, Math.max(0.05, (100 - momentumSettings.zoneOpacity) / 100)) }}><span style={{ backgroundColor: zone.color }}>{zone.name} · {formatNumber(zone.topPrice, "en")}–{formatNumber(zone.bottomPrice, "en")}</span></div>)}</div>
+      <div className="momentum-zone-overlay" aria-hidden="true">{zoneGeometry.map((zone) => <div key={zone.key} className="momentum-zone-box" style={{ left: zone.left, width: zone.width, top: zone.top, height: zone.height, borderColor: zone.color, backgroundColor: colorWithOpacity(zone.color, Math.max(0.05, (100 - momentumSettings.zoneOpacity) / 100)) }}><span style={{ backgroundColor: zone.color }}>{zone.name}</span></div>)}</div>
       {symbol && chartRef.current && candleSeriesRef.current && <ChartDrawingTools chart={chartRef.current} series={candleSeriesRef.current} symbol={symbol} interval={interval} mainPaneHeight={mainPaneHeight} isArabic={isArabic} onResetChart={resetChartView} visibilityCommand={drawingVisibilityCommand} onDrawingVisibilityChange={onDrawingVisibilityChange} />}
       {showMomentum && momentum?.zones?.length > 0 && <div className={"momentum-price-panel " + (!showMomentumCard ? "momentum-price-panel-collapsed" : "")}>
         <button type="button" className="momentum-card-eye" onClick={() => setShowMomentumCard((value) => !value)} title={showMomentumCard ? (isArabic ? "إخفاء بطاقة أسعار المناطق" : "Hide zone price card") : (isArabic ? "إظهار بطاقة أسعار المناطق" : "Show zone price card")} aria-expanded={showMomentumCard}>{showMomentumCard ? <EyeOff size={14} /> : <Eye size={14} />}<span>{investorZoneLabel}</span></button>

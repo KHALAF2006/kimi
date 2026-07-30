@@ -1,0 +1,43 @@
+{
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "market_technical_signals_daily",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "refresh_daily_candles_and_signals": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "marketSignalRefresh",
+            "args": {
+              "source": "daily_session_projection"
+            }
+          },
+          "then": "end"
+        }
+      }
+    ]
+  },
+  "description": "تثبيت الشمعة اليومية بعد الإغلاق وتحديث الشموع الأسبوعية والشهرية وإشارات البحث.",
+  "name": "تثبيت الشموع والإشارات اليومية",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "45 15 * * 0-4",
+      "one_time_date": null,
+      "timezone": "Asia/Riyadh",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  }
+}

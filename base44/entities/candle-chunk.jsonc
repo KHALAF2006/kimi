@@ -98,6 +98,24 @@
         "stale",
         "quarantined"
       ]
+    },
+    "canonical_version": {
+      "type": "string"
+    },
+    "is_final": {
+      "type": "boolean",
+      "default": false
+    },
+    "bucket_count": {
+      "type": "integer"
+    },
+    "completeness_status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "degraded",
+        "incomplete"
+      ]
     }
   },
   "required": [

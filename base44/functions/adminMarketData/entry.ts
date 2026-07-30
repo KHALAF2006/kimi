@@ -3,8 +3,8 @@ import { audit, replyError, requirePermission } from "../../shared/security.ts";
 import { EXPECTED_INSTRUMENT_COUNT, SAUDI_DELAY_SECONDS } from "../../shared/market-data.ts";
 
 const MARKET_CODE = "SA_MAIN";
-const ESTIMATED_RUNS_PER_TRADING_DAY = 23;
-const ESTIMATED_MONTHLY_RUNS = 506;
+const ESTIMATED_RUNS_PER_TRADING_DAY = 24;
+const ESTIMATED_MONTHLY_RUNS = 528;
 
 function reasonFrom(value) {
   const reason = String(value || "").trim();
@@ -87,27 +87,39 @@ Deno.serve(async (req) => {
         : await base44.asServiceRole.entities.DataQualityIssue.list("-last_seen_at", Math.min(Math.max(Number(body.limit) || 200, 1), 500));
       return Response.json({ issues });
     }
-    if (!["retry_slot", "reconcile_close"].includes(action)) {
+    if (!["retry_slot", "reconcile_close", "refresh_signals"].includes(action)) {
       throw Object.assign(new Error("Unsupported market-data admin action"), { status: 400, code: "INVALID_ACTION" });
     }
 
     const writeContext = await requirePermission(base44, body.session_id, "data.ingestion.run");
     const reason = reasonFrom(body.reason);
-    const slotKind = action === "reconcile_close" ? "session_final" : String(body.slot_kind || "quarter_hour");
-    const response = await base44.functions.invoke("marketIngestion", {
-      source: action === "reconcile_close" ? "manual_close_reconciliation" : "manual_retry",
-      session_id: body.session_id,
-      market_code: MARKET_CODE,
-      slot_kind: slotKind,
-      scheduled_for: body.scheduled_for || null,
-      force: true,
-      reason,
-    });
+    const slotKind = action === "reconcile_close" ? "session_final" : action === "refresh_signals" ? "technical_projection" : String(body.slot_kind || "quarter_hour");
+    const response = action === "refresh_signals"
+      ? await base44.functions.invoke("marketSignalRefresh", {
+        session_id: body.session_id,
+        market_code: MARKET_CODE,
+        force: true,
+        reason,
+      })
+      : await base44.functions.invoke("marketIngestion", {
+        source: action === "reconcile_close" ? "manual_close_reconciliation" : "manual_retry",
+        session_id: body.session_id,
+        market_code: MARKET_CODE,
+        slot_kind: slotKind,
+        scheduled_for: body.scheduled_for || null,
+        force: true,
+        reason,
+      });
     const result = response?.data || response;
+    const auditAction = action === "reconcile_close"
+      ? "market_data.reconcile_close"
+      : action === "refresh_signals"
+        ? "market_data.refresh_signals"
+        : "market_data.retry_slot";
     await audit(
       base44,
       writeContext.user.id,
-      action === "reconcile_close" ? "market_data.reconcile_close" : "market_data.retry_slot",
+      auditAction,
       "IngestionRun",
       result?.run_id || "pending",
       result?.status || "requested",

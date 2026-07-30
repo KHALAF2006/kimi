@@ -5594,7 +5594,7 @@ Deno.serve(async (req) => {
       .filter((item) => requestedMarket !== "SA_MAIN" || MAIN_MARKET_SYMBOLS.has(item.symbol));
     const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
     const [indicators, losses] = await Promise.all([
-      body.mode === "screener" ? optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.list("-source_as_of", 500), "indicator-snapshot") : Promise.resolve([]),
+      body.mode === "screener" ? optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.list("-source_as_of", 5000), "indicator-snapshot") : Promise.resolve([]),
       optionalRows(() => base44.asServiceRole.entities.LossClassification.list("-as_of", 500), "loss-classification")
     ]);
     if (requestedMarket === "SA_MAIN" && instruments.length !== MAIN_MARKET_SYMBOLS.size) {
@@ -5602,7 +5602,11 @@ Deno.serve(async (req) => {
     }
     const quoteByInstrument = /* @__PURE__ */ new Map();
     for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
-    const indicatorByInstrument = new Map(indicators.map((item) => [item.instrument_id, item]));
+    const indicatorsByInstrument = new Map();
+    for (const item of indicators) {
+      if (!indicatorsByInstrument.has(item.instrument_id)) indicatorsByInstrument.set(item.instrument_id, []);
+      indicatorsByInstrument.get(item.instrument_id).push(item);
+    }
     const lossByInstrument = new Map(losses.map((item) => [item.instrument_id, item]));
     const query = String(body.query || "").trim().toLocaleLowerCase("ar");
     const sector = String(body.sector || "").trim();
@@ -5610,13 +5614,33 @@ Deno.serve(async (req) => {
       const quote = quoteByInstrument.get(instrument.id) || null;
       const source = quote ? sourceById.get(quote.source_id) : null;
       const loss = lossByInstrument.get(instrument.id) || null;
+      const instrumentIndicators = indicatorsByInstrument.get(instrument.id) || [];
+      const signals = Object.fromEntries(instrumentIndicators
+        .filter((item) => item.indicator_key === "technical_signals")
+        .map((item) => [item.timeframe, item]));
+      const momentumIndicator = instrumentIndicators.find((item) => item.indicator_key === "momentum_zones")
+        || instrumentIndicators[0]
+        || null;
       return {
         ...instrument,
         warning_flag: loss?.level === "none" ? null : loss?.level,
         quote: quoteView(quote, source),
-        indicator: indicatorByInstrument.get(instrument.id) || null
+        indicator: momentumIndicator,
+        indicators: instrumentIndicators,
+        signals
       };
     }).filter((item) => !query || `${item.symbol} ${item.name_ar} ${item.name_en} ${item.sector_ar} ${item.sector_en}`.toLocaleLowerCase("ar").includes(query)).filter((item) => !sector || item.sector_ar === sector || item.sector_en === sector);
+    if (body.mode === "screener") {
+      const timeframe = ["1d", "1wk", "1mo"].includes(String(body.timeframe)) ? String(body.timeframe) : "1d";
+      const signal = ["zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"].includes(String(body.signal))
+        ? String(body.signal)
+        : "";
+      rows = rows.filter((item) => {
+        const snapshot = item.signals?.[timeframe];
+        if (!snapshot) return false;
+        return !signal || snapshot.values?.[signal] === true;
+      });
+    }
     if (body.mode === "movers") rows.sort((a, b) => Number(b.quote?.change_percent || 0) - Number(a.quote?.change_percent || 0));
     const snapshot = latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMarket);
     return Response.json({
