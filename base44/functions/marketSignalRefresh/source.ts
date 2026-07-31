@@ -3,6 +3,7 @@ import { canonicalizeQuarterHourBars } from "../../shared/market-data.ts";
 import { replyError, requirePermission } from "../../shared/security.ts";
 import {
   TECHNICAL_SIGNAL_FORMULA_VERSION,
+  TECHNICAL_SIGNAL_WINDOW_SIZE,
   aggregateTechnicalBars,
   calculateTechnicalSignals,
   normalizeTechnicalBars,
@@ -111,6 +112,16 @@ function barsByInstrument(chunks: Array<Record<string, any>>, interval: string) 
   return grouped;
 }
 
+function isLastSaudiTradingWeekdayOfMonth(sessionDate: string) {
+  const current = new Date(`${sessionDate}T00:00:00.000Z`);
+  const month = current.getUTCMonth();
+  const next = new Date(current);
+  do {
+    next.setUTCDate(next.getUTCDate() + 1);
+  } while ([5, 6].includes(next.getUTCDay()));
+  return next.getUTCMonth() !== month;
+}
+
 function firstByInstrument(rows: Array<Record<string, any>>) {
   const result = new Map<string, Record<string, any>>();
   for (const row of rows) {
@@ -188,6 +199,7 @@ async function projectInstrumentBatch(
     chunks.filter((chunk) => chunk.session_date === sessionDate || String(chunk.chunk_key || "").endsWith(`-${sessionDate}`)),
     "15m",
   );
+  const intradayHistory = barsByInstrument(chunks, "15m");
   const dailyHistory = barsByInstrument(chunks, "1d");
   const newDailyChunks: Array<Record<string, any>> = [];
   const higherTimeframeChunks: Array<Record<string, any>> = [];
@@ -196,7 +208,11 @@ async function projectInstrumentBatch(
 
   for (const instrument of instruments) {
     const quote = quoteByInstrument.get(instrument.id) || null;
-    const existingDaily = aggregateTechnicalBars(dailyHistory.get(instrument.id) || [], "1d");
+    const dailyFromStoredIntraday = aggregateTechnicalBars(intradayHistory.get(instrument.id) || [], "1d");
+    const existingDaily = aggregateTechnicalBars([
+      ...(dailyHistory.get(instrument.id) || []),
+      ...dailyFromStoredIntraday,
+    ], "1d");
     let canonicalDaily = existingDaily;
     if (quoteIsFinalForSession(quote, sessionDate)) {
       const today = finalDailyBar(quarterBars.get(instrument.id) || [], quote);
@@ -239,18 +255,28 @@ async function projectInstrumentBatch(
           isFinal: false,
         }));
       }
-      const signalBars = timeframe === "1wk"
-        ? (isThursday(sessionDate) ? frameBars : frameBars.slice(0, -1))
-        : timeframe === "1mo"
-          ? frameBars.slice(0, -1)
-          : frameBars;
+      // The scanner searches the current stored period and the two periods
+      // before it. Weekly/monthly current bars may still be forming; that
+      // state is carried with the evidence instead of silently omitting them.
+      const signalBars = frameBars;
       if (!signalBars.length) continue;
+      const currentPeriodIsFinal = timeframe === "1d"
+        ? quoteIsFinalForSession(quote, sessionDate)
+        : timeframe === "1wk"
+          ? isThursday(sessionDate)
+          : isLastSaudiTradingWeekdayOfMonth(sessionDate);
+      const values = calculateTechnicalSignals(signalBars, TECHNICAL_SIGNAL_WINDOW_SIZE);
+      values.signal_window = (values.signal_window || []).map((item, index) => ({
+        ...item,
+        is_final: index === 0 ? currentPeriodIsFinal : true,
+      }));
+      values.is_final = currentPeriodIsFinal;
       indicatorRows.push({
         instrument_id: instrument.id,
         symbol: instrument.symbol,
         indicator_key: "technical_signals",
         timeframe,
-        values: calculateTechnicalSignals(signalBars),
+        values,
         source_as_of: signalBars.at(-1)?.time,
         calculated_at: new Date().toISOString(),
         formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION,

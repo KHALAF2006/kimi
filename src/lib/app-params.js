@@ -50,7 +50,16 @@ const getAppParamValue = (paramName, {
 }
 
 const getAppParams = () => {
-	if (getAppParamValue("clear_access_token") === 'true') {
+	// Base44 may add this one-shot flag while changing preview/auth context.
+	// It must never be persisted: a persisted flag clears the shared token on
+	// every later navigation, including a link opened in a new browser tab.
+	const clearAccessToken = getAppParamValue("clear_access_token", {
+		removeFromUrl: true,
+		persist: false,
+		useStored: false,
+	});
+	storage.removeItem('base44_clear_access_token');
+	if (clearAccessToken === 'true') {
 		storage.removeItem('base44_access_token');
 		storage.removeItem('token');
 	}

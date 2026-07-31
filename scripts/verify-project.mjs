@@ -106,6 +106,9 @@ const marketTechnicalSignalsDaily = JSON.parse(await readFile(new URL("../base44
 assert.equal(marketTechnicalSignalsDaily.trigger.config.cron_expression, "45 15 * * 0-4");
 assert.equal(marketTechnicalSignalsDaily.trigger.config.timezone, "Asia/Riyadh");
 assert.equal(Object.values(marketTechnicalSignalsDaily.definition.do[0])[0].with.function_name, "marketSignalRefresh");
+const marketSignalRefreshSource = await readFile(new URL("../base44/functions/marketSignalRefresh/source.ts", import.meta.url), "utf8");
+assert.match(marketSignalRefreshSource, /intradayHistory = barsByInstrument\(chunks, ["']15m["']\)/, "signal projection must include every stored intraday session, not only the latest date");
+assert.match(marketSignalRefreshSource, /dailyFromStoredIntraday/, "daily, weekly, and monthly signals must be derived from the stored 15-minute source of truth");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
 assert.equal(companyFinancialsTwiceWeekly.trigger.config.cron_expression, "0 16 * * 1,4");
 assert.equal(companyIntelligenceDaily.trigger.config.timezone, "Asia/Riyadh");
@@ -174,6 +177,8 @@ assert.match(marketService, /localStorage\.removeItem\(["']kmy_session_id["']\)/
 
 const appParamsSource = await readFile(new URL("../src/lib/app-params.js", import.meta.url), "utf8");
 assert.match(appParamsSource, /functionsVersion:[\s\S]*persist:\s*false,[\s\S]*useStored:\s*false/, "published pages must not reuse a stale preview function version");
+assert.match(appParamsSource, /getAppParamValue\(["']clear_access_token["'],\s*\{[\s\S]*?persist:\s*false,[\s\S]*?useStored:\s*false,[\s\S]*?\}\)/, "the one-shot Base44 token reset must never survive into another browser tab");
+assert.match(appParamsSource, /removeItem\(["']base44_clear_access_token["']\)/, "legacy persisted reset flags must be removed during session bootstrap");
 
 const base44Client = await readFile(new URL("../src/api/base44Client.js", import.meta.url), "utf8");
 assert.match(base44Client, /localBrowserHosts\.has\(window\.location\.hostname\)/, "the Base44 SDK stub must be limited to localhost browsers");
@@ -284,6 +289,8 @@ assert.match(marketReadFunction, /storedCandlesForInterval\(base44, instrument\.
 assert.match(marketReadFunction, /mergeStoredCandleSeries\(series, interval\)/, "stored historical and fresh intraday candles must be merged instead of returning the first stale interval");
 assert.match(marketReadFunction, /technical_signals/, "market reads must expose persisted technical signals to the screener");
 assert.match(marketReadFunction, /zone_pin_bar/, "the protected screener must filter pin bars inside investor zones");
+assert.match(marketReadFunction, /signal_window\.slice\(0, 3\)/, "the screener must search the current stored candle and the two candles before it");
+assert.match(marketReadFunction, /screener_match/, "each screener result must expose the exact matching candle as evidence");
 assert.doesNotMatch(marketReadFunction, /if \(bars\.length\) return \{ bars, chunks/, "chart storage must not stop at the first stale interval");
 assert.match(ingestion, /snapshot_version: provenance\.snapshotVersion/, "candle chunks must retain their ingestion snapshot provenance");
 const customerMarketTable = await readFile(new URL("../src/components/market/MarketTable.jsx", import.meta.url), "utf8");
@@ -296,6 +303,7 @@ for (const signal of ["pin_bar_signal", "engulfing_signal", "zone_pin_bar", "pri
 }
 assert.match(screenerPage, /row\.signals\?\.\[timeframe\]\?\.values/, "the screener UI must reject rows returned without a completed signal snapshot");
 assert.match(screenerPage, /Number\.isFinite\(candleTimestamp\)/, "the screener must not render an invalid candle date");
+assert.match(screenerPage, /آخر 3 شموع محفوظة/, "the screener must tell customers the exact three-candle search window");
 assert.match(marketReadFunction, /body\.action === "instrument_search"/, "watchlists and alerts must use the protected canonical instrument search");
 assert.match(marketReadFunction, /"2h", "3h", "4h"/, "chart reads must accept the new session-aware intraday intervals");
 const watchlistFunction = await readFile(new URL("../base44/functions/screeningWatchlists/entry.ts", import.meta.url), "utf8");

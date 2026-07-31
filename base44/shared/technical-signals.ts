@@ -1,6 +1,7 @@
 import { calculateMomentumZones } from "./momentum.ts";
 
-export const TECHNICAL_SIGNAL_FORMULA_VERSION = "technical-signals-v2";
+export const TECHNICAL_SIGNAL_FORMULA_VERSION = "technical-signals-v3";
+export const TECHNICAL_SIGNAL_WINDOW_SIZE = 3;
 
 type CandleBar = {
   time: string;
@@ -196,8 +197,7 @@ function latestValueByTime(values: Array<{ time: string; value: number }>) {
   return new Map(values.map((item) => [item.time, item.value]));
 }
 
-export function calculateTechnicalSignals(inputBars: Array<Record<string, unknown>>) {
-  const bars = normalizeTechnicalBars(inputBars);
+function calculateTechnicalSnapshot(bars: CandleBar[]) {
   const sma20 = calculateSmaSeries(bars, 20);
   const sma50 = calculateSmaSeries(bars, 50);
   const last = bars.at(-1) || null;
@@ -248,5 +248,31 @@ export function calculateTechnicalSignals(inputBars: Array<Record<string, unknow
       && previousSma20 <= previousSma50 && currentSma20 > currentSma50
     ),
     insufficient_history: bars.length < 50,
+  };
+}
+
+export function calculateTechnicalSignals(
+  inputBars: Array<Record<string, unknown>>,
+  windowSize = TECHNICAL_SIGNAL_WINDOW_SIZE,
+) {
+  const bars = normalizeTechnicalBars(inputBars);
+  if (!bars.length) return {
+    ...calculateTechnicalSnapshot([]),
+    signal_window_size: 0,
+    signal_window: [],
+  };
+  const size = Math.max(1, Math.min(Math.round(Number(windowSize) || TECHNICAL_SIGNAL_WINDOW_SIZE), bars.length));
+  const signalWindow = [];
+  for (let offset = 0; offset < size; offset += 1) {
+    const end = bars.length - offset;
+    signalWindow.push({
+      offset,
+      ...calculateTechnicalSnapshot(bars.slice(0, end)),
+    });
+  }
+  return {
+    ...signalWindow[0],
+    signal_window_size: size,
+    signal_window: signalWindow,
   };
 }

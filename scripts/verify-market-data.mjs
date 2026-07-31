@@ -385,6 +385,19 @@ const technicalCross = calculateTechnicalSignals(fiftyOneBars);
 assert.equal(technicalCross.price_cross_sma20, true);
 assert.equal(technicalCross.price_cross_sma50, true);
 assert.equal(technicalCross.sma20_cross_sma50, true, "the golden cross must compare the two previous and current SMA values");
+assert.equal(technicalCross.signal_window.length, 3, "every timeframe must project the current stored candle and the two candles before it");
+assert.deepEqual(technicalCross.signal_window.map((item) => item.offset), [0, 1, 2]);
+
+const tadawul1111Recent = [
+  { time: "2026-07-28T07:00:00.000Z", open: 119.09999847, high: 120.19999695, low: 118, close: 118.5, volume: 184922 },
+  { time: "2026-07-29T07:00:00.000Z", open: 118.5, high: 118.90000153, low: 116.5, close: 118.90000153, volume: 184544 },
+  { time: "2026-07-30T07:00:00.000Z", open: 118.19999695, high: 119, low: 117.69999695, close: 118.59999847, volume: 246756 },
+];
+const tadawul1111Signals = calculateTechnicalSignals(tadawul1111Recent);
+assert.equal(tadawul1111Signals.pin_bar_signal, false, "1111 latest candle itself is not a pin bar");
+assert.equal(tadawul1111Signals.signal_window[1].pin_bar_signal, true, "1111 must match because its previous daily candle is a bullish pin bar");
+assert.equal(tadawul1111Signals.signal_window[1].pin_bar.direction, "bullish");
+assert.equal(tadawul1111Signals.signal_window[1].candle_time, "2026-07-29T07:00:00.000Z");
 
 const pinBar = detectBullishPinBar({ open: 10, high: 10.4, low: 8, close: 10.2 });
 assert.equal(pinBar.matches, true, "a lower-wick bullish pin bar must pass the documented geometry");

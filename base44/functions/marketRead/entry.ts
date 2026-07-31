@@ -5662,10 +5662,25 @@ Deno.serve(async (req) => {
       const signal = ["pin_bar_signal", "engulfing_signal", "bullish_engulfing", "bearish_engulfing", "zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"].includes(String(body.signal))
         ? String(body.signal)
         : "";
-      rows = rows.filter((item) => {
+      rows = rows.flatMap((item) => {
         const snapshot = item.signals?.[timeframe];
-        if (!snapshot) return false;
-        return !signal || snapshot.values?.[signal] === true;
+        if (!snapshot) return [];
+        const storedWindow = Array.isArray(snapshot.values?.signal_window)
+          ? snapshot.values.signal_window.slice(0, 3)
+          : [snapshot.values || {}];
+        const match = signal
+          ? storedWindow.find((values) => values?.[signal] === true)
+          : storedWindow[0];
+        if (!match) return [];
+        return [{
+          ...item,
+          screener_match: {
+            timeframe,
+            signal: signal || null,
+            candle_offset: Number(match.offset || 0),
+            values: match,
+          },
+        }];
       });
     }
     if (body.mode === "movers") rows.sort((a, b) => Number(b.quote?.change_percent || 0) - Number(a.quote?.change_percent || 0));

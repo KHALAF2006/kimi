@@ -22,7 +22,7 @@ const timeframeOptions = [
 ];
 
 function SignalEvidence({ row, timeframe, language, isArabic }) {
-  const values = row.signals?.[timeframe]?.values || {};
+  const values = row.screener_match?.values || row.signals?.[timeframe]?.values || {};
   const candleTimestamp = Date.parse(values.candle_time || "");
   return <div className="screener-evidence">
     <b>{row.symbol} · {isArabic ? row.name_ar : row.name_en}</b>
@@ -32,7 +32,8 @@ function SignalEvidence({ row, timeframe, language, isArabic }) {
     {values.matching_zone && <span>{isArabic ? values.matching_zone.name_ar : values.matching_zone.name_en}</span>}
     {values.pin_bar?.matches && <span>{isArabic ? `بن بار ${values.pin_bar.direction === "bullish" ? "صاعد" : "هابط"}` : `${values.pin_bar.direction} pin bar`}</span>}
     {values.engulfing?.matches && <span>{isArabic ? `ابتلاع ${values.engulfing.direction === "bullish" ? "صاعد" : "هابط"}` : `${values.engulfing.direction} engulfing`}</span>}
-    <span>{Number.isFinite(candleTimestamp) ? new Date(candleTimestamp).toLocaleDateString(isArabic ? "ar-SA" : "en-US") : "—"}</span>
+    <span>{isArabic ? "تاريخ الإشارة" : "Signal date"}: {Number.isFinite(candleTimestamp) ? new Date(candleTimestamp).toLocaleDateString(isArabic ? "ar-SA" : "en-US") : "—"}</span>
+    <span>{values.is_final === false ? (isArabic ? "الفترة قيد التكوين" : "Forming period") : (isArabic ? "فترة مكتملة" : "Completed period")}</span>
   </div>;
 }
 
@@ -45,7 +46,7 @@ export default function Screener() {
 
   return <ServicePage
     title={isArabic ? "ماسح الاستراتيجيات" : "Strategy screener"}
-    description={isArabic ? "إشارات محسوبة من الشموع المغلقة والمحفوظة دون طلب بيانات جديد عند البحث." : "Signals calculated from stored closed candles without fetching market data per search."}
+    description={isArabic ? "يفحص آخر 3 شموع محفوظة من الفاصل المختار دون طلب بيانات جديد عند البحث." : "Scans the latest 3 stored candles in the selected timeframe without fetching market data per search."}
     functionName="marketRead"
     payload={payload}
   >
