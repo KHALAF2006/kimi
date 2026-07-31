@@ -51,6 +51,58 @@ import {
   calculateHeikinAshiCandles,
   sanitizeChartPreferences,
 } from "../src/lib/chart-visuals.js";
+import {
+  consumePreviewAuthHandoff,
+  isBase44PreviewHost,
+  previewSafeHref,
+} from "../src/lib/preview-auth-handoff.js";
+
+function memoryStorage(entries = []) {
+  const values = new Map(entries);
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+}
+
+const previewHost = "preview--neat-smart-ops-flow.base44.app";
+assert.equal(isBase44PreviewHost(previewHost), true);
+assert.equal(isBase44PreviewHost("neat-smart-ops-flow.base44.app"), false);
+const sourcePreviewStorage = memoryStorage([
+  ["base44_access_token", "test-access-token"],
+  ["kmy_session_id", "test-session-id"],
+  ["kmy_session_expires_at", "2026-08-30T00:00:00.000Z"],
+]);
+const handedOffHref = previewSafeHref("/screener?timeframe=1wk", { hostname: previewHost, storage: sourcePreviewStorage });
+assert.match(handedOffHref, /^\/screener\?timeframe=1wk#kmy_preview_auth=/u, "preview links must carry a one-time tab handoff in the URL fragment");
+assert.equal(previewSafeHref("/screener", { hostname: "neat-smart-ops-flow.base44.app", storage: sourcePreviewStorage }), "/screener", "production links must never carry preview credentials");
+const targetPreviewStorage = memoryStorage();
+let cleanedPreviewUrl = "";
+const restored = consumePreviewAuthHandoff({
+  location: {
+    hostname: previewHost,
+    pathname: "/screener",
+    search: "?timeframe=1wk",
+    hash: new URL(`https://${previewHost}${handedOffHref}`).hash,
+  },
+  history: { replaceState: (_state, _title, url) => { cleanedPreviewUrl = url; } },
+  storage: targetPreviewStorage,
+});
+assert.equal(restored, true);
+assert.equal(targetPreviewStorage.getItem("base44_access_token"), "test-access-token");
+assert.equal(targetPreviewStorage.getItem("kmy_session_id"), "test-session-id");
+assert.equal(cleanedPreviewUrl, "/screener?timeframe=1wk", "the credential fragment must be removed immediately after restoration");
+let malformedCleanUrl = "";
+assert.doesNotThrow(() => {
+  const malformedRestored = consumePreviewAuthHandoff({
+    location: { hostname: previewHost, pathname: "/screener", search: "", hash: "#kmy_preview_auth=invalid" },
+    history: { replaceState: (_state, _title, url) => { malformedCleanUrl = url; } },
+    storage: memoryStorage(),
+  });
+  assert.equal(malformedRestored, false);
+});
+assert.equal(malformedCleanUrl, "/screener", "malformed handoffs must fail closed and still be removed");
 
 assert.equal(MARKET_AUTOMATION_SPECS.length, 5);
 assert.deepEqual(MARKET_AUTOMATION_SPECS.map((automation) => automation.cron), [
@@ -427,6 +479,26 @@ const weeklyBoundaryBars = [
 assert.equal(aggregateTechnicalBars(weeklyBoundaryBars, "1wk").length, 2, "Saudi trading weeks must roll over on Sunday");
 assert.equal(aggregateTechnicalBars(weeklyBoundaryBars, "1mo").length, 2, "monthly projection must follow the Riyadh session month");
 
+const higherTimeframeDailyBars = [
+  { time: "2026-05-28T07:00:00.000Z", open: 9, high: 10, low: 8, close: 9.5, volume: 100 },
+  { time: "2026-06-25T07:00:00.000Z", open: 10, high: 11, low: 9, close: 10.5, volume: 110 },
+  { time: "2026-07-12T07:00:00.000Z", open: 11, high: 12, low: 10, close: 11.5, volume: 120 },
+  { time: "2026-07-19T07:00:00.000Z", open: 12, high: 13, low: 11, close: 12.5, volume: 130 },
+  { time: "2026-07-30T07:00:00.000Z", open: 13, high: 14, low: 12, close: 13.5, volume: 140 },
+];
+const weeklyWindow = calculateTechnicalSignals(aggregateTechnicalBars(higherTimeframeDailyBars, "1wk")).signal_window;
+assert.deepEqual(weeklyWindow.map((item) => item.candle_time), [
+  "2026-07-30T07:00:00.000Z",
+  "2026-07-19T07:00:00.000Z",
+  "2026-07-12T07:00:00.000Z",
+], "weekly scanning must use the current Saudi week and the two weeks before it");
+const monthlyWindow = calculateTechnicalSignals(aggregateTechnicalBars(higherTimeframeDailyBars, "1mo")).signal_window;
+assert.deepEqual(monthlyWindow.map((item) => item.candle_time), [
+  "2026-07-12T07:00:00.000Z",
+  "2026-06-25T07:00:00.000Z",
+  "2026-05-28T07:00:00.000Z",
+], "monthly scanning must use the current Riyadh month and the two months before it");
+
 const standardVisualBars = [
   { time: 1, open: 10, high: 14, low: 8, close: 12, volume: 100 },
   { time: 2, open: 12, high: 16, low: 11, close: 15, volume: 120 },
@@ -501,4 +573,6 @@ console.log(JSON.stringify({
   technicalSignals: true,
   saudiHigherTimeframeBoundaries: true,
   chartCandleTypes: true,
+  previewTabSessionHandoff: true,
+  threeCandleSignalWindows: true,
 }, null, 2));

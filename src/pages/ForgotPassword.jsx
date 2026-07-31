@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { SessionLink } from "@/components/SessionLink";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ export default function ForgotPassword() {
   const {language,isArabic}=usePreferences(),t=copy[language],Arrow=isArabic?ArrowLeft:ArrowRight;
   const [email,setEmail]=useState(''),[loading,setLoading]=useState(false),[sent,setSent]=useState(false);
   const submit=async e=>{e.preventDefault();setLoading(true);try{await base44.auth.resetPasswordRequest(email);}catch{}finally{setLoading(false);setSent(true)}};
-  return <AuthLayout icon={Mail} title={t.title} subtitle={t.subtitle} footer={<Link to="/login" className="font-medium text-primary hover:underline"><Arrow className="me-1 inline h-3 w-3"/>{t.back}</Link>}>
+  return <AuthLayout icon={Mail} title={t.title} subtitle={t.subtitle} footer={<SessionLink to="/login" className="font-medium text-primary hover:underline"><Arrow className="me-1 inline h-3 w-3"/>{t.back}</SessionLink>}>
     {sent?<p className="text-center text-sm text-foreground">{t.sent}</p>:<form onSubmit={submit} className="space-y-4"><div className="space-y-2"><Label htmlFor="email">{t.email}</Label><Input id="email" type="email" autoComplete="email" autoFocus placeholder="you@example.com" value={email} onChange={e=>setEmail(e.target.value)} className="h-12" required/></div><Button type="submit" className="h-12 w-full font-medium" disabled={loading}>{loading&&<Loader2 className="h-4 w-4 animate-spin"/>}{loading?t.sending:t.send}</Button></form>}
   </AuthLayout>;
 }

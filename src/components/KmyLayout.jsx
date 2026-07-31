@@ -1,5 +1,6 @@
 import React from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Outlet } from "react-router-dom";
+import { SessionNavLink } from "@/components/SessionLink";
 import { BarChart3, Bell, Eye, LogOut, Moon, Search, Settings, ShieldCheck, Sparkles, Sun } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { usePreferences } from "@/lib/preferences";
@@ -21,8 +22,8 @@ export default function KmyLayout() {
   return <div className="min-h-screen bg-slate-50 text-slate-950 transition-colors dark:bg-[#08111f] dark:text-slate-100">
     <header className="app-header">
       <div className="mx-auto flex max-w-[1800px] items-center gap-3 px-3 py-3 sm:px-5">
-        <NavLink to="/dashboard" className="brand-lockup" aria-label={isArabic ? "المستثمر الذكي" : "Smart Investor"}><span className="brand-mark"><BarChart3 size={19} /></span><span>{isArabic ? "المستثمر الذكي" : "Smart Investor"}<small>SI</small></span></NavLink>
-        <nav className="app-nav">{links.map(([to, label, Icon]) => <NavLink key={to} to={to} className={({ isActive }) => isActive ? "active" : ""}><Icon size={16} /><span>{label}</span></NavLink>)}</nav>
+        <SessionNavLink to="/dashboard" className="brand-lockup" aria-label={isArabic ? "المستثمر الذكي" : "Smart Investor"}><span className="brand-mark"><BarChart3 size={19} /></span><span>{isArabic ? "المستثمر الذكي" : "Smart Investor"}<small>SI</small></span></SessionNavLink>
+        <nav className="app-nav">{links.map(([to, label, Icon]) => <SessionNavLink key={to} to={to} className={({ isActive }) => isActive ? "active" : ""}><Icon size={16} /><span>{label}</span></SessionNavLink>)}</nav>
         <div className="ms-auto flex items-center gap-1">
           <button className="icon-button language-switch" onClick={toggleLanguage} title={isArabic ? "English" : "العربية"} aria-label={isArabic ? "Switch to English" : "التبديل إلى العربية"}>{isArabic ? "E" : "ع"}</button>
           <button className="icon-button" onClick={toggleTheme} title={isArabic ? "تغيير المظهر" : "Change theme"}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button>

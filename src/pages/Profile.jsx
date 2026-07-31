@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { SessionLink } from "@/components/SessionLink";
 import ServicePage from "@/components/ServicePage";
 
 export default function Profile() {
@@ -12,7 +12,7 @@ export default function Profile() {
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{data.profile.email_normalized}</p>
             <p className="mt-4 text-sm">حالة الحساب: {data.profile.account_status}</p>
           </div>
-          <Link to="/destinations" className="secondary-button">إعدادات قنوات التنبيه</Link>
+          <SessionLink to="/destinations" className="secondary-button">إعدادات قنوات التنبيه</SessionLink>
         </div>
       )}
     </ServicePage>

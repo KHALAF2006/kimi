@@ -1,3 +1,5 @@
+import { consumePreviewAuthHandoff } from '@/lib/preview-auth-handoff';
+
 const isNode = typeof window === 'undefined';
 const memoryStorage = new Map();
 const nodeStorage = {
@@ -7,6 +9,8 @@ const nodeStorage = {
 };
 const windowObj = isNode ? { localStorage: nodeStorage } : window;
 const storage = windowObj.localStorage;
+
+if (!isNode) consumePreviewAuthHandoff();
 
 const toSnakeCase = (str) => {
 	return str.replace(/([A-Z])/g, '_$1').toLowerCase();

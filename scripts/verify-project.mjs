@@ -304,6 +304,34 @@ for (const signal of ["pin_bar_signal", "engulfing_signal", "zone_pin_bar", "pri
 assert.match(screenerPage, /row\.signals\?\.\[timeframe\]\?\.values/, "the screener UI must reject rows returned without a completed signal snapshot");
 assert.match(screenerPage, /Number\.isFinite\(candleTimestamp\)/, "the screener must not render an invalid candle date");
 assert.match(screenerPage, /آخر 3 شموع محفوظة/, "the screener must tell customers the exact three-candle search window");
+const sessionLink = await readFile(new URL("../src/components/SessionLink.jsx", import.meta.url), "utf8");
+const previewAuthHandoff = await readFile(new URL("../src/lib/preview-auth-handoff.js", import.meta.url), "utf8");
+const appParams = await readFile(new URL("../src/lib/app-params.js", import.meta.url), "utf8");
+assert.match(sessionLink, /previewSafeHref/, "internal links must support authenticated Base44 preview tabs");
+assert.match(previewAuthHandoff, /preview--|preview-sandbox--/, "the session handoff must be limited to Base44 preview hosts");
+assert.match(previewAuthHandoff, /browserHistory\.replaceState/, "the preview handoff fragment must be removed before the page continues");
+assert.match(appParams, /persist:\s*false[\s\S]*useStored:\s*false/, "the one-shot clear_access_token flag must never be replayed from browser storage");
+const internalLinkFiles = [
+  "../src/components/AuthLayout.jsx",
+  "../src/components/KmyLayout.jsx",
+  "../src/components/market/MarketTable.jsx",
+  "../src/components/market/MarketTicker.jsx",
+  "../src/pages/AdminDashboard.jsx",
+  "../src/pages/Alerts.jsx",
+  "../src/pages/CompanyDetails.jsx",
+  "../src/pages/ForgotPassword.jsx",
+  "../src/pages/Landing.jsx",
+  "../src/pages/Login.jsx",
+  "../src/pages/Profile.jsx",
+  "../src/pages/Register.jsx",
+  "../src/pages/ResetPassword.jsx",
+  "../src/pages/VerifyContact.jsx",
+  "../src/pages/Watchlists.jsx",
+];
+for (const relativePath of internalLinkFiles) {
+  const content = await readFile(new URL(relativePath, import.meta.url), "utf8");
+  assert.doesNotMatch(content, /import\s*\{[^}]*\b(?:Link|NavLink)\b[^}]*\}\s*from\s*["']react-router-dom["']/, `${relativePath} must use the shared authenticated internal-link component`);
+}
 assert.match(marketReadFunction, /body\.action === "instrument_search"/, "watchlists and alerts must use the protected canonical instrument search");
 assert.match(marketReadFunction, /"2h", "3h", "4h"/, "chart reads must accept the new session-aware intraday intervals");
 const watchlistFunction = await readFile(new URL("../base44/functions/screeningWatchlists/entry.ts", import.meta.url), "utf8");
