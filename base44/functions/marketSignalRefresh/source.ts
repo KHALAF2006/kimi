@@ -313,7 +313,9 @@ Deno.serve(async (req) => {
     const sessionDate = String(body.session_date || riyadhDate());
     const slotKey = `technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
     const existingRuns = entityRows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
-    const completedRun = existingRuns.find((item) => item.status === "success");
+    const completedRun = existingRuns
+      .filter((item) => ["success", "partial"].includes(item.status))
+      .sort((left, right) => Date.parse(right.finished_at || right.updated_date || 0) - Date.parse(left.finished_at || left.updated_date || 0))[0];
     if (completedRun && body.force !== true) {
       return Response.json({ status: "skipped", reason: "already_projected", session_date: sessionDate, run_id: completedRun.id });
     }
