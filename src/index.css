@@ -163,7 +163,11 @@
   .chart-menu-anchor { @apply relative z-20; }
   .chart-type-button { @apply inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-600 transition hover:border-amber-400 hover:bg-amber-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-amber-950/20; }
   .chart-type-button > svg:last-child { @apply rotate-90; }
-  .chart-type-popover { @apply absolute end-0 top-[calc(100%+8px)] z-50 w-72 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-950; }
+  .chart-type-popover { @apply absolute top-[calc(100%+8px)] z-50 w-[min(288px,calc(100vw-24px))] max-h-[min(70vh,520px)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-950; }
+  .chart-type-popover[dir="rtl"],
+  .indicator-hub-popover[dir="rtl"] { right: 0; left: auto; }
+  .chart-type-popover[dir="ltr"],
+  .indicator-hub-popover[dir="ltr"] { right: auto; left: 0; }
   .chart-type-popover > b { @apply block px-2 pt-1 text-sm font-black; }
   .chart-type-popover > p { @apply px-2 pb-2 pt-1 text-[10px] leading-5 text-slate-500 dark:text-slate-400; }
   .chart-type-popover > button { @apply mt-1 grid w-full grid-cols-[20px_minmax(0,1fr)_20px] items-center gap-2 rounded-xl px-3 py-2.5 text-start text-xs font-bold text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800; }
@@ -173,7 +177,7 @@
   .indicator-hub-button { @apply inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 shadow-sm transition hover:border-amber-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
   .indicator-hub-button.active { @apply border-emerald-400 bg-emerald-50 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-300; }
   .indicator-hub-button small { @apply grid h-5 min-w-5 place-items-center rounded-full bg-slate-100 px-1 font-mono text-[9px] dark:bg-slate-800; }
-  .indicator-hub-popover { @apply absolute end-0 top-[calc(100%+8px)] z-50 w-[min(380px,calc(100vw-24px))] rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-950; }
+  .indicator-hub-popover { @apply absolute top-[calc(100%+8px)] z-50 w-[min(380px,calc(100vw-24px))] max-h-[min(72vh,640px)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-950; }
   .indicator-hub-popover > header { @apply mb-2 flex items-start gap-2 border-b border-slate-100 p-2 pb-3 dark:border-slate-800; }
   .indicator-hub-popover > header > div { @apply min-w-0 flex-1; }
   .indicator-hub-popover > header b { @apply text-sm font-black; }
@@ -182,6 +186,7 @@
   .indicator-hub-row { @apply mt-1 grid grid-cols-[minmax(0,1fr)_38px] overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
   .indicator-hub-row.active { @apply border-emerald-400/70 bg-emerald-50 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-300; }
   .indicator-hub-toggle { @apply grid min-h-11 grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 px-3 text-start text-[11px] font-black; }
+  .indicator-hub-toggle > span:nth-child(2) { @apply min-w-0 whitespace-normal break-words leading-5; }
   .indicator-hub-icon { @apply grid h-7 w-7 place-items-center rounded-lg bg-slate-100 dark:bg-slate-800; }
   .indicator-hub-settings { @apply grid place-items-center border-s border-slate-200 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800; }
   .indicator-everything-button { @apply mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] font-black text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }

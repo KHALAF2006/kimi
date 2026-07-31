@@ -217,6 +217,11 @@ assert.match(companyChart, /function resetChartView\(\)[\s\S]*panes\[0\]\?\.setH
 assert.match(companyChart, /if \(showVolume\) panes\[1\]\?\.setHeight\(115\)/, "resetting the chart must restore the volume pane height");
 assert.match(companyChart, /if \(showRsi\) panes\[showVolume \? 2 : 1\]\?\.setHeight\(165\)/, "resetting the chart must restore the RSI pane height");
 
+const chartStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
+assert.match(chartStyles, /\.indicator-hub-popover\[dir="rtl"\]\s*\{\s*right:\s*0;\s*left:\s*auto;/, "the Arabic indicator menu must open inward from the right viewport edge");
+assert.match(chartStyles, /\.indicator-hub-popover\[dir="ltr"\]\s*\{\s*right:\s*auto;\s*left:\s*0;/, "the English indicator menu must open inward from the left viewport edge");
+assert.match(chartStyles, /\.indicator-hub-toggle > span:nth-child\(2\)\s*\{[^}]*whitespace-normal[^}]*break-words/, "indicator names must remain readable instead of being clipped to icons");
+
 const chartDrawingsFunction = await readFile(new URL("../base44/functions/chartDrawings/entry.ts", import.meta.url), "utf8");
 assert.match(chartDrawingsFunction, /requireActiveSession\(base44, profile, body\.session_id\)/, "drawing storage must require the verified KMY session");
 assert.match(chartDrawingsFunction, /row\.customer_id !== profile\.id/, "drawing mutations must enforce object ownership");
