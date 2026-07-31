@@ -55,6 +55,7 @@ import {
   consumePreviewAuthHandoff,
   isBase44PreviewHost,
   previewSafeHref,
+  safePreviewServerUrl,
 } from "../src/lib/preview-auth-handoff.js";
 
 function memoryStorage(entries = []) {
@@ -69,13 +70,21 @@ function memoryStorage(entries = []) {
 const previewHost = "preview--neat-smart-ops-flow.base44.app";
 assert.equal(isBase44PreviewHost(previewHost), true);
 assert.equal(isBase44PreviewHost("neat-smart-ops-flow.base44.app"), false);
+assert.equal(safePreviewServerUrl(`https://${previewHost}/functions`, previewHost), `https://${previewHost}`);
+assert.equal(safePreviewServerUrl("https://malicious.example/functions", previewHost), "", "preview tokens must never be sent to an untrusted server_url");
 const sourcePreviewStorage = memoryStorage([
   ["base44_access_token", "test-access-token"],
   ["kmy_session_id", "test-session-id"],
   ["kmy_session_expires_at", "2026-08-30T00:00:00.000Z"],
 ]);
-const handedOffHref = previewSafeHref("/screener?timeframe=1wk", { hostname: previewHost, search: "?functions_version=preview-functions-v3", storage: sourcePreviewStorage });
-assert.match(handedOffHref, /^\/screener\?timeframe=1wk&functions_version=preview-functions-v3#kmy_preview_auth=/u, "preview links must carry the exact backend preview version and a one-time tab handoff");
+const previewContextSearch = `?functions_version=preview-functions-v3&server_url=${encodeURIComponent(`https://${previewHost}`)}&base44_data_env=preview-data&_b44_commit=commit-123`;
+const handedOffHref = previewSafeHref("/screener?timeframe=1wk", { hostname: previewHost, search: previewContextSearch, storage: sourcePreviewStorage });
+const handedOffUrl = new URL(`https://${previewHost}${handedOffHref}`);
+assert.equal(handedOffUrl.searchParams.get("functions_version"), "preview-functions-v3");
+assert.equal(handedOffUrl.searchParams.get("server_url"), `https://${previewHost}`);
+assert.equal(handedOffUrl.searchParams.get("base44_data_env"), "preview-data");
+assert.equal(handedOffUrl.searchParams.get("_b44_commit"), "commit-123");
+assert.ok(handedOffUrl.hash.startsWith("#kmy_preview_auth="), "preview links must carry a one-time tab handoff in the URL fragment");
 assert.equal(previewSafeHref("/screener", { hostname: "neat-smart-ops-flow.base44.app", storage: sourcePreviewStorage }), "/screener", "production links must never carry preview credentials");
 const targetPreviewStorage = memoryStorage();
 let cleanedPreviewUrl = "";
@@ -83,8 +92,8 @@ const restored = consumePreviewAuthHandoff({
   location: {
     hostname: previewHost,
     pathname: "/screener",
-    search: "?timeframe=1wk&functions_version=preview-functions-v3",
-    hash: new URL(`https://${previewHost}${handedOffHref}`).hash,
+    search: handedOffUrl.search,
+    hash: handedOffUrl.hash,
   },
   history: { replaceState: (_state, _title, url) => { cleanedPreviewUrl = url; } },
   storage: targetPreviewStorage,
@@ -92,7 +101,7 @@ const restored = consumePreviewAuthHandoff({
 assert.equal(restored, true);
 assert.equal(targetPreviewStorage.getItem("base44_access_token"), "test-access-token");
 assert.equal(targetPreviewStorage.getItem("kmy_session_id"), "test-session-id");
-assert.equal(cleanedPreviewUrl, "/screener?timeframe=1wk&functions_version=preview-functions-v3", "the credential fragment must be removed while preserving the exact backend preview version");
+assert.equal(cleanedPreviewUrl, `/screener${handedOffUrl.search}`, "the credential fragment must be removed while preserving the exact Base44 preview context");
 let malformedCleanUrl = "";
 assert.doesNotThrow(() => {
   const malformedRestored = consumePreviewAuthHandoff({

@@ -1,7 +1,7 @@
 import { createClient } from '@base44/sdk';
 import { appParams } from '@/lib/app-params';
 
-const { appId, token, functionsVersion, appBaseUrl } = appParams;
+const { appId, token, functionsVersion, appBaseUrl, serverUrl } = appParams;
 const localBrowserHosts = new Set(["localhost", "127.0.0.1", "::1"]);
 const isLocalReferencePreview = typeof window !== "undefined"
   && localBrowserHosts.has(window.location.hostname);
@@ -38,7 +38,7 @@ export const base44 = isLocalReferencePreview
       appId,
       token,
       functionsVersion,
-      serverUrl: "",
+      serverUrl,
       requiresAuth: false,
       appBaseUrl,
     });

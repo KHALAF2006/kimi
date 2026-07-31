@@ -1,9 +1,30 @@
 const HANDOFF_HASH_KEY = "kmy_preview_auth";
+const PREVIEW_CONTEXT_KEYS = [
+  "functions_version",
+  "server_url",
+  "base44_data_env",
+  "_b44_commit",
+  "previewFE_version",
+  "app_id",
+  "app_base_url",
+];
 
 export function isBase44PreviewHost(hostname = "") {
   const host = String(hostname).toLowerCase();
   return (host.startsWith("preview--") || host.startsWith("preview-sandbox--"))
     && host.endsWith(".base44.app");
+}
+
+export function safePreviewServerUrl(value, hostname = "") {
+  if (!isBase44PreviewHost(hostname) || !value) return "";
+  try {
+    const url = new URL(String(value));
+    return url.protocol === "https:" && url.hostname === String(hostname).toLowerCase()
+      ? url.origin
+      : "";
+  } catch {
+    return "";
+  }
 }
 
 function encodePayload(payload) {
@@ -37,9 +58,9 @@ export function previewSafeHref(to, options = {}) {
   });
   const url = new URL(to, "https://preview.invalid");
   const currentSearch = new URLSearchParams(search ?? (typeof window === "undefined" ? "" : window.location.search));
-  const functionsVersion = currentSearch.get("functions_version");
-  if (functionsVersion && !url.searchParams.has("functions_version")) {
-    url.searchParams.set("functions_version", functionsVersion);
+  for (const key of PREVIEW_CONTEXT_KEYS) {
+    const value = currentSearch.get(key);
+    if (value && !url.searchParams.has(key)) url.searchParams.set(key, value);
   }
   const hash = new URLSearchParams(url.hash.slice(1));
   hash.set(HANDOFF_HASH_KEY, payload);

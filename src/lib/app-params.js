@@ -1,4 +1,4 @@
-import { consumePreviewAuthHandoff } from '@/lib/preview-auth-handoff';
+import { consumePreviewAuthHandoff, safePreviewServerUrl } from '@/lib/preview-auth-handoff';
 
 const isNode = typeof window === 'undefined';
 const memoryStorage = new Map();
@@ -67,6 +67,10 @@ const getAppParams = () => {
 		storage.removeItem('base44_access_token');
 		storage.removeItem('token');
 	}
+	const previewServerUrl = getAppParamValue("server_url", {
+		persist: false,
+		useStored: false,
+	});
 	return {
 		appId: getAppParamValue("app_id", { defaultValue: import.meta.env.VITE_BASE44_APP_ID }),
 		token: getAppParamValue("access_token", { removeFromUrl: true }),
@@ -79,6 +83,7 @@ const getAppParams = () => {
 			useStored: false,
 		}),
 		appBaseUrl: getAppParamValue("app_base_url", { defaultValue: import.meta.env.VITE_BASE44_APP_BASE_URL }),
+		serverUrl: safePreviewServerUrl(previewServerUrl, window.location.hostname),
 	}
 }
 
