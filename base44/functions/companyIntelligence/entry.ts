@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { replyError, requirePermission } from "../../shared/security.ts";
+import { replyError, requireAdminUser } from "../../shared/security.ts";
 
 const MODES = new Set(["daily", "financials", "bootstrap"]);
 const OFFICIAL_HOST = /(^|\.)saudiexchange\.sa$/i;
@@ -41,11 +41,9 @@ async function sha256(value) {
   return Array.from(new Uint8Array(bytes)).map((item) => item.toString(16).padStart(2, "0")).join("");
 }
 
-async function authorize(base44, req, mode, sessionId) {
-  const serviceAuthorization = req.headers.get("Base44-Service-Authorization");
-  if (serviceAuthorization) return { actor: "scheduled-service", mode };
-  const context = await requirePermission(base44, sessionId, "data.quality.manage");
-  return { actor: context.user.id, mode };
+async function authorize(base44, mode) {
+  const user = await requireAdminUser(base44);
+  return { actor: user.id, mode };
 }
 
 async function sourceRecord(base44) {
@@ -103,7 +101,7 @@ Deno.serve(async (req) => {
     const body = { ...requestBody, ...(requestBody.args || {}) };
     const mode = String(body.mode || "daily");
     if (!MODES.has(mode)) fail("Unsupported company intelligence mode");
-    const authorization = await authorize(base44, req, mode, body.session_id);
+    const authorization = await authorize(base44, mode);
     const startedAt = new Date().toISOString();
     const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500));
     if (instruments.length < 270) fail(`Main-market catalog is incomplete: ${instruments.length}/270`, 503, "CATALOG_INCOMPLETE");

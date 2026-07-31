@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { replyError, requirePermission, requireUser } from "../../shared/security.ts";
+import { replyError, requireAdminUser, requirePermission, requireUser } from "../../shared/security.ts";
 import { groupHistoricalBarsByYear, mergeStoredCandleSeries, normalizeAdjustedHistoricalBars, normalizeYahooHistoricalBars } from "../../shared/market-data.ts";
 
 const MARKET_CODE = "SA_MAIN";
@@ -352,14 +352,13 @@ Deno.serve(async (req) => {
     base44 = createClientFromRequest(req);
     const requestBody = await req.json();
     const body = { ...requestBody, ...(requestBody.args || {}) };
-    const isServiceInvocation = Boolean(req.headers.get("Base44-Service-Authorization"));
+    await requireAdminUser(base44);
     const provider = historyProvider();
     const from = validateDate(body.from, DEFAULT_FROM);
     const to = validateDate(body.to, dateOnly());
     if (from > to) throw Object.assign(new Error("Historical start date must not follow the end date"), { status: 400, code: "INVALID_HISTORY_RANGE" });
 
     if (body.mode === "history_batch") {
-      if (!isServiceInvocation) throw Object.assign(new Error("Service invocation required"), { status: 403 });
       const instrumentIds = Array.isArray(body.instrument_ids)
         ? [...new Set(body.instrument_ids.map(String).filter(Boolean))].slice(0, BATCH_SIZE)
         : [];
@@ -374,7 +373,6 @@ Deno.serve(async (req) => {
       }));
     }
 
-    if (!isServiceInvocation) await requireBackfillOperator(base44, body.session_id);
     if (body.mode === "status") return Response.json(await archiveStatus(base44, body.symbols));
     const source = await ensureSource(base44, provider);
     const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))

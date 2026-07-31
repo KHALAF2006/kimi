@@ -6,6 +6,14 @@ export async function requireUser(base44) {
   return user;
 }
 
+export async function requireAdminUser(base44) {
+  const user = await requireUser(base44);
+  if (user.role !== "admin") {
+    throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
+  }
+  return user;
+}
+
 export async function profileFor(base44, user) {
   const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
   return rows[0] || null;

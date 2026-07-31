@@ -846,22 +846,12 @@ Deno.serve(async (req) => {
     base44 = createClientFromRequest(req);
     const requestBody = await req.json();
     const body = { ...requestBody, ...requestBody.args || {} };
-    const isServiceInvocation = Boolean(req.headers.get("Base44-Service-Authorization"));
+    const user = await requireUser(base44);
+    if (user.role !== "admin") throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
     if (body.mode === "projection_batch") {
-      if (!isServiceInvocation) throw Object.assign(new Error("Service invocation required"), { status: 403 });
       const instrumentIds = Array.isArray(body.instrument_ids) ? body.instrument_ids.map(String).filter(Boolean).slice(0, PROJECTION_BATCH_SIZE) : [];
       if (!instrumentIds.length) throw Object.assign(new Error("instrument_ids are required"), { status: 400 });
       return Response.json(await projectInstrumentBatch(base44, instrumentIds, String(body.session_date || riyadhDate2())));
-    }
-    let user = null;
-    try {
-      user = await base44.auth.me();
-    } catch {
-      user = null;
-    }
-    if (!isServiceInvocation) {
-      if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
-      await requirePermission(base44, body.session_id, "data.ingestion.run");
     }
     const sessionDate = String(body.session_date || riyadhDate2());
     const slotKey = `technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;

@@ -829,13 +829,13 @@ Deno.serve(async (req) => {
     base44 = createClientFromRequest(req);
     const requestBody = await req.json();
     const body = { ...requestBody, ...requestBody.args || {} };
-    const isServiceInvocation = Boolean(req.headers.get("Base44-Service-Authorization"));
+    const user = await requireUser(base44);
+    if (user.role !== "admin") throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
     const provider = historyProvider();
     const from = validateDate(body.from, DEFAULT_FROM);
     const to = validateDate(body.to, dateOnly());
     if (from > to) throw Object.assign(new Error("Historical start date must not follow the end date"), { status: 400, code: "INVALID_HISTORY_RANGE" });
     if (body.mode === "history_batch") {
-      if (!isServiceInvocation) throw Object.assign(new Error("Service invocation required"), { status: 403 });
       const instrumentIds = Array.isArray(body.instrument_ids) ? [...new Set(body.instrument_ids.map(String).filter(Boolean))].slice(0, BATCH_SIZE) : [];
       if (!instrumentIds.length) throw Object.assign(new Error("instrument_ids are required"), { status: 400 });
       return Response.json(await processBatch(base44, instrumentIds, {
@@ -847,7 +847,6 @@ Deno.serve(async (req) => {
         force: body.force === true
       }));
     }
-    if (!isServiceInvocation) await requireBackfillOperator(base44, body.session_id);
     if (body.mode === "status") return Response.json(await archiveStatus(base44, body.symbols));
     const source = await ensureSource(base44, provider);
     const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((instrument) => instrument.market_code === MARKET_CODE && instrument.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
