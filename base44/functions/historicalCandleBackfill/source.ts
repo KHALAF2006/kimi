@@ -171,21 +171,6 @@ async function fetchYahooHistorical(symbol: string, from: string, to: string, ba
 }
 
 function historyProvider() {
-  const apiKey = String(Deno.env.get("SAHMK_API_KEY") || "").trim();
-  if (apiKey) {
-    const baseUrl = String(Deno.env.get("SAHMK_API_BASE_URL") || SAHMK_BASE_URL).trim();
-    return {
-      code: SAHMK_PROVIDER_CODE,
-      name: "SAHMK historical adjusted OHLCV",
-      baseUrl,
-      sourceType: "licensed",
-      licenseStatus: "approved",
-      adjustmentMode: "provider_adjusted",
-      canonicalVersion: "trusted-adjusted-daily-v1",
-      fetch: (symbol: string, from: string, to: string) => fetchSahmkHistorical(symbol, from, to, apiKey, baseUrl),
-      normalize: normalizeAdjustedHistoricalBars,
-    };
-  }
   return {
     code: YAHOO_PROVIDER_CODE,
     name: "Public Saudi daily OHLCV archive",
