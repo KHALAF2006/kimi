@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdir } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -7,6 +7,33 @@ import { build } from "esbuild";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const sourceRoot = join(root, "base44", "functions");
 const checkOnly = process.argv.includes("--check");
+
+const generatedFunctions = ["marketSignalRefresh"];
+
+for (const functionName of generatedFunctions) {
+  const sourcePoint = join(sourceRoot, functionName, "source.ts");
+  const entryPoint = join(sourceRoot, functionName, "entry.ts");
+  const result = await build({
+    entryPoints: [sourcePoint],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "neutral",
+    target: "es2022",
+    external: ["npm:*"],
+    legalComments: "none",
+    banner: { js: `// GENERATED from ${functionName}/source.ts. Do not edit directly.` },
+  });
+  assert.equal(result.outputFiles.length, 1, `${functionName} produced an unexpected generated bundle`);
+  const generated = result.outputFiles[0].text;
+
+  if (checkOnly) {
+    const current = await readFile(entryPoint, "utf8");
+    assert.equal(current, generated, `${functionName}/entry.ts is stale; run npm run build:app-editor-functions`);
+  } else {
+    await writeFile(entryPoint, generated, "utf8");
+  }
+}
 
 const sourceEntries = (await readdir(sourceRoot, { withFileTypes: true }))
   .filter((item) => item.isDirectory())
@@ -35,4 +62,5 @@ console.log(JSON.stringify({
   mode: checkOnly ? "acceptance-check" : "direct-base44-functions",
   functions: sourceEntries.length,
   source: "base44/functions/",
+  generated: generatedFunctions,
 }, null, 2));
