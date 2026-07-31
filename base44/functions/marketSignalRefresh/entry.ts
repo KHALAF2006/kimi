@@ -269,7 +269,7 @@ async function requirePermission(base44, sessionId, permissionCode) {
 // base44/shared/momentum.ts
 var MOMENTUM_FORMULA_VERSION = "momentum-zones-v1";
 var LOOKBACK_DAYS = 20;
-var HISTORY_BARS = 500;
+var HISTORY_BARS = Number.POSITIVE_INFINITY;
 var FIXED_STOP_PERCENT = 0.03;
 var ZONE_DEFINITIONS = [
   { key: "zone1", nameAr: "\u0627\u0644\u0627\u0631\u062A\u062F\u0627\u062F", nameEn: "Rebound", colorNameAr: "\u0623\u062E\u0636\u0631", colorNameEn: "Green", light: "#16a34a", dark: "#22c55e", topPercent: 0.075, bottomPercent: 0.1 },
@@ -295,11 +295,13 @@ function crossedUnder(current, threshold, previous, previousThreshold) {
   return previous !== null && previousThreshold !== null && current < threshold && previous >= previousThreshold;
 }
 function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, historyBars = HISTORY_BARS) {
-  const bars = inputBars.map((bar) => ({
+  const normalized = inputBars.map((bar) => ({
     time: String(bar.time || ""),
     high: Number(bar.high),
     close: Number(bar.close)
-  })).filter((bar) => bar.time && Number.isFinite(bar.high) && Number.isFinite(bar.close) && bar.high > 0 && bar.close > 0).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()).slice(-historyBars);
+  })).filter((bar) => bar.time && Number.isFinite(bar.high) && Number.isFinite(bar.close) && bar.high > 0 && bar.close > 0).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  const finiteHistoryLimit = Number.isFinite(Number(historyBars)) ? Math.max(lookbackDays + 2, Math.round(Number(historyBars))) : normalized.length;
+  const bars = normalized.slice(-finiteHistoryLimit);
   if (bars.length < 2) return null;
   let referencePeak = null;
   let referenceTime = null;
@@ -351,7 +353,7 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
     referencePeak,
     referenceTime,
     lookbackDays,
-    historyBars,
+    historyBars: bars.length,
     formulaVersion: MOMENTUM_FORMULA_VERSION,
     zone4Active,
     zone5Active,

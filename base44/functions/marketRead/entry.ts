@@ -5268,9 +5268,17 @@ function normalizedStoredBars(chunks) {
     const volume = Math.max(0, Number(bar.volume || 0));
     if (!Number.isFinite(time) || ![open, high, low, close].every((value) => Number.isFinite(value) && value > 0)) continue;
     if (high < Math.max(open, close) || low > Math.min(open, close)) continue;
-    byTime.set(new Date(time).toISOString(), { time: new Date(time).toISOString(), open, high, low, close, volume });
+    const key = new Date(time).toISOString();
+    const sourcePriority = chunk.canonical_version === "candle-projection-v1" ? 3 : chunk.is_historical_archive === true ? 2 : 1;
+    const receivedTime = new Date(chunk.received_time || chunk.updated_date || chunk.created_date || 0).getTime();
+    const current = byTime.get(key);
+    if (current && (current.sourcePriority > sourcePriority
+      || current.sourcePriority === sourcePriority && current.receivedTime > receivedTime)) continue;
+    byTime.set(key, { time: key, open, high, low, close, volume, sourcePriority, receivedTime });
   }
-  return [...byTime.values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  return [...byTime.values()]
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+    .map(({ sourcePriority: _sourcePriority, receivedTime: _receivedTime, ...bar }) => bar);
 }
 function fallbackIntervals(interval) {
   if (interval === "1wk" || interval === "1mo") return [interval, "1d", "15m"];
@@ -5281,7 +5289,7 @@ async function storedCandlesForInterval(base44, instrumentId, interval) {
   const series = [];
   const allChunks = [];
   for (const storedInterval of fallbackIntervals(interval)) {
-    const chunks = entityRows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrumentId, interval: storedInterval }))
+    const chunks = entityRows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrumentId, interval: storedInterval }, "-end_time", 500))
       .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
       .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
     if (!chunks.length) continue;
@@ -5310,7 +5318,13 @@ async function chartResponse(base44, body, sources) {
   if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range)) {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
-  const stored = await storedCandlesForInterval(base44, instrument.id, interval);
+  const [stored, historyRows] = await Promise.all([
+    storedCandlesForInterval(base44, instrument.id, interval),
+    optionalRows(
+      () => base44.asServiceRole.entities.HistoricalCandleSync.filter({ instrument_id: instrument.id, interval: "1d" }, "-completed_at", 20),
+      "historical candle sync"
+    )
+  ]);
   if (!stored.bars.length) {
     throw Object.assign(new Error("Stored chart data is not available until a market ingestion run provides it"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   }
@@ -5321,6 +5335,7 @@ async function chartResponse(base44, body, sources) {
   if (!candles.length) throw Object.assign(new Error("Stored chart data contains no valid candles for the requested range"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   const source = sources.find((item) => item.id === latestChunk.source_id) || null;
   const asOf = latestChunk.provider_as_of || stored.latestSourceTime || latestChunk.end_time || candles[candles.length - 1].time;
+  const history = historyRows.find((item) => item.status === "complete") || historyRows[0] || null;
   return {
     candles,
     as_of: asOf,
@@ -5336,7 +5351,13 @@ async function chartResponse(base44, body, sources) {
       stored_intervals: stored.storedIntervals,
       snapshot_version: latestChunk.snapshot_version || null,
       run_id: latestChunk.run_id || null,
-      provider_as_of: latestChunk.provider_as_of || asOf
+      provider_as_of: latestChunk.provider_as_of || asOf,
+      history_status: history?.status || "not_started",
+      history_complete: history?.status === "complete",
+      history_available_from: history?.earliest_bar_time || stored.bars[0]?.time || null,
+      history_available_to: history?.latest_bar_time || stored.bars.at(-1)?.time || null,
+      history_bar_count: Number(history?.bar_count || stored.bars.length),
+      history_provider_partial: history?.provider_partial === true
     }
   };
 }

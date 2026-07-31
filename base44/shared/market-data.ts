@@ -7,6 +7,72 @@ export const PROVIDER_FRESHNESS_GRACE_SECONDS = 5 * 60;
 export const EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
 export const PUBLIC_CANDLE_OVERLAP_MILLISECONDS = 15 * 60 * 1000;
 export const PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS = 8 * 24 * 60 * 60 * 1000;
+
+export function historicalProviderDateTime(value) {
+  const date = String(value || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const time = new Date(`${date}T07:00:00.000Z`);
+  return Number.isFinite(time.getTime()) ? time.toISOString() : null;
+}
+
+export function normalizeAdjustedHistoricalBars(payload, requestedFrom, requestedTo) {
+  if (String(payload?.interval || "1d") !== "1d") {
+    throw Object.assign(new Error("Historical provider returned a non-daily interval"), { code: "HISTORY_INTERVAL_MISMATCH" });
+  }
+  const values = Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload?.data?.data)
+      ? payload.data.data
+      : [];
+  const byTime = new Map();
+  let duplicateCount = 0;
+  let rejectedCount = 0;
+  for (const row of values) {
+    const time = historicalProviderDateTime(row.date || row.time || row.timestamp);
+    const rawClose = Number(row.close);
+    const adjustedClose = Number(row.adjusted_close ?? row.adjustedClose ?? row.close);
+    const scale = Number.isFinite(rawClose) && rawClose > 0 && Number.isFinite(adjustedClose) && adjustedClose > 0
+      ? adjustedClose / rawClose
+      : 1;
+    const bar = {
+      time,
+      open: Number(row.open) * scale,
+      high: Number(row.high) * scale,
+      low: Number(row.low) * scale,
+      close: adjustedClose,
+      volume: Math.max(0, Number(row.volume || 0)),
+    };
+    const date = String(time || "").slice(0, 10);
+    if (!time
+      || ![bar.open, bar.high, bar.low, bar.close, bar.volume].every(Number.isFinite)
+      || bar.open <= 0 || bar.high <= 0 || bar.low <= 0 || bar.close <= 0
+      || bar.high < Math.max(bar.open, bar.close)
+      || bar.low > Math.min(bar.open, bar.close)
+      || date < requestedFrom || date > requestedTo) {
+      rejectedCount += 1;
+      continue;
+    }
+    if (byTime.has(time)) duplicateCount += 1;
+    byTime.set(time, bar);
+  }
+  const bars = [...byTime.values()].sort((left, right) => String(left.time).localeCompare(String(right.time)));
+  if (!bars.length) {
+    throw Object.assign(new Error("Historical provider returned no valid daily candles"), { code: "HISTORY_EMPTY" });
+  }
+  const providerPartial = payload?.metadata?.partial === true || payload?.partial === true;
+  return { bars, providerPartial, duplicateCount, rejectedCount };
+}
+
+export function groupHistoricalBarsByYear(bars) {
+  const grouped = new Map();
+  for (const bar of Array.isArray(bars) ? bars : []) {
+    const year = String(bar.time || "").slice(0, 4);
+    if (!/^\d{4}$/.test(year)) continue;
+    if (!grouped.has(year)) grouped.set(year, []);
+    grouped.get(year).push(bar);
+  }
+  return grouped;
+}
 export const MARKET_AUTOMATION_SPECS = Object.freeze([
   { name: "saudi_t15_1015_1045_riyadh", cron: "15,30,45 7 * * 0-4", slotKind: "quarter_hour", active: false },
   { name: "saudi_t15_1100_1445_riyadh", cron: "0,15,30,45 8-11 * * 0-4", slotKind: "quarter_hour", active: false },

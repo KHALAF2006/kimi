@@ -19,6 +19,7 @@ async function importTypeScriptModule(relativePath) {
 
 const marketDataModule = await importTypeScriptModule("./base44/shared/market-data.ts");
 const technicalSignalsModule = await importTypeScriptModule("./base44/shared/technical-signals.ts");
+const momentumModule = await importTypeScriptModule("./base44/shared/momentum.ts");
 
 const {
   SAUDI_DELAY_SECONDS,
@@ -32,12 +33,15 @@ const {
   groupRowsByKey,
   mergeIncrementalCandleChunks,
   mergeStoredCandleSeries,
+  groupHistoricalBarsByYear,
+  normalizeAdjustedHistoricalBars,
   normalizeLicensedSnapshot,
   normalizePublicDelayedCharts,
   normalizeProviderCandles,
   publicChartRequestWindow,
   slotDecision,
 } = marketDataModule;
+const { calculateMomentumZones } = momentumModule;
 const {
   aggregateTechnicalBars,
   calculateSmaSeries,
@@ -567,6 +571,32 @@ assert.equal(requestedPublicParams.get("period1"), String(incrementalWindow.peri
 assert.equal(requestedPublicParams.get("period2"), String(incrementalWindow.period2));
 assert.deepEqual(incrementalFetch.requestModes, { incremental: 1, bootstrap: 0, backfill: 0 });
 
+const normalizedHistory = normalizeAdjustedHistoricalBars({
+  interval: "1d",
+  metadata: { partial: false },
+  data: [
+    { date: "2024-12-31", open: 98, high: 104, low: 96, close: 100, adjusted_close: 50, volume: 1000 },
+    { date: "2025-01-02", open: 50, high: 54, low: 49, close: 52, adjusted_close: 52, volume: 1200 },
+    { date: "2025-01-02", open: 50, high: 55, low: 49, close: 53, adjusted_close: 53, volume: 1300 },
+    { date: "2025-01-03", open: 50, high: 49, low: 51, close: 52, adjusted_close: 52, volume: 1200 },
+  ],
+}, "2024-01-01", "2025-12-31");
+assert.equal(normalizedHistory.bars.length, 2, "historical normalization must reject invalid OHLC and coalesce duplicate dates");
+assert.equal(normalizedHistory.bars[0].open, 49, "adjusted history must scale OHLC consistently with adjusted close");
+assert.equal(normalizedHistory.bars[0].high, 52);
+assert.equal(normalizedHistory.duplicateCount, 1);
+assert.equal(normalizedHistory.rejectedCount, 1);
+assert.deepEqual([...groupHistoricalBarsByYear(normalizedHistory.bars).keys()], ["2024", "2025"], "stored historical chunks must be partitioned by year");
+assert.equal(normalizeAdjustedHistoricalBars({ interval: "1d", metadata: { partial: true }, data: [{ date: "2025-01-02", open: 1, high: 2, low: 1, close: 2, volume: 1 }] }, "2025-01-01", "2025-12-31").providerPartial, true);
+
+const longHistory = Array.from({ length: 650 }, (_, index) => ({
+  time: new Date(Date.UTC(2020, 0, index + 1)).toISOString(),
+  high: 100,
+  close: 90,
+}));
+const longHistoryMomentum = calculateMomentumZones(longHistory, 20);
+assert.equal(longHistoryMomentum?.historyBars, 650, "reference-peak calculations must consume the complete stored history instead of truncating at 500 candles");
+
 console.log(JSON.stringify({
   status: "verified",
   quarterHourScheduling: true,
@@ -582,6 +612,8 @@ console.log(JSON.stringify({
   technicalSignals: true,
   saudiHigherTimeframeBoundaries: true,
   chartCandleTypes: true,
+  permanentHistoricalArchive: true,
+  fullHistoryMomentum: true,
   previewTabSessionHandoff: true,
   threeCandleSignalWindows: true,
 }, null, 2));

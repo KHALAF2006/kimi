@@ -1,0 +1,4 @@
+{
+  "name": "historicalCandleBackfill",
+  "entry": "entry.ts"
+}

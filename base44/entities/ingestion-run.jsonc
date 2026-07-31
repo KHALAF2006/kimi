@@ -13,7 +13,7 @@
     },
     "slot_kind": {
       "type": "string",
-      "enum": ["quarter_hour", "close_price", "session_final", "technical_projection", "manual"]
+      "enum": ["quarter_hour", "close_price", "session_final", "technical_projection", "historical_backfill", "manual"]
     },
     "scheduled_for": {
       "type": "string",

@@ -93,15 +93,18 @@ export function calculateRsiSeries(inputBars = [], length = 14, source = "close"
 }
 
 /** Strict investor-zone calculation port using verified market bars. */
-export function calculateMomentumSnapshot(inputBars = [], lookbackDays = 20, historyBars = 500, theme = "light") {
+export function calculateMomentumSnapshot(inputBars = [], lookbackDays = 20, historyBars = Number.POSITIVE_INFINITY, theme = "light") {
   const lookback = Math.min(30, Math.max(6, Math.round(Number(lookbackDays) || 20)));
-  const bars = inputBars.map((bar) => ({
+  const normalized = inputBars.map((bar) => ({
     time: marketTime(bar.time),
     high: Number(bar.high),
     close: Number(bar.close),
   })).filter((bar) => Number.isFinite(bar.time) && Number.isFinite(bar.high) && Number.isFinite(bar.close) && bar.high > 0 && bar.close > 0)
-    .sort((a, b) => a.time - b.time)
-    .slice(-Math.max(lookback + 2, historyBars));
+    .sort((a, b) => a.time - b.time);
+  const finiteHistoryLimit = Number.isFinite(Number(historyBars))
+    ? Math.max(lookback + 2, Math.round(Number(historyBars)))
+    : normalized.length;
+  const bars = normalized.slice(-finiteHistoryLimit);
 
   if (bars.length < lookback + 1) return null;
   let referencePeak = null;
@@ -161,7 +164,7 @@ export function calculateMomentumSnapshot(inputBars = [], lookbackDays = 20, his
     referencePeak,
     referenceTime,
     lookbackDays: lookback,
-    historyBars,
+    historyBars: bars.length,
     formulaVersion: "momentum-zones-v1-pine-parity",
     zone4Active,
     zone5Active,

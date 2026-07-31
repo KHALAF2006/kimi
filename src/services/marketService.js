@@ -117,14 +117,14 @@ async function referenceMarketRead(payload) {
         constituents,
       };
     }
-    const referenceRanges = { "5d": "1w", "1mo": "1M", "3mo": "3M", "1y": "1y", "5y": "5y" };
+    const referenceRanges = { "5d": "1w", "1mo": "1M", "3mo": "3M", "1y": "1y", "5y": "5y", "max": "max" };
     const range = referenceRanges[payload.range] || "3M";
     const results = await Promise.allSettled(members.map((company) => referenceFetch(`/api/companies/${encodeURIComponent(company.symbol)}/chart?interval=${encodeURIComponent(payload.interval || "1d")}&range=${encodeURIComponent(range)}`)));
     const candles = buildReferenceSectorCandles(results.filter((result) => result.status === "fulfilled").map((result) => result.value.candles || []));
     return { sector: payload.sector, candles, as_of: candles.at(-1)?.time || null, methodology: "equal_weighted" };
   }
   if (payload.action === "chart") {
-    const referenceRanges = { "5d": "1w", "1mo": "1M", "3mo": "3M", "1y": "1y", "5y": "5y" };
+    const referenceRanges = { "5d": "1w", "1mo": "1M", "3mo": "3M", "1y": "1y", "5y": "5y", "max": "max" };
     const referenceRange = referenceRanges[payload.range] || "3M";
     const path = "/api/companies/" + encodeURIComponent(payload.symbol) + "/chart?interval=" + encodeURIComponent(payload.interval || "1d") + "&range=" + encodeURIComponent(referenceRange);
     const data = await referenceFetch(path);

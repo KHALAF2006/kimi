@@ -117,10 +117,10 @@ assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh"
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
 const allEntityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc")).sort();
 const entityFiles = allEntityFiles.filter((name) => /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/.test(name));
-assert.equal(entityFiles.length, 45, "all 45 canonical Base44 entity schemas must be present");
+assert.equal(entityFiles.length, 46, "all 46 canonical Base44 entity schemas must be present");
 // Base44 materializes server-side entity representations beside the checked-in
 // kebab-case schemas inside its managed /app sandbox. The GitHub checkout must
-// remain canonical-only; the sandbox still validates the 45 source schemas.
+// remain canonical-only; the sandbox still validates the 46 source schemas.
 const isManagedBase44Sandbox = process.cwd().replaceAll("\\", "/") === "/app";
 if (!isManagedBase44Sandbox) {
   assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "legacy duplicate entity schema files must not remain beside the canonical kebab-case files");
@@ -149,7 +149,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 21, "all 21 backend functions must be present");
+assert.equal(functionNames.length, 22, "all 22 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -347,8 +347,19 @@ assert.match(customerSelfService, /instrument:\s*instrumentById\.get/, "alert re
 assert.match(ingestion, /evaluatePriceAlerts/, "price alert rules must be evaluated by the market ingestion pipeline");
 const operationsAdminPage = await readFile(new URL("../src/pages/OperationsAdmin.jsx", import.meta.url), "utf8");
 assert.match(operationsAdminPage, /refresh_signals/, "the owner must be able to re-run candle and signal projection with an audited reason");
+assert.match(operationsAdminPage, /backfill_history/, "the owner must be able to resume the one-time historical archive import");
 const adminMarketDataFunction = await readFile(new URL("../base44/functions/adminMarketData/entry.ts", import.meta.url), "utf8");
 assert.match(adminMarketDataFunction, /marketSignalRefresh/, "manual signal refresh must invoke the protected projection backend");
+assert.match(adminMarketDataFunction, /historicalCandleBackfill/, "historical archive imports must run through the protected backend");
+const historicalBackfillFunction = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
+assert.match(historicalBackfillFunction, /SAHMK_API_KEY/, "trusted historical import must read its provider key from Base44 Secrets");
+assert.match(historicalBackfillFunction, /history_already_complete/, "completed instrument archives must not be requested again");
+assert.match(historicalBackfillFunction, /canonical_version:\s*CANONICAL_VERSION/, "historical candles must be persisted as canonical yearly chunks");
+const historicalCompanyChart = await readFile(new URL("../src/components/market/CompanyChart.jsx", import.meta.url), "utf8");
+assert.match(historicalCompanyChart, /value:\s*"max",\s*ar:\s*"تاريخي"/, "the chart must expose a stored full-history range");
+assert.match(historicalCompanyChart, /history_complete/, "the chart must disclose an incomplete historical archive");
+assert.match(historicalCompanyChart, /chart-type-popover chart-type-inline-panel/, "the candle-type chooser must use an in-flow panel instead of covering the indicator controls");
+assert.match(historicalCompanyChart, /chart-menu-anchor, \.chart-type-inline-panel/, "the in-flow candle chooser must remain interactive when the outside-click handler is active");
 
 const companyIntelligence = await readFile(new URL("../base44/functions/companyIntelligence/entry.ts", import.meta.url), "utf8");
 assert.match(companyIntelligence, /SAUDI_EXCHANGE_COMPANY_FEED_URL/, "company intelligence must require a configured official feed");

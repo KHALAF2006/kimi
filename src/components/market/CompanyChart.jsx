@@ -26,6 +26,7 @@ const rangeOptions = [
   { value: "3mo", ar: "3 أشهر", en: "3M", intervals: ["1h", "2h", "3h", "4h", "1d", "1wk"] },
   { value: "1y", ar: "سنة", en: "1Y", intervals: ["1h", "2h", "3h", "4h", "1d", "1wk", "1mo"] },
   { value: "5y", ar: "5 سنوات", en: "5Y", intervals: ["1d", "1wk", "1mo"] },
+  { value: "max", ar: "تاريخي", en: "History", intervals: ["1d", "1wk", "1mo"] },
 ];
 
 const rsiDefaults = {
@@ -147,6 +148,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const [range, setRange] = useState(() => localStorage.getItem("kmy_chart_range") || "1y");
   const [candles, setCandles] = useState([]);
   const [indicatorCandles, setIndicatorCandles] = useState([]);
+  const [historyMeta, setHistoryMeta] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [hovered, setHovered] = useState(null);
@@ -228,7 +230,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   sma20DataRef.current = sma20Data;
   sma50DataRef.current = sma50Data;
   const fallbackMomentum = useMemo(() => normalizeMomentum(rawMomentum, theme), [rawMomentum, theme]);
-  const calculatedMomentum = useMemo(() => calculateMomentumSnapshot(indicatorCandles, momentumSettings.peakLookbackDays, 500, theme), [indicatorCandles, momentumSettings.peakLookbackDays, theme]);
+  const calculatedMomentum = useMemo(() => calculateMomentumSnapshot(indicatorCandles, momentumSettings.peakLookbackDays, Number.POSITIVE_INFINITY, theme), [indicatorCandles, momentumSettings.peakLookbackDays, theme]);
   const momentum = calculatedMomentum || fallbackMomentum;
   const availableRanges = rangeOptions.filter((item) => item.intervals.includes(interval));
   const chartHeight = 470 + (showVolume ? 115 : 0) + (showRsi ? 165 : 0);
@@ -250,10 +252,12 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       .then((data) => {
         if (!active) return;
         setCandles(Array.isArray(data.candles) ? data.candles : []);
+        setHistoryMeta(data.data_meta || null);
       })
       .catch((reason) => {
         if (!active) return;
         setCandles([]);
+        setHistoryMeta(null);
         setError(reason?.response?.data?.error || reason?.message || "chart_fetch_failed");
       })
       .finally(() => active && setLoading(false));
@@ -265,7 +269,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   useEffect(() => {
     if (!chartTarget) return;
     let active = true;
-    const indicatorRange = interval === "15m" ? "1mo" : ["1h", "2h", "3h", "4h"].includes(interval) ? "1y" : "5y";
+    const indicatorRange = interval === "15m" ? "1mo" : ["1h", "2h", "3h", "4h"].includes(interval) ? "1y" : "max";
     invokeAppFunction("marketRead", sector
       ? { action: "sector_chart", sector, market_code: marketCode, interval, range: indicatorRange }
       : { action: "chart", symbol, interval, range: indicatorRange })
@@ -290,7 +294,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   useEffect(() => {
     const closeMenus = (event) => {
       if (event.type === "keydown" && event.key !== "Escape") return;
-      if (event.type === "pointerdown" && event.target.closest?.(".chart-menu-anchor")) return;
+      if (event.type === "pointerdown" && event.target.closest?.(".chart-menu-anchor, .chart-type-inline-panel")) return;
       setIndicatorMenuOpen(false);
       setReversalMenuOpen(false);
       setCandleTypeMenuOpen(false);
@@ -788,16 +792,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       </div>}
       <div className="flex flex-wrap items-center gap-2">
         <div className="chart-menu-anchor">
-          <button type="button" className="chart-type-button" onClick={() => setCandleTypeMenuOpen((value) => !value)} title={isArabic ? "تغيير نوع الشموع" : "Change candle type"} aria-expanded={candleTypeMenuOpen} aria-label={isArabic ? `نوع الشموع: ${candleTypeLabel}` : `Candle type: ${candleTypeLabel}`}><ChartCandlestick size={17} /><span>{candleTypeLabel}</span><ChevronLeft size={14} /></button>
-          {candleTypeMenuOpen && <div role="menu" className="chart-type-popover" dir={isArabic ? "rtl" : "ltr"}>
-            <b>{isArabic ? "نوع عرض الشموع" : "Candle display"}</b>
-            <p>{isArabic ? "يظهر نوع واحد فقط في كل مرة." : "Only one candle type is shown at a time."}</p>
-            {[
-              ["candles", isArabic ? "شموع عادية" : "Candles"],
-              ["hollow", isArabic ? "شموع مفرغة" : "Hollow candles"],
-              ["heikin_ashi", isArabic ? "هايكن آشي" : "Heikin Ashi"],
-            ].map(([value, label]) => <button type="button" key={value} className={chartPreferences.candleType === value ? "active" : ""} onClick={() => selectCandleType(value)} aria-pressed={chartPreferences.candleType === value}><ChartCandlestick size={17} /><span>{label}</span>{chartPreferences.candleType === value && <span aria-hidden="true">✓</span>}</button>)}
-          </div>}
+          <button type="button" className="chart-type-button" onClick={() => { setIndicatorMenuOpen(false); setReversalMenuOpen(false); setCandleTypeMenuOpen((value) => !value); }} title={isArabic ? "تغيير نوع الشموع" : "Change candle type"} aria-expanded={candleTypeMenuOpen} aria-label={isArabic ? `نوع الشموع: ${candleTypeLabel}` : `Candle type: ${candleTypeLabel}`}><ChartCandlestick size={17} /><span>{candleTypeLabel}</span><ChevronLeft size={14} /></button>
         </div>
         <button type="button" className="icon-button" onClick={() => setChartSettingsOpen(true)} title={isArabic ? "إعدادات الشارت" : "Chart settings"} aria-label={isArabic ? "فتح إعدادات الشارت" : "Open chart settings"}><Settings2 size={17} /></button>
         <button className="icon-button" onClick={() => zoom(0.75)} title={isArabic ? "تكبير" : "Zoom in"}><Plus size={17} /></button>
@@ -807,6 +802,16 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       </div>
     </div>
 
+    {candleTypeMenuOpen && <div role="menu" className="chart-type-popover chart-type-inline-panel" dir={isArabic ? "rtl" : "ltr"}>
+      <b>{isArabic ? "نوع عرض الشموع" : "Candle display"}</b>
+      <p>{isArabic ? "اختر نوعاً واحداً؛ وتبقى المؤشرات في صف مستقل دون تداخل." : "Choose one type; indicators remain in a separate row without overlap."}</p>
+      {[
+        ["candles", isArabic ? "شموع عادية" : "Candles"],
+        ["hollow", isArabic ? "شموع مفرغة" : "Hollow candles"],
+        ["heikin_ashi", isArabic ? "هايكن آشي" : "Heikin Ashi"],
+      ].map(([value, label]) => <button type="button" key={value} className={chartPreferences.candleType === value ? "active" : ""} onClick={() => selectCandleType(value)} aria-pressed={chartPreferences.candleType === value}><ChartCandlestick size={17} /><span>{label}</span>{chartPreferences.candleType === value && <span aria-hidden="true">✓</span>}</button>)}
+    </div>}
+
     <div className="chart-toolbar-grid">
       <div className="chart-control-group"><span>{isArabic ? "الفاصل" : "Interval"}</span><div>{intervalOptions.map((item) => <button type="button" key={item.value} onClick={() => changeInterval(item.value)} className={"chart-chip " + (interval === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>)}</div></div>
       <div className="chart-control-group"><span>{isArabic ? "النطاق" : "Range"}</span><div>{availableRanges.map((item) => <button type="button" key={item.value} onClick={() => setRange(item.value)} className={"chart-chip " + (range === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>)}</div></div>
@@ -814,7 +819,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
 
     <div className="indicator-toolbar indicator-toolbar-compact">
       <div className="chart-menu-anchor">
-        <button type="button" className={"indicator-hub-button " + (anyIndicatorVisible ? "active" : "")} onClick={() => setIndicatorMenuOpen((value) => !value)} aria-expanded={indicatorMenuOpen}><SlidersHorizontal size={17} /><span>{isArabic ? "المؤشرات" : "Indicators"}</span><small>{[showVolume, showMomentum, showRsi, showSma20, showSma50].filter(Boolean).length}</small></button>
+        <button type="button" className={"indicator-hub-button " + (anyIndicatorVisible ? "active" : "")} onClick={() => { setCandleTypeMenuOpen(false); setReversalMenuOpen(false); setIndicatorMenuOpen((value) => !value); }} aria-expanded={indicatorMenuOpen}><SlidersHorizontal size={17} /><span>{isArabic ? "المؤشرات" : "Indicators"}</span><small>{[showVolume, showMomentum, showRsi, showSma20, showSma50].filter(Boolean).length}</small></button>
         {indicatorMenuOpen && <div role="menu" className="indicator-hub-popover" dir={isArabic ? "rtl" : "ltr"}>
           <header><div><b>{isArabic ? "المؤشرات" : "Indicators"}</b><p>{isArabic ? "إغلاق هذه القائمة لا يخفي المؤشرات المفعلة." : "Closing this menu keeps active indicators visible."}</p></div><button type="button" data-action="toggle-all-indicators" onClick={toggleAllIndicators}>{anyIndicatorVisible ? <EyeOff size={15} /> : <Eye size={15} />}{anyIndicatorVisible ? (isArabic ? "إخفاء الكل" : "Hide all") : (isArabic ? "إظهار الكل" : "Show all")}</button></header>
           {[
@@ -834,7 +839,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
         </div>}
       </div>
       <div className="chart-menu-anchor">
-        <button type="button" className={"indicator-hub-button reversal-hub-button " + ((chartPreferences.reversal.pinBar.enabled || chartPreferences.reversal.engulfing.enabled) ? "active" : "")} onClick={() => setReversalMenuOpen((value) => !value)} aria-expanded={reversalMenuOpen}><Flame size={17} /><span>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</span><small>{[chartPreferences.reversal.pinBar.enabled, chartPreferences.reversal.engulfing.enabled].filter(Boolean).length}</small></button>
+        <button type="button" className={"indicator-hub-button reversal-hub-button " + ((chartPreferences.reversal.pinBar.enabled || chartPreferences.reversal.engulfing.enabled) ? "active" : "")} onClick={() => { setCandleTypeMenuOpen(false); setIndicatorMenuOpen(false); setReversalMenuOpen((value) => !value); }} aria-expanded={reversalMenuOpen}><Flame size={17} /><span>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</span><small>{[chartPreferences.reversal.pinBar.enabled, chartPreferences.reversal.engulfing.enabled].filter(Boolean).length}</small></button>
         {reversalMenuOpen && <div role="menu" className="indicator-hub-popover reversal-hub-popover" dir={isArabic ? "rtl" : "ltr"}>
           <header><div><b>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</b><p>{["1d", "1wk"].includes(interval) ? (isArabic ? "تحسب من شموع OHLC المغلقة الحقيقية." : "Calculated from real closed OHLC candles.") : (isArabic ? "تظهر العلامات على الفاصل اليومي والأسبوعي." : "Pattern coloring is available on daily and weekly intervals.")}</p></div></header>
           {[["pinBar", isArabic ? "بن بار" : "Pin bar"], ["engulfing", isArabic ? "شمعة بالعة" : "Engulfing candle"]].map(([key, label]) => {
@@ -889,6 +894,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     {loading && <div className="chart-message">{isArabic ? "جارٍ تحميل الشموع الحقيقية…" : "Loading verified candles…"}</div>}
     {error && <div className="chart-message text-red-600">{isArabic ? "تعذر جلب الشموع." : "Candles are unavailable."}</div>}
     {!loading && !error && !candles.length && <div className="chart-message">{isArabic ? "لا توجد شموع موثقة لهذا النطاق." : "No verified candles for this range."}</div>}
+    {!loading && !error && range === "max" && historyMeta?.history_complete !== true && <div className="chart-history-status" role="status">{isArabic ? "السجل التاريخي لهذا السهم غير مكتمل بعد؛ المعروض هو الجزء المحفوظ فقط." : "This instrument's historical archive is not complete yet; only stored candles are shown."}</div>}
 
     <div className={candles.length ? "chart-canvas-wrap" : "h-0"} style={candles.length ? { height: chartHeight } : undefined}>
       <div ref={containerRef} className="absolute inset-0" />

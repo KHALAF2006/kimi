@@ -119,6 +119,23 @@
         "degraded",
         "incomplete"
       ]
+    },
+    "is_historical_archive": {
+      "type": "boolean",
+      "default": false
+    },
+    "adjustment_mode": {
+      "type": "string",
+      "enum": ["none", "provider_adjusted"],
+      "default": "none"
+    },
+    "history_from": {
+      "type": "string",
+      "format": "date"
+    },
+    "history_to": {
+      "type": "string",
+      "format": "date"
     }
   },
   "required": [

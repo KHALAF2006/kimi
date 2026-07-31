@@ -1,7 +1,7 @@
 export const MOMENTUM_FORMULA_VERSION = 'momentum-zones-v1';
 
 const LOOKBACK_DAYS = 20;
-const HISTORY_BARS = 500;
+const HISTORY_BARS = Number.POSITIVE_INFINITY;
 const FIXED_STOP_PERCENT = 0.03;
 
 const ZONE_DEFINITIONS = [
@@ -31,15 +31,18 @@ function crossedUnder(current: number, threshold: number, previous: number | nul
 }
 
 export function calculateMomentumZones(inputBars: Array<Record<string, unknown>>, lookbackDays = LOOKBACK_DAYS, historyBars = HISTORY_BARS) {
-  const bars = inputBars
+  const normalized = inputBars
     .map((bar) => ({
       time: String(bar.time || ''),
       high: Number(bar.high),
       close: Number(bar.close),
     }))
     .filter((bar) => bar.time && Number.isFinite(bar.high) && Number.isFinite(bar.close) && bar.high > 0 && bar.close > 0)
-    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
-    .slice(-historyBars);
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  const finiteHistoryLimit = Number.isFinite(Number(historyBars))
+    ? Math.max(lookbackDays + 2, Math.round(Number(historyBars)))
+    : normalized.length;
+  const bars = normalized.slice(-finiteHistoryLimit);
 
   if (bars.length < 2) return null;
 
@@ -98,7 +101,7 @@ export function calculateMomentumZones(inputBars: Array<Record<string, unknown>>
     referencePeak,
     referenceTime,
     lookbackDays,
-    historyBars,
+    historyBars: bars.length,
     formulaVersion: MOMENTUM_FORMULA_VERSION,
     zone4Active,
     zone5Active,
