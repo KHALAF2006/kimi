@@ -5855,6 +5855,83 @@ async function evaluateDrawingAlerts(base44, quotes) {
   }
   return { evaluated: rules.length, triggered };
 }
+function alertEvaluationBucket(quote, interval) {
+  const observedAt = quote.provider_as_of || quote.source_time || quote.quote_time;
+  const timestamp = new Date(observedAt).getTime();
+  if (!Number.isFinite(timestamp)) return null;
+  const local = new Date(timestamp + 3 * 60 * 60 * 1e3);
+  const date = local.toISOString().slice(0, 10);
+  const weekday = local.getUTCDay();
+  const minuteOfDay = local.getUTCHours() * 60 + local.getUTCMinutes();
+  const sessionMinute = minuteOfDay - 10 * 60;
+  if (interval === "15m") return sessionMinute >= 0 && sessionMinute % 15 === 0 ? `${date}:15m:${sessionMinute / 15}` : null;
+  if (["1h", "2h", "3h", "4h"].includes(interval)) {
+    const duration = Number(interval.slice(0, -1)) * 60;
+    return (sessionMinute > 0 && sessionMinute % duration === 0) || quote.is_final === true ? `${date}:${interval}:${Math.ceil(Math.max(0, sessionMinute) / duration)}` : null;
+  }
+  if (interval === "1d") return quote.is_final === true ? `${date}:1d` : null;
+  if (interval === "1wk") return quote.is_final === true && weekday === 4 ? `${date}:1wk` : null;
+  if (interval === "1mo" && quote.is_final === true) {
+    const month = date.slice(0, 7);
+    let hasLaterTradingDay = false;
+    for (let offset = 1; offset <= 7; offset += 1) {
+      const next = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + offset));
+      if (next.toISOString().slice(0, 7) !== month) break;
+      if ([0, 1, 2, 3, 4].includes(next.getUTCDay())) { hasLaterTradingDay = true; break; }
+    }
+    return hasLaterTradingDay ? null : `${month}:1mo`;
+  }
+  return null;
+}
+async function queueRuleDeliveries(base44, rule, quote, bucket) {
+  const destinations = await base44.asServiceRole.entities.AlertDestination.filter({ customer_id: rule.customer_id, active: true });
+  let created = 0;
+  for (const destination of destinations) {
+    const raw = `${rule.id}:${destination.id}:${bucket}`;
+    const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+    const dedupeKey = Array.from(new Uint8Array(bytes)).map((value) => value.toString(16).padStart(2, "0")).join("");
+    const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: dedupeKey });
+    if (!existing.length) {
+      await base44.asServiceRole.entities.DeliveryEvent.create({ alert_rule_id: rule.id, destination_id: destination.id, dedupe_key: dedupeKey, channel: destination.channel, status: "pending", attempt_count: 0 });
+      created += 1;
+    }
+  }
+  return created;
+}
+async function evaluatePriceAlerts(base44, quotes) {
+  const bySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
+  const rules = (await base44.asServiceRole.entities.AlertRule.list("-updated_date", 5e3))
+    .filter((rule) => rule.enabled && ["crosses_above", "crosses_below"].includes(rule.condition));
+  let evaluated = 0;
+  let triggered = 0;
+  let deliveryEvents = 0;
+  for (const rule of rules) {
+    const quote = bySymbol.get(rule.symbol);
+    const currentPrice = Number(quote?.last_price);
+    const threshold = Number(rule.threshold);
+    if (!quote || !Number.isFinite(currentPrice) || !Number.isFinite(threshold) || threshold <= 0) continue;
+    const interval = ["15m", "1h", "2h", "3h", "4h", "1d", "1wk", "1mo"].includes(rule.interval) ? rule.interval : "15m";
+    const bucket = alertEvaluationBucket(quote, interval);
+    if (!bucket || rule.last_evaluation_bucket === bucket) continue;
+    const previousPrice = Number(rule.last_observed_price);
+    const crossed = rule.condition === "crosses_above"
+      ? Number.isFinite(previousPrice) && previousPrice <= threshold && currentPrice > threshold
+      : Number.isFinite(previousPrice) && previousPrice >= threshold && currentPrice < threshold;
+    const observedAt = quote.provider_as_of || quote.source_time || quote.quote_time;
+    const cooldownMs = Math.max(15, Number(rule.cooldown_minutes) || 15) * 60 * 1e3;
+    const cooldownPassed = !rule.last_triggered_at || new Date(observedAt).getTime() - new Date(rule.last_triggered_at).getTime() >= cooldownMs;
+    const update = { last_observed_price: currentPrice, last_observed_at: observedAt, last_evaluation_bucket: bucket };
+    evaluated += 1;
+    if (crossed && cooldownPassed) {
+      deliveryEvents += await queueRuleDeliveries(base44, rule, quote, bucket);
+      update.last_triggered_at = observedAt;
+      if (rule.frequency === "once") update.enabled = false;
+      triggered += 1;
+    }
+    await base44.asServiceRole.entities.AlertRule.update(rule.id, update);
+  }
+  return { rules: rules.length, evaluated, triggered, delivery_events: deliveryEvents };
+}
 async function licensedSource(base44, providerCode, providerUrl) {
   const existing = (await base44.asServiceRole.entities.DataSource.filter({ code: providerCode }))[0] || null;
   const common = {
@@ -6211,6 +6288,8 @@ Deno.serve(async (req) => {
     const candlePersistence = await persistIncrementalCandleChunks(base44, candleChunks, candleState.chunks);
     stage = "drawing_alert_evaluation";
     const drawingAlerts = await evaluateDrawingAlerts(base44, normalized.accepted);
+    stage = "price_alert_evaluation";
+    const priceAlerts = await evaluatePriceAlerts(base44, normalized.accepted);
     const finishedAt = (/* @__PURE__ */ new Date()).toISOString();
     const finalStatus = coverage.status === "healthy" ? "success" : "partial";
     stage = "ingestion_run_finalize";
@@ -6254,6 +6333,7 @@ Deno.serve(async (req) => {
       candle_chunks_updated: candlePersistence.updated,
       request_modes: requestModes,
       drawing_alerts: drawingAlerts,
+      price_alerts: priceAlerts,
       is_final: normalized.isFinal
     });
   } catch (error) {

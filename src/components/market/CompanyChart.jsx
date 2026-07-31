@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, LineStyle } from "lightweight-charts";
-import { BarChart3, ChartCandlestick, ChevronLeft, ChevronRight, Eye, EyeOff, Layers3, Maximize2, Minus, Plus, RotateCcw, Settings2, SlidersHorizontal, TrendingUp, Waves } from "lucide-react";
+import { BarChart3, ChartCandlestick, ChevronLeft, ChevronRight, Eye, EyeOff, Flame, Layers3, Maximize2, Minus, Plus, RotateCcw, Settings2, SlidersHorizontal, TrendingUp, Waves } from "lucide-react";
 import { invokeAppFunction } from "@/services/marketService";
 import { calculateMomentumSnapshot, calculateRsiSeries, formatNumber, MOMENTUM_ZONE_DEFINITIONS, normalizeMomentum } from "@/lib/market";
-import { calculateSmaSeries } from "@/lib/technical-signals";
+import { calculateSmaSeries, reversalPatternMap } from "@/lib/technical-signals";
 import { buildDisplayCandles, chartPreferencePayload, chartVisualDefaults, resolvedChartColors, sanitizeChartPreferences } from "@/lib/chart-visuals";
 import { usePreferences } from "@/lib/preferences";
 import ChartDrawingTools from "@/components/market/ChartDrawingTools";
@@ -12,16 +12,19 @@ import ChartSettingsSheet from "@/components/market/ChartSettingsSheet";
 const intervalOptions = [
   { value: "15m", ar: "15 د", en: "15m", defaultRange: "5d" },
   { value: "1h", ar: "ساعة", en: "1H", defaultRange: "1mo" },
+  { value: "2h", ar: "ساعتان", en: "2H", defaultRange: "3mo" },
+  { value: "3h", ar: "3 ساعات", en: "3H", defaultRange: "3mo" },
+  { value: "4h", ar: "4 ساعات", en: "4H", defaultRange: "3mo" },
   { value: "1d", ar: "يوم", en: "1D", defaultRange: "1y" },
   { value: "1wk", ar: "أسبوع", en: "1W", defaultRange: "5y" },
   { value: "1mo", ar: "شهر", en: "1M", defaultRange: "5y" },
 ];
 
 const rangeOptions = [
-  { value: "5d", ar: "5 أيام", en: "5D", intervals: ["15m", "1h", "1d"] },
-  { value: "1mo", ar: "شهر", en: "1M", intervals: ["15m", "1h", "1d"] },
-  { value: "3mo", ar: "3 أشهر", en: "3M", intervals: ["1h", "1d", "1wk"] },
-  { value: "1y", ar: "سنة", en: "1Y", intervals: ["1h", "1d", "1wk", "1mo"] },
+  { value: "5d", ar: "5 أيام", en: "5D", intervals: ["15m", "1h", "2h", "3h", "4h", "1d"] },
+  { value: "1mo", ar: "شهر", en: "1M", intervals: ["15m", "1h", "2h", "3h", "4h", "1d"] },
+  { value: "3mo", ar: "3 أشهر", en: "3M", intervals: ["1h", "2h", "3h", "4h", "1d", "1wk"] },
+  { value: "1y", ar: "سنة", en: "1Y", intervals: ["1h", "2h", "3h", "4h", "1d", "1wk", "1mo"] },
   { value: "5y", ar: "5 سنوات", en: "5Y", intervals: ["1d", "1wk", "1mo"] },
 ];
 
@@ -153,6 +156,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const [showRsi, setShowRsi] = useState(() => localStorage.getItem("kmy_show_rsi") !== "false");
   const [settingsPanel, setSettingsPanel] = useState("");
   const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
+  const [reversalMenuOpen, setReversalMenuOpen] = useState(false);
   const [candleTypeMenuOpen, setCandleTypeMenuOpen] = useState(false);
   const [chartSettingsOpen, setChartSettingsOpen] = useState(false);
   const [savingChartSettings, setSavingChartSettings] = useState(false);
@@ -186,7 +190,20 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
 
   const orderedCandles = useMemo(() => normalizeCandles(candles), [candles]);
   const resolvedVisuals = useMemo(() => resolvedChartColors(chartPreferences, theme), [chartPreferences, theme]);
-  const displayCandles = useMemo(() => buildDisplayCandles(orderedCandles, chartPreferences, theme), [orderedCandles, chartPreferences, theme]);
+  const reversalPatterns = useMemo(() => reversalPatternMap(orderedCandles), [orderedCandles]);
+  const displayCandles = useMemo(() => {
+    const display = buildDisplayCandles(orderedCandles, chartPreferences, theme);
+    if (!["1d", "1wk"].includes(interval)) return display;
+    return display.map((candle) => {
+      const pattern = reversalPatterns.get(candle.time);
+      const color = pattern?.engulfingDirection && chartPreferences.reversal.engulfing.enabled
+        ? chartPreferences.reversal.engulfing.color
+        : pattern?.pinDirection && chartPreferences.reversal.pinBar.enabled
+          ? chartPreferences.reversal.pinBar.color
+          : null;
+      return color ? { ...candle, color, borderColor: color, wickColor: color } : candle;
+    });
+  }, [orderedCandles, chartPreferences, theme, interval, reversalPatterns]);
   const showSma20 = chartPreferences.sma.fast.enabled;
   const showSma50 = chartPreferences.sma.slow.enabled;
   const setShowSma20 = useCallback((next) => setChartPreferences((current) => sanitizeChartPreferences({
@@ -216,9 +233,10 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const availableRanges = rangeOptions.filter((item) => item.intervals.includes(interval));
   const chartHeight = 470 + (showVolume ? 115 : 0) + (showRsi ? 165 : 0);
   const investorZoneLabel = isArabic
-    ? { "15m": "مناطق المستثمر لفاصل 15 دقيقة", "1h": "مناطق المستثمر الساعية", "1d": "مناطق المستثمر اليومية", "1wk": "مناطق المستثمر الأسبوعية", "1mo": "مناطق المستثمر الشهرية" }[interval]
-    : { "15m": "15-minute investor zones", "1h": "Hourly investor zones", "1d": "Daily investor zones", "1wk": "Weekly investor zones", "1mo": "Monthly investor zones" }[interval];
+    ? { "15m": "مناطق المستثمر لفاصل 15 دقيقة", "1h": "مناطق المستثمر الساعية", "2h": "مناطق المستثمر لساعتين", "3h": "مناطق المستثمر لثلاث ساعات", "4h": "مناطق المستثمر لأربع ساعات", "1d": "مناطق المستثمر اليومية", "1wk": "مناطق المستثمر الأسبوعية", "1mo": "مناطق المستثمر الشهرية" }[interval]
+    : { "15m": "15-minute investor zones", "1h": "Hourly investor zones", "2h": "2-hour investor zones", "3h": "3-hour investor zones", "4h": "4-hour investor zones", "1d": "Daily investor zones", "1wk": "Weekly investor zones", "1mo": "Monthly investor zones" }[interval];
   const anyIndicatorVisible = showVolume || showMomentum || showRsi || showSma20 || showSma50;
+  const anyReversalVisible = chartPreferences.reversal.pinBar.enabled || chartPreferences.reversal.engulfing.enabled;
   const onDrawingVisibilityChange = useCallback((visible) => setDrawingsVisible(visible), []);
 
   useEffect(() => {
@@ -247,7 +265,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   useEffect(() => {
     if (!chartTarget) return;
     let active = true;
-    const indicatorRange = interval === "15m" ? "1mo" : interval === "1h" ? "1y" : "5y";
+    const indicatorRange = interval === "15m" ? "1mo" : ["1h", "2h", "3h", "4h"].includes(interval) ? "1y" : "5y";
     invokeAppFunction("marketRead", sector
       ? { action: "sector_chart", sector, market_code: marketCode, interval, range: indicatorRange }
       : { action: "chart", symbol, interval, range: indicatorRange })
@@ -274,6 +292,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       if (event.type === "keydown" && event.key !== "Escape") return;
       if (event.type === "pointerdown" && event.target.closest?.(".chart-menu-anchor")) return;
       setIndicatorMenuOpen(false);
+      setReversalMenuOpen(false);
       setCandleTypeMenuOpen(false);
     };
     document.addEventListener("pointerdown", closeMenus);
@@ -345,7 +364,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
         borderVisible: true,
         borderColor: dark ? "#f59e0b" : "#d97706",
         ticksVisible: true,
-        timeVisible: interval === "15m" || interval === "1h",
+        timeVisible: ["15m", "1h", "2h", "3h", "4h"].includes(interval),
         secondsVisible: false,
         rightOffset: 8,
         barSpacing: interval === "15m" ? 7 : 9,
@@ -699,8 +718,17 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   }
 
   function toggleAllChartObjects() {
-    const nextVisible = !(anyIndicatorVisible || drawingsVisible);
+    const nextVisible = !(anyIndicatorVisible || anyReversalVisible || drawingsVisible);
     setAllIndicators(nextVisible);
+    const next = sanitizeChartPreferences({
+      ...chartPreferences,
+      reversal: {
+        pinBar: { ...chartPreferences.reversal.pinBar, enabled: nextVisible },
+        engulfing: { ...chartPreferences.reversal.engulfing, enabled: nextVisible },
+      },
+    }, theme);
+    setChartPreferences(next);
+    persistChartPreferences(next).catch(() => {});
     setDrawingVisibilityCommand({ id: Date.now(), visible: nextVisible });
   }
 
@@ -718,6 +746,15 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
         ...chartPreferences.sma,
         [slot]: { ...chartPreferences.sma[slot], enabled: !chartPreferences.sma[slot].enabled },
       },
+    }, theme);
+    setChartPreferences(next);
+    persistChartPreferences(next).catch(() => {});
+  }
+
+  function updateReversalPattern(key, patch) {
+    const next = sanitizeChartPreferences({
+      ...chartPreferences,
+      reversal: { ...chartPreferences.reversal, [key]: { ...chartPreferences.reversal[key], ...patch } },
     }, theme);
     setChartPreferences(next);
     persistChartPreferences(next).catch(() => {});
@@ -793,7 +830,20 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
               {item.settings && <button type="button" className="indicator-hub-settings" onClick={item.settings} aria-label={(isArabic ? "إعدادات " : "Settings for ") + item.label}><Settings2 size={15} /></button>}
             </div>;
           })}
-          {symbol && <button type="button" className="indicator-everything-button" data-action="toggle-all-chart-objects" onClick={toggleAllChartObjects}>{anyIndicatorVisible || drawingsVisible ? <EyeOff size={15} /> : <Eye size={15} />}{anyIndicatorVisible || drawingsVisible ? (isArabic ? "إخفاء الرسومات والمؤشرات" : "Hide drawings and indicators") : (isArabic ? "إظهار الرسومات والمؤشرات" : "Show drawings and indicators")}</button>}
+          {symbol && <button type="button" className="indicator-everything-button" data-action="toggle-all-chart-objects" onClick={toggleAllChartObjects}>{anyIndicatorVisible || anyReversalVisible || drawingsVisible ? <EyeOff size={15} /> : <Eye size={15} />}{anyIndicatorVisible || anyReversalVisible || drawingsVisible ? (isArabic ? "إخفاء الرسومات والمؤشرات" : "Hide drawings and indicators") : (isArabic ? "إظهار الرسومات والمؤشرات" : "Show drawings and indicators")}</button>}
+        </div>}
+      </div>
+      <div className="chart-menu-anchor">
+        <button type="button" className={"indicator-hub-button reversal-hub-button " + ((chartPreferences.reversal.pinBar.enabled || chartPreferences.reversal.engulfing.enabled) ? "active" : "")} onClick={() => setReversalMenuOpen((value) => !value)} aria-expanded={reversalMenuOpen}><Flame size={17} /><span>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</span><small>{[chartPreferences.reversal.pinBar.enabled, chartPreferences.reversal.engulfing.enabled].filter(Boolean).length}</small></button>
+        {reversalMenuOpen && <div role="menu" className="indicator-hub-popover reversal-hub-popover" dir={isArabic ? "rtl" : "ltr"}>
+          <header><div><b>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</b><p>{["1d", "1wk"].includes(interval) ? (isArabic ? "تحسب من شموع OHLC المغلقة الحقيقية." : "Calculated from real closed OHLC candles.") : (isArabic ? "تظهر العلامات على الفاصل اليومي والأسبوعي." : "Pattern coloring is available on daily and weekly intervals.")}</p></div></header>
+          {[["pinBar", isArabic ? "بن بار" : "Pin bar"], ["engulfing", isArabic ? "شمعة بالعة" : "Engulfing candle"]].map(([key, label]) => {
+            const value = chartPreferences.reversal[key];
+            return <div key={key} className={"reversal-pattern-row " + (value.enabled ? "active" : "")}>
+              <button type="button" onClick={() => updateReversalPattern(key, { enabled: !value.enabled })} aria-pressed={value.enabled}><span className="reversal-color-dot" style={{ backgroundColor: value.color }} /><span>{label}</span>{value.enabled ? <Eye size={15} /> : <EyeOff size={15} />}</button>
+              <label title={isArabic ? `لون ${label}` : `${label} color`}><input type="color" value={value.color} onChange={(event) => updateReversalPattern(key, { color: event.target.value })} /><span className="sr-only">{isArabic ? `لون ${label}` : `${label} color`}</span></label>
+            </div>;
+          })}
         </div>}
       </div>
     </div>

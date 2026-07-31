@@ -48,6 +48,17 @@
   .primary-button { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-black text-slate-950 shadow-lg shadow-amber-500/20 transition hover:-translate-y-0.5 hover:bg-amber-400; }
   .secondary-button { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 transition hover:border-amber-400 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-amber-400 dark:hover:text-white; }
   .form-input { @apply min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-400/15 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100; }
+  .instrument-search { @apply relative min-w-0; }
+  .instrument-search-field { @apply relative; }
+  .instrument-search-field > svg:first-child { @apply pointer-events-none absolute start-3 top-1/2 z-10 -translate-y-1/2 text-slate-400; }
+  .instrument-search-field > input { @apply w-full ps-10 pe-9; }
+  .instrument-search-field > svg:last-child:not(:first-child) { @apply pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-amber-500; }
+  .instrument-search-results { @apply absolute inset-x-0 top-[calc(100%+6px)] z-[80] max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-2xl dark:border-slate-700 dark:bg-slate-950; }
+  .instrument-search-results > button { @apply flex w-full flex-col gap-1 rounded-lg px-3 py-2 text-start hover:bg-slate-100 dark:hover:bg-slate-800; }
+  .instrument-search-results > button > span { @apply flex items-center gap-2; }
+  .instrument-search-results b { @apply font-mono text-xs text-amber-700 dark:text-amber-300; }
+  .instrument-search-results strong { @apply min-w-0 truncate text-xs; }
+  .instrument-search-results small, .instrument-search-results > p { @apply px-3 py-2 text-[10px] text-slate-500 dark:text-slate-400; }
   .eyebrow, .section-kicker { @apply inline-flex items-center gap-2 rounded-full border border-amber-300/60 bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300; }
   .content-card { @apply rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-[#0d192a]; }
   .error-banner { @apply rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300; }
@@ -176,6 +187,7 @@
   .indicator-toolbar-compact { @apply min-h-10; }
   .indicator-hub-button { @apply inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 shadow-sm transition hover:border-amber-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
   .indicator-hub-button.active { @apply border-emerald-400 bg-emerald-50 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-300; }
+  .reversal-hub-button.active { @apply border-amber-400 bg-amber-50 text-amber-900 dark:bg-amber-400/10 dark:text-amber-200; }
   .indicator-hub-button small { @apply grid h-5 min-w-5 place-items-center rounded-full bg-slate-100 px-1 font-mono text-[9px] dark:bg-slate-800; }
   .indicator-hub-popover { @apply absolute top-[calc(100%+8px)] z-50 w-[min(380px,calc(100vw-24px))] max-h-[min(72vh,640px)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-950; }
   .indicator-hub-popover > header { @apply mb-2 flex items-start gap-2 border-b border-slate-100 p-2 pb-3 dark:border-slate-800; }
@@ -190,6 +202,12 @@
   .indicator-hub-icon { @apply grid h-7 w-7 place-items-center rounded-lg bg-slate-100 dark:bg-slate-800; }
   .indicator-hub-settings { @apply grid place-items-center border-s border-slate-200 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800; }
   .indicator-everything-button { @apply mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] font-black text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  .reversal-pattern-row { @apply mt-1 grid grid-cols-[minmax(0,1fr)_46px] overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  .reversal-pattern-row.active { @apply border-amber-400/70 bg-amber-50 text-amber-900 dark:bg-amber-400/10 dark:text-amber-200; }
+  .reversal-pattern-row > button { @apply grid min-h-11 grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 px-3 text-start text-[11px] font-black; }
+  .reversal-pattern-row > label { @apply grid cursor-pointer place-items-center border-s border-slate-200 dark:border-slate-700; }
+  .reversal-pattern-row input[type="color"] { @apply h-8 w-8 cursor-pointer rounded-lg border-0 bg-transparent p-0; }
+  .reversal-color-dot { @apply h-4 w-4 rounded-full border border-black/10 shadow-sm; }
   @media (max-width: 480px) {
     .indicator-hub-popover { width: calc(100vw - 48px); }
   }

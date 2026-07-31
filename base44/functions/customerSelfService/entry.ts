@@ -39,6 +39,16 @@ function cleanChartPreferences(value) {
     sma: {
       fast: chartSma(source.sma?.fast, fast),
       slow: chartSma(source.sma?.slow, slow)
+    },
+    reversal: {
+      pinBar: {
+        enabled: source.reversal?.pinBar?.enabled !== false,
+        color: chartColor(source.reversal?.pinBar?.color, "#facc15")
+      },
+      engulfing: {
+        enabled: source.reversal?.engulfing?.enabled !== false,
+        color: chartColor(source.reversal?.engulfing?.color, "#a855f7")
+      }
     }
   };
 }
@@ -72,13 +82,23 @@ Deno.serve(async (req) => {
       const groups = await base44.asServiceRole.entities.RecipientGroup.filter({ customer_id: profile.id });
       const groupIds = new Set(groups.map((row) => row.id));
       const recipients = (await base44.asServiceRole.entities.Recipient.list("-updated_date", 5e3)).filter((row) => groupIds.has(row.group_id)).map(({ phone_e164: _phone, ...row }) => row);
-      return Response.json({ rules, destinations: destinations.map(({ secret_ref: _secret, ...row }) => row), groups, recipients });
+      const instrumentIds = new Set(rules.map((rule) => rule.instrument_id));
+      const [instruments, quotes] = await Promise.all([
+        base44.asServiceRole.entities.Instrument.list("symbol", 500),
+        base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500),
+      ]);
+      const instrumentById = new Map(instruments.filter((item) => instrumentIds.has(item.id)).map((item) => [item.id, item]));
+      const quoteByInstrument = new Map();
+      for (const quote of quotes) if (instrumentIds.has(quote.instrument_id) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
+      return Response.json({ rules: rules.map((rule) => ({ ...rule, interval: rule.interval || "15m", instrument: instrumentById.get(rule.instrument_id) || null, quote: quoteByInstrument.get(rule.instrument_id) || null })), destinations: destinations.map(({ secret_ref: _secret, ...row }) => row), groups, recipients });
     }
     if (body.action === "create_alert") {
       const symbol = String(body.symbol || "").trim();
       if (!/^\d{4}$/.test(symbol)) return Response.json({ error: "Valid four-digit symbol required" }, { status: 400 });
       const instruments = await base44.asServiceRole.entities.Instrument.filter({ symbol });
-      if (!instruments[0]) return Response.json({ error: "Instrument not found" }, { status: 404 });
+      if (!instruments[0] || instruments[0].status === "delisted") return Response.json({ error: "Instrument not found" }, { status: 404 });
+      const intervals = new Set(["15m", "1h", "2h", "3h", "4h", "1d", "1wk", "1mo"]);
+      const interval = intervals.has(String(body.interval)) ? String(body.interval) : "15m";
       const conditions = /* @__PURE__ */ new Set(["crosses_above", "crosses_below", "enters_zone", "exits_zone"]);
       if (!conditions.has(body.condition)) return Response.json({ error: "Invalid alert condition" }, { status: 400 });
       const threshold = body.threshold == null ? void 0 : Number(body.threshold);
@@ -89,6 +109,7 @@ Deno.serve(async (req) => {
         customer_id: profile.id,
         instrument_id: instruments[0].id,
         symbol,
+        interval,
         indicator_key: body.indicator_key ? text(body.indicator_key, "indicator_key", 1, 80) : void 0,
         condition: body.condition,
         threshold,
@@ -98,7 +119,7 @@ Deno.serve(async (req) => {
         enabled: true
       });
       await audit(base44, user.id, "alert.create", "AlertRule", rule.id, "success");
-      return Response.json({ rule });
+      return Response.json({ rule: { ...rule, instrument: instruments[0] } });
     }
     if (body.action === "toggle_alert") {
       const rule = await owned(base44, "AlertRule", body.rule_id, profile);

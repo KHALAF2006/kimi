@@ -1,6 +1,6 @@
 import { calculateMomentumZones } from "./momentum.ts";
 
-export const TECHNICAL_SIGNAL_FORMULA_VERSION = "technical-signals-v1";
+export const TECHNICAL_SIGNAL_FORMULA_VERSION = "technical-signals-v2";
 
 type CandleBar = {
   time: string;
@@ -121,6 +121,77 @@ export function detectBullishPinBar(rawBar: Record<string, unknown> | null | und
   };
 }
 
+export function detectBearishPinBar(rawBar: Record<string, unknown> | null | undefined) {
+  if (!rawBar) return { matches: false, reason: "missing_bar" };
+  const open = Number(rawBar.open);
+  const high = Number(rawBar.high);
+  const low = Number(rawBar.low);
+  const close = Number(rawBar.close);
+  const range = high - low;
+  if (![open, high, low, close, range].every(Number.isFinite) || range <= 0) {
+    return { matches: false, reason: "invalid_bar" };
+  }
+  const body = Math.abs(close - open);
+  const lowerWick = Math.min(open, close) - low;
+  const upperWick = high - Math.max(open, close);
+  const bodyRatio = body / range;
+  const lowerWickRatio = lowerWick / range;
+  const upperWickRatio = upperWick / range;
+  const closeLocation = (close - low) / range;
+  return {
+    matches: bodyRatio <= 0.35
+      && upperWick >= Math.max(body * 2, range * 0.5)
+      && lowerWickRatio <= 0.2
+      && closeLocation <= 0.35,
+    body_ratio: rounded(bodyRatio),
+    lower_wick_ratio: rounded(lowerWickRatio),
+    upper_wick_ratio: rounded(upperWickRatio),
+    close_location: rounded(closeLocation),
+  };
+}
+
+export function detectPinBar(rawBar: Record<string, unknown> | null | undefined) {
+  const bullish = detectBullishPinBar(rawBar);
+  const bearish = detectBearishPinBar(rawBar);
+  return {
+    matches: Boolean(bullish.matches || bearish.matches),
+    direction: bullish.matches ? "bullish" : bearish.matches ? "bearish" : null,
+    bullish,
+    bearish,
+  };
+}
+
+export function detectEngulfingPattern(
+  rawPrevious: Record<string, unknown> | null | undefined,
+  rawCurrent: Record<string, unknown> | null | undefined,
+) {
+  if (!rawPrevious || !rawCurrent) return { matches: false, direction: null, reason: "missing_bar" };
+  const previous = { open: Number(rawPrevious.open), close: Number(rawPrevious.close) };
+  const current = { open: Number(rawCurrent.open), close: Number(rawCurrent.close) };
+  if (![previous.open, previous.close, current.open, current.close].every(Number.isFinite)) {
+    return { matches: false, direction: null, reason: "invalid_bar" };
+  }
+  const previousBody = Math.abs(previous.close - previous.open);
+  const currentBody = Math.abs(current.close - current.open);
+  if (previousBody === 0 || currentBody === 0) return { matches: false, direction: null, reason: "zero_body" };
+  const bullish = previous.close < previous.open
+    && current.close > current.open
+    && current.open <= previous.close
+    && current.close >= previous.open;
+  const bearish = previous.close > previous.open
+    && current.close < current.open
+    && current.open >= previous.close
+    && current.close <= previous.open;
+  return {
+    matches: bullish || bearish,
+    direction: bullish ? "bullish" : bearish ? "bearish" : null,
+    bullish,
+    bearish,
+    previous_body: rounded(previousBody),
+    current_body: rounded(currentBody),
+  };
+}
+
 function latestValueByTime(values: Array<{ time: string; value: number }>) {
   return new Map(values.map((item) => [item.time, item.value]));
 }
@@ -137,9 +208,10 @@ export function calculateTechnicalSignals(inputBars: Array<Record<string, unknow
   const previousSma20 = previous ? sma20ByTime.get(previous.time) ?? null : null;
   const currentSma50 = last ? sma50ByTime.get(last.time) ?? null : null;
   const previousSma50 = previous ? sma50ByTime.get(previous.time) ?? null : null;
-  const pinBar = detectBullishPinBar(last);
+  const pinBar = detectPinBar(last);
+  const engulfing = detectEngulfingPattern(previous, last);
   const momentum = calculateMomentumZones(bars);
-  const matchingZone = pinBar.matches && last && momentum?.zones
+  const matchingZone = pinBar.bullish.matches && last && momentum?.zones
     ? momentum.zones.find((zone) => zone.active && last.low <= zone.top && last.high >= zone.bottom && last.close >= zone.bottom) || null
     : null;
 
@@ -150,6 +222,11 @@ export function calculateTechnicalSignals(inputBars: Array<Record<string, unknow
     sma20: currentSma20,
     sma50: currentSma50,
     pin_bar: pinBar,
+    pin_bar_signal: pinBar.matches,
+    engulfing,
+    engulfing_signal: engulfing.matches,
+    bullish_engulfing: engulfing.direction === "bullish",
+    bearish_engulfing: engulfing.direction === "bearish",
     zone_pin_bar: Boolean(matchingZone),
     matching_zone: matchingZone ? {
       key: matchingZone.key,

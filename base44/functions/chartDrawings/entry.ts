@@ -4,7 +4,7 @@ import { audit, profileFor, replyError, requireActiveSession, requireUser } from
 // base44/functions/chartDrawings/entry.ts
 var TYPES = /* @__PURE__ */ new Set(["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure", "price_range", "date_range", "date_and_price_range"]);
 var ALERT_TYPES = /* @__PURE__ */ new Set(["trend_line", "ray", "horizontal_line"]);
-var INTERVALS = /* @__PURE__ */ new Set(["all", "15m", "1h", "1d", "1wk", "1mo"]);
+var INTERVALS = /* @__PURE__ */ new Set(["all", "15m", "1h", "2h", "3h", "4h", "1d", "1wk", "1mo"]);
 var LINE_STYLES = /* @__PURE__ */ new Set(["solid", "dashed", "dotted"]);
 function bad(message, code = "INVALID_DRAWING") {
   throw Object.assign(new Error(message), { status: 400, code });
@@ -139,6 +139,7 @@ Deno.serve(async (req) => {
         customer_id: profile.id,
         instrument_id: drawing.instrument_id,
         symbol: drawing.symbol,
+        interval: drawing.interval_scope === "all" ? "15m" : drawing.interval_scope,
         interval_scope: drawing.interval_scope || "all",
         client_id: clientId,
         drawing_type: drawing.drawing_type,

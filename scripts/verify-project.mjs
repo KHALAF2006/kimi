@@ -291,11 +291,17 @@ assert.doesNotMatch(customerMarketTable, /data_state\?\.label/, "the market tabl
 const customerMarketTicker = await readFile(new URL("../src/components/market/MarketTicker.jsx", import.meta.url), "utf8");
 assert.doesNotMatch(customerMarketTicker, /data_state\?\.label/, "the ticker must not replay obsolete labels stored with old quotes");
 const screenerPage = await readFile(new URL("../src/pages/Screener.jsx", import.meta.url), "utf8");
-for (const signal of ["zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"]) {
+for (const signal of ["pin_bar_signal", "engulfing_signal", "zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"]) {
   assert.match(screenerPage, new RegExp(signal), `screener signal is missing: ${signal}`);
 }
 assert.match(screenerPage, /row\.signals\?\.\[timeframe\]\?\.values/, "the screener UI must reject rows returned without a completed signal snapshot");
 assert.match(screenerPage, /Number\.isFinite\(candleTimestamp\)/, "the screener must not render an invalid candle date");
+assert.match(marketReadFunction, /body\.action === "instrument_search"/, "watchlists and alerts must use the protected canonical instrument search");
+assert.match(marketReadFunction, /"2h", "3h", "4h"/, "chart reads must accept the new session-aware intraday intervals");
+const watchlistFunction = await readFile(new URL("../base44/functions/screeningWatchlists/entry.ts", import.meta.url), "utf8");
+assert.match(watchlistFunction, /reference_status/, "watchlist responses must expose broken instrument references instead of rendering symbol-only rows");
+assert.match(customerSelfService, /instrument:\s*instrumentById\.get/, "alert responses must include their canonical instrument identity");
+assert.match(ingestion, /evaluatePriceAlerts/, "price alert rules must be evaluated by the market ingestion pipeline");
 const operationsAdminPage = await readFile(new URL("../src/pages/OperationsAdmin.jsx", import.meta.url), "utf8");
 assert.match(operationsAdminPage, /refresh_signals/, "the owner must be able to re-run candle and signal projection with an audited reason");
 const adminMarketDataFunction = await readFile(new URL("../base44/functions/adminMarketData/entry.ts", import.meta.url), "utf8");

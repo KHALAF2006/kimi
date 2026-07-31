@@ -37,7 +37,15 @@ function candleBucket(value, interval) {
   const time = new Date(value).getTime();
   if (!Number.isFinite(time)) return "";
   if (interval === "15m") return `quarter:${Math.floor(time / (15 * 60 * 1000))}`;
-  if (interval === "1h") return `hour:${Math.floor(time / (60 * 60 * 1000))}`;
+  if (["1h", "2h", "3h", "4h"].includes(interval)) {
+    const hours = Number(interval.slice(0, -1));
+    const local = new Date(time + 3 * 60 * 60 * 1000);
+    const dateKey = local.toISOString().slice(0, 10);
+    const minuteOfDay = local.getUTCHours() * 60 + local.getUTCMinutes();
+    const sessionMinute = minuteOfDay - 10 * 60;
+    if (sessionMinute < 0) return "";
+    return `${interval}:${dateKey}:${Math.floor(sessionMinute / (hours * 60))}`;
+  }
   const dateKey = riyadhClock(new Date(time)).date;
   if (interval === "1d") return `day:${dateKey}`;
   if (interval === "1mo") return `month:${dateKey.slice(0, 7)}`;

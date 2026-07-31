@@ -7,6 +7,8 @@ import { usePreferences } from "@/lib/preferences";
 
 const signalOptions = [
   { value: "", ar: "كل الإشارات", en: "All signals", icon: Activity },
+  { value: "pin_bar_signal", ar: "شمعة بن بار", en: "Pin bar", icon: CandlestickChart },
+  { value: "engulfing_signal", ar: "شمعة بالعة", en: "Engulfing candle", icon: CandlestickChart },
   { value: "zone_pin_bar", ar: "بن بار داخل منطقة استثمار", en: "Pin bar in an investor zone", icon: CandlestickChart },
   { value: "price_cross_sma20", ar: "اختراق السعر لمتوسط 20", en: "Price crossed SMA 20", icon: TrendingUp },
   { value: "price_cross_sma50", ar: "اختراق السعر لمتوسط 50", en: "Price crossed SMA 50", icon: TrendingUp },
@@ -28,6 +30,8 @@ function SignalEvidence({ row, timeframe, language, isArabic }) {
     <span>SMA 20: {formatNumber(values.sma20, language)}</span>
     <span>SMA 50: {formatNumber(values.sma50, language)}</span>
     {values.matching_zone && <span>{isArabic ? values.matching_zone.name_ar : values.matching_zone.name_en}</span>}
+    {values.pin_bar?.matches && <span>{isArabic ? `بن بار ${values.pin_bar.direction === "bullish" ? "صاعد" : "هابط"}` : `${values.pin_bar.direction} pin bar`}</span>}
+    {values.engulfing?.matches && <span>{isArabic ? `ابتلاع ${values.engulfing.direction === "bullish" ? "صاعد" : "هابط"}` : `${values.engulfing.direction} engulfing`}</span>}
     <span>{Number.isFinite(candleTimestamp) ? new Date(candleTimestamp).toLocaleDateString(isArabic ? "ar-SA" : "en-US") : "—"}</span>
   </div>;
 }
@@ -84,6 +88,12 @@ export default function Screener() {
             })}
           </div>
         </section>
+
+        {data.signal_coverage && data.signal_coverage.snapshot_count < data.signal_coverage.instrument_count && <div className="warning-banner" role="status">
+          {isArabic
+            ? `تغطية الماسح ${data.signal_coverage.snapshot_count} من ${data.signal_coverage.instrument_count} شركة. الإشارات الناقصة لا تُعرض كأنها نتائج سالبة.`
+            : `Scanner coverage is ${data.signal_coverage.snapshot_count} of ${data.signal_coverage.instrument_count} instruments. Missing signals are not reported as negative matches.`}
+        </div>}
 
         <p className="text-sm font-bold text-slate-500">
           {isArabic ? `${rows.length} شركة مطابقة` : `${rows.length} matching companies`}

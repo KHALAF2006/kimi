@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Eye, Loader2, Plus, Trash2, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import StatusPanel from "@/components/StatusPanel";
+import InstrumentSearchInput from "@/components/market/InstrumentSearchInput";
 import { invokeAppFunction } from "@/services/marketService";
 import { usePreferences } from "@/lib/preferences";
 
@@ -12,7 +13,7 @@ const copy = {
 };
 
 export default function Watchlists() {
-  const { language } = usePreferences();
+  const { language, isArabic } = usePreferences();
   const t = copy[language];
   const [state, setState] = useState({ loading: true, data: [], error: "", busy: "" });
   const [name, setName] = useState("");
@@ -70,12 +71,12 @@ export default function Watchlists() {
           <button type="button" className="icon-button text-red-600" onClick={() => window.confirm(t.confirmList) && mutate(`delete:${watchlist.id}`, { action: "delete", watchlist_id: watchlist.id })} disabled={state.busy === `delete:${watchlist.id}`} title={t.deleteList} aria-label={`${t.deleteList}: ${watchlist.name}`}><Trash2 size={17}/></button>
         </header>
         <form onSubmit={(event) => addItem(event, watchlist.id)} className="flex gap-2 p-4">
-          <input className="form-input min-w-0 flex-1" value={symbols[watchlist.id] || ""} onChange={(event) => setSymbols((value) => ({ ...value, [watchlist.id]: event.target.value.replace(/\D/g, "").slice(0, 4) }))} inputMode="numeric" pattern="\d{4}" required placeholder={t.symbol} aria-label={`${t.symbol}: ${watchlist.name}`}/>
+          <div className="min-w-0 flex-1"><InstrumentSearchInput value={symbols[watchlist.id] || ""} onChange={(symbol) => setSymbols((value) => ({ ...value, [watchlist.id]: symbol }))} isArabic={isArabic} required label={`${t.symbol}: ${watchlist.name}`} /></div>
           <button className="secondary-button shrink-0" disabled={state.busy === `add:${watchlist.id}`}><Plus size={16}/><span>{t.add}</span></button>
         </form>
         <div className="divide-y divide-slate-200 dark:divide-slate-800">
           {watchlist.items?.length ? watchlist.items.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 px-4 py-3">
-            <Link to={`/dashboard?company=${encodeURIComponent(item.symbol)}`} className="flex min-w-0 items-center gap-2 font-black text-amber-700 hover:underline dark:text-amber-300"><Eye size={16}/><span>{item.symbol}</span></Link>
+            <Link to={`/company?symbol=${encodeURIComponent(item.symbol)}`} className="flex min-w-0 flex-1 items-center gap-3 text-amber-700 hover:underline dark:text-amber-300"><Eye size={16}/><span className="min-w-0"><b className="block font-black">{item.symbol} · {isArabic ? item.instrument?.name_ar : item.instrument?.name_en}</b><small className="block truncate text-slate-500">{isArabic ? item.instrument?.sector_ar : item.instrument?.sector_en}{item.quote?.last_price ? ` · ${Number(item.quote.last_price).toFixed(2)} ر.س (${Number(item.quote.change_percent || 0).toFixed(2)}%)` : ""}</small></span></Link>
             <button type="button" className="icon-button text-red-600" onClick={() => mutate(`remove:${item.id}`, { action: "remove_item", watchlist_id: watchlist.id, item_id: item.id })} disabled={state.busy === `remove:${item.id}`} title={t.removeItem} aria-label={`${t.removeItem}: ${item.symbol}`}><X size={16}/></button>
           </div>) : <p className="px-4 pb-5 text-sm text-slate-500">{t.noItems}</p>}
         </div>

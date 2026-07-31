@@ -171,7 +171,7 @@ Deno.serve(async (req) => {
     }
 
     const sessionDate = String(body.session_date || riyadhDate());
-    const slotKey = `technical-projection:${sessionDate}`;
+    const slotKey = `technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
     const existingRuns = entityRows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
     const completedRun = existingRuns.find((item) => item.status === "success");
     if (completedRun && body.force !== true) {

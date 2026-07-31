@@ -42,7 +42,9 @@ const {
   aggregateTechnicalBars,
   calculateSmaSeries,
   calculateTechnicalSignals,
+  detectBearishPinBar,
   detectBullishPinBar,
+  detectEngulfingPattern,
 } = technicalSignalsModule;
 import {
   buildDisplayCandles,
@@ -387,6 +389,23 @@ assert.equal(technicalCross.sma20_cross_sma50, true, "the golden cross must comp
 const pinBar = detectBullishPinBar({ open: 10, high: 10.4, low: 8, close: 10.2 });
 assert.equal(pinBar.matches, true, "a lower-wick bullish pin bar must pass the documented geometry");
 assert.equal(detectBullishPinBar({ open: 10, high: 11, low: 9, close: 10.8 }).matches, false);
+assert.equal(detectBearishPinBar({ open: 10.2, high: 12, low: 9.8, close: 10 }).matches, true, "an upper-wick bearish pin bar must pass the mirrored geometry");
+assert.equal(detectEngulfingPattern({ open: 11, close: 10 }, { open: 9.9, close: 11.2 }).direction, "bullish");
+assert.equal(detectEngulfingPattern({ open: 10, close: 11 }, { open: 11.1, close: 9.9 }).direction, "bearish");
+assert.equal(detectEngulfingPattern({ open: 10, close: 11 }, { open: 10.5, close: 11.2 }).matches, false, "partial body overlap is not engulfing");
+
+const sessionIntradayBars = [
+  { time: "2026-07-29T07:00:00.000Z", open: 10, high: 11, low: 9, close: 10.5, volume: 100 },
+  { time: "2026-07-29T08:45:00.000Z", open: 10.5, high: 12, low: 10, close: 11.5, volume: 120 },
+  { time: "2026-07-29T09:00:00.000Z", open: 11.5, high: 13, low: 11, close: 12.5, volume: 130 },
+  { time: "2026-07-29T10:45:00.000Z", open: 12.5, high: 14, low: 12, close: 13.5, volume: 140 },
+  { time: "2026-07-29T11:00:00.000Z", open: 13.5, high: 15, low: 13, close: 14.5, volume: 150 },
+];
+const twoHourBars = mergeStoredCandleSeries([{ interval: "15m", bars: sessionIntradayBars }], "2h").bars;
+assert.equal(twoHourBars.length, 3, "2-hour bars must align from the 10:00 Riyadh session open");
+assert.deepEqual([twoHourBars[0].open, twoHourBars[0].close, twoHourBars[0].volume], [10, 11.5, 220]);
+assert.equal(mergeStoredCandleSeries([{ interval: "15m", bars: sessionIntradayBars }], "3h").bars.length, 2);
+assert.equal(mergeStoredCandleSeries([{ interval: "15m", bars: sessionIntradayBars }], "4h").bars.length, 2);
 
 const weeklyBoundaryBars = [
   { time: "2026-07-30T07:00:00.000Z", open: 10, high: 11, low: 9, close: 10.5, volume: 100 },

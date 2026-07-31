@@ -11,6 +11,10 @@
     "symbol": {
       "type": "string"
     },
+    "interval": {
+      "type": "string",
+      "enum": ["15m", "1h", "2h", "3h", "4h", "1d", "1wk", "1mo"]
+    },
     "indicator_key": {
       "type": "string"
     },
@@ -63,6 +67,9 @@
       "type": "string",
       "format": "date-time"
     },
+    "last_evaluation_bucket": {
+      "type": "string"
+    },
     "last_triggered_at": {
       "type": "string",
       "format": "date-time"
@@ -72,6 +79,7 @@
     "customer_id",
     "instrument_id",
     "symbol",
+    "interval",
     "condition",
     "frequency",
     "cooldown_minutes",

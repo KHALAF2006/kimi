@@ -5157,7 +5157,7 @@ var official_main_market_catalog_2026_07_21_default = {
     }
   ]
 };
-var ALLOWED_INTERVALS = /* @__PURE__ */ new Set(["15m", "1h", "1d", "1wk", "1mo"]);
+var ALLOWED_INTERVALS = /* @__PURE__ */ new Set(["15m", "1h", "2h", "3h", "4h", "1d", "1wk", "1mo"]);
 var ALLOWED_RANGES = /* @__PURE__ */ new Set(["5d", "1mo", "3mo", "1y", "2y", "5y", "10y", "max"]);
 var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
 var MARKET_CATALOG = [
@@ -5274,7 +5274,7 @@ function normalizedStoredBars(chunks) {
 }
 function fallbackIntervals(interval) {
   if (interval === "1wk" || interval === "1mo") return [interval, "1d", "15m"];
-  if (interval === "1d" || interval === "1h") return [interval, "15m"];
+  if (["1d", "1h", "2h", "3h", "4h"].includes(interval)) return [interval, "15m"];
   return [interval];
 }
 async function storedCandlesForInterval(base44, instrumentId, interval) {
@@ -5560,6 +5560,33 @@ Deno.serve(async (req) => {
     if (body.action === "sector") return Response.json(await sectorResponse(base44, body, sourceById));
     if (body.action === "sector_chart") return Response.json(await sectorChartResponse(base44, body));
     if (body.action === "chart") return Response.json(await chartResponse(base44, body, sources));
+    if (body.action === "instrument_search") {
+      const query = String(body.query || "").trim().toLocaleLowerCase("ar");
+      if (query.length < 1 || query.length > 120) throw Object.assign(new Error("Search query must be 1-120 characters"), { status: 400 });
+      const limit = Math.min(Math.max(Number(body.limit || 12), 1), 25);
+      const requestedMarket = String(body.market_code || "SA_MAIN");
+      const instruments = entityRows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
+        .filter((item) => (item.market_code || "SA_MAIN") === requestedMarket && item.status !== "delisted")
+        .filter((item) => `${item.symbol} ${item.name_ar || ""} ${item.name_en || ""} ${item.sector_ar || ""} ${item.sector_en || ""}`.toLocaleLowerCase("ar").includes(query))
+        .slice(0, limit);
+      const ids = new Set(instruments.map((item) => item.id));
+      const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
+      const quoteByInstrument = new Map();
+      for (const quote of quotes) if (ids.has(quote.instrument_id) && usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
+      return Response.json({
+        instruments: instruments.map((instrument) => ({
+          id: instrument.id,
+          symbol: instrument.symbol,
+          market_code: instrument.market_code || requestedMarket,
+          name_ar: instrument.name_ar,
+          name_en: instrument.name_en,
+          sector_ar: instrument.sector_ar,
+          sector_en: instrument.sector_en,
+          status: instrument.status,
+          quote: quoteView(quoteByInstrument.get(instrument.id) || null, sourceById.get(quoteByInstrument.get(instrument.id)?.source_id)),
+        })),
+      });
+    }
     if (body.symbol || body.instrument_id) {
       const instrument = await instrumentFor(base44, body);
       const [quotes2, indicators2, financials, actions, announcements, shareholders, losses2] = await Promise.all([
@@ -5632,7 +5659,7 @@ Deno.serve(async (req) => {
     }).filter((item) => !query || `${item.symbol} ${item.name_ar} ${item.name_en} ${item.sector_ar} ${item.sector_en}`.toLocaleLowerCase("ar").includes(query)).filter((item) => !sector || item.sector_ar === sector || item.sector_en === sector);
     if (body.mode === "screener") {
       const timeframe = ["1d", "1wk", "1mo"].includes(String(body.timeframe)) ? String(body.timeframe) : "1d";
-      const signal = ["zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"].includes(String(body.signal))
+      const signal = ["pin_bar_signal", "engulfing_signal", "bullish_engulfing", "bearish_engulfing", "zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"].includes(String(body.signal))
         ? String(body.signal)
         : "";
       rows = rows.filter((item) => {
@@ -5659,7 +5686,13 @@ Deno.serve(async (req) => {
       is_final: snapshot.is_final,
       notice: snapshot.freshness_status === "stale"
         ? "\u0622\u062E\u0631 \u0628\u064A\u0627\u0646\u0627\u062A \u0633\u0648\u0642 \u0645\u062A\u0627\u062D\u0629"
-        : "\u0628\u064A\u0627\u0646\u0627\u062A \u0633\u0648\u0642 \u0645\u062A\u0623\u062E\u0631\u0629 15 \u062F\u0642\u064A\u0642\u0629"
+        : "\u0628\u064A\u0627\u0646\u0627\u062A \u0633\u0648\u0642 \u0645\u062A\u0623\u062E\u0631\u0629 15 \u062F\u0642\u064A\u0642\u0629",
+      signal_coverage: body.mode === "screener" ? {
+        timeframe: ["1d", "1wk", "1mo"].includes(String(body.timeframe)) ? String(body.timeframe) : "1d",
+        instrument_count: instruments.length,
+        snapshot_count: indicators.filter((item) => item.indicator_key === "technical_signals" && item.timeframe === (["1d", "1wk", "1mo"].includes(String(body.timeframe)) ? String(body.timeframe) : "1d")).length,
+        latest_calculated_at: indicators.map((item) => item.calculated_at).filter(Boolean).sort().at(-1) || null,
+      } : null
     });
   } catch (error) {
     console.error("marketRead request failed", {

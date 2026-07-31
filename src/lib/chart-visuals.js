@@ -1,5 +1,9 @@
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const CANDLE_TYPES = new Set(["candles", "hollow", "heikin_ashi"]);
+const REVERSAL_DEFAULTS = {
+  pinBar: { enabled: true, color: "#facc15" },
+  engulfing: { enabled: true, color: "#a855f7" },
+};
 
 export const SMA_SLOT_DEFAULTS = {
   fast: { enabled: true, length: 20, color: "#2563eb", lineWidth: 2 },
@@ -22,6 +26,10 @@ export function chartVisualDefaults(theme = "light") {
     sma: {
       fast: { ...SMA_SLOT_DEFAULTS.fast },
       slow: { ...SMA_SLOT_DEFAULTS.slow },
+    },
+    reversal: {
+      pinBar: { ...REVERSAL_DEFAULTS.pinBar },
+      engulfing: { ...REVERSAL_DEFAULTS.engulfing },
     },
   };
 }
@@ -57,6 +65,16 @@ export function sanitizeChartPreferences(value, theme = "light") {
     sma: {
       fast: cleanSma(source.sma?.fast, defaults.sma.fast),
       slow: cleanSma(source.sma?.slow, defaults.sma.slow),
+    },
+    reversal: {
+      pinBar: {
+        enabled: source.reversal?.pinBar?.enabled !== false,
+        color: cleanColor(source.reversal?.pinBar?.color, defaults.reversal.pinBar.color),
+      },
+      engulfing: {
+        enabled: source.reversal?.engulfing?.enabled !== false,
+        color: cleanColor(source.reversal?.engulfing?.color, defaults.reversal.engulfing.color),
+      },
     },
   };
 }
