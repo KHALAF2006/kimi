@@ -220,6 +220,7 @@ assert.match(companyChart, /if \(showRsi\) panes\[showVolume \? 2 : 1\]\?\.setHe
 const chartStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
 assert.match(chartStyles, /\.indicator-hub-popover\[dir="rtl"\]\s*\{\s*right:\s*0;\s*left:\s*auto;/, "the Arabic indicator menu must open inward from the right viewport edge");
 assert.match(chartStyles, /\.indicator-hub-popover\[dir="ltr"\]\s*\{\s*right:\s*auto;\s*left:\s*0;/, "the English indicator menu must open inward from the left viewport edge");
+assert.match(chartStyles, /@media\s*\(max-width:\s*480px\)\s*\{[\s\S]*?\.indicator-hub-popover\s*\{\s*width:\s*calc\(100vw\s*-\s*48px\);/, "the indicator menu must stay inside narrow mobile viewports");
 assert.match(chartStyles, /\.indicator-hub-toggle > span:nth-child\(2\)\s*\{[^}]*whitespace-normal[^}]*break-words/, "indicator names must remain readable instead of being clipped to icons");
 
 const chartDrawingsFunction = await readFile(new URL("../base44/functions/chartDrawings/entry.ts", import.meta.url), "utf8");

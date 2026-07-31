@@ -190,6 +190,9 @@
   .indicator-hub-icon { @apply grid h-7 w-7 place-items-center rounded-lg bg-slate-100 dark:bg-slate-800; }
   .indicator-hub-settings { @apply grid place-items-center border-s border-slate-200 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800; }
   .indicator-everything-button { @apply mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] font-black text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  @media (max-width: 480px) {
+    .indicator-hub-popover { width: calc(100vw - 48px); }
+  }
   .chart-settings-backdrop { @apply fixed inset-0 z-[120] bg-slate-950/55 backdrop-blur-sm; }
   .chart-settings-sheet { @apply fixed inset-y-0 flex w-[min(520px,100vw)] max-w-none flex-col gap-0 overflow-hidden border-slate-200 bg-slate-50 p-0 shadow-2xl dark:border-slate-700 dark:bg-[#08111f]; }
   .chart-settings-sheet-right { @apply right-0 border-s; }
