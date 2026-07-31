@@ -11,6 +11,8 @@ import {
 const CANONICAL_VERSION = "candle-projection-v1";
 const MARKET_CODE = "SA_MAIN";
 const BATCH_SIZE = 500;
+const PROJECTION_BATCH_SIZE = 24;
+const PROJECTION_CONCURRENCY = 3;
 
 function entityRows(value: unknown): Array<Record<string, any>> {
   if (Array.isArray(value)) return value;
@@ -109,6 +111,14 @@ function barsByInstrument(chunks: Array<Record<string, any>>, interval: string) 
   return grouped;
 }
 
+function firstByInstrument(rows: Array<Record<string, any>>) {
+  const result = new Map<string, Record<string, any>>();
+  for (const row of rows) {
+    if (row.instrument_id && !result.has(row.instrument_id)) result.set(row.instrument_id, row);
+  }
+  return result;
+}
+
 async function projectionChunk({
   instrument,
   interval,
@@ -151,6 +161,128 @@ async function projectionChunk({
   };
 }
 
+async function projectInstrumentBatch(
+  base44: any,
+  instrumentIds: string[],
+  sessionDate: string,
+) {
+  const idQuery = { $in: instrumentIds };
+  const [instrumentsRaw, quotesRaw, chunksRaw, snapshotsRaw] = await Promise.all([
+    base44.asServiceRole.entities.Instrument.filter({ id: idQuery }, "symbol", PROJECTION_BATCH_SIZE),
+    base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: idQuery }, "-updated_date", PROJECTION_BATCH_SIZE * 3),
+    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery }, "-end_time", 1200),
+    base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery }, "-source_as_of", PROJECTION_BATCH_SIZE * 12),
+  ]);
+  const instruments = entityRows(instrumentsRaw)
+    .filter((item) => (item.market_code || MARKET_CODE) === MARKET_CODE && item.status !== "delisted")
+    .sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
+  const quotes = entityRows(quotesRaw);
+  const chunks = entityRows(chunksRaw);
+  const snapshots = entityRows(snapshotsRaw);
+  const quoteByInstrument = firstByInstrument(quotes);
+  const latestSourceByInstrument = new Map();
+  for (const chunk of [...chunks].sort((left, right) => Date.parse(left.end_time || 0) - Date.parse(right.end_time || 0))) {
+    if (chunk.quality_status !== "quarantined") latestSourceByInstrument.set(chunk.instrument_id, chunk);
+  }
+  const quarterBars = barsByInstrument(
+    chunks.filter((chunk) => chunk.session_date === sessionDate || String(chunk.chunk_key || "").endsWith(`-${sessionDate}`)),
+    "15m",
+  );
+  const dailyHistory = barsByInstrument(chunks, "1d");
+  const newDailyChunks: Array<Record<string, any>> = [];
+  const higherTimeframeChunks: Array<Record<string, any>> = [];
+  const indicatorRows: Array<Record<string, any>> = [];
+  const skipped: Array<{ instrument_id: string; symbol: string; reason: string }> = [];
+
+  for (const instrument of instruments) {
+    const quote = quoteByInstrument.get(instrument.id) || null;
+    const existingDaily = aggregateTechnicalBars(dailyHistory.get(instrument.id) || [], "1d");
+    let canonicalDaily = existingDaily;
+    if (quoteIsFinalForSession(quote, sessionDate)) {
+      const today = finalDailyBar(quarterBars.get(instrument.id) || [], quote);
+      if (today) {
+        canonicalDaily = aggregateTechnicalBars([...existingDaily, today], "1d");
+        newDailyChunks.push(await projectionChunk({
+          instrument,
+          interval: "1d",
+          chunkKey: `${instrument.symbol}-1d-${sessionDate}`,
+          bars: [canonicalDaily.at(-1)],
+          source: quote,
+          sessionDate,
+          isFinal: true,
+        }));
+      } else {
+        skipped.push({ instrument_id: instrument.id, symbol: instrument.symbol, reason: "missing_quarter_bars" });
+      }
+    } else {
+      skipped.push({ instrument_id: instrument.id, symbol: instrument.symbol, reason: "final_quote_unavailable" });
+    }
+    if (!canonicalDaily.length) {
+      skipped.push({ instrument_id: instrument.id, symbol: instrument.symbol, reason: "missing_daily_history" });
+      continue;
+    }
+
+    const frames = {
+      "1d": canonicalDaily,
+      "1wk": aggregateTechnicalBars(canonicalDaily, "1wk"),
+      "1mo": aggregateTechnicalBars(canonicalDaily, "1mo"),
+    };
+    for (const [timeframe, frameBars] of Object.entries(frames)) {
+      if (!frameBars.length) continue;
+      if (timeframe !== "1d") {
+        higherTimeframeChunks.push(await projectionChunk({
+          instrument,
+          interval: timeframe as "1wk" | "1mo",
+          chunkKey: `${instrument.symbol}-${timeframe}-canonical`,
+          bars: frameBars,
+          source: quote || latestSourceByInstrument.get(instrument.id) || null,
+          isFinal: false,
+        }));
+      }
+      const signalBars = timeframe === "1wk"
+        ? (isThursday(sessionDate) ? frameBars : frameBars.slice(0, -1))
+        : timeframe === "1mo"
+          ? frameBars.slice(0, -1)
+          : frameBars;
+      if (!signalBars.length) continue;
+      indicatorRows.push({
+        instrument_id: instrument.id,
+        symbol: instrument.symbol,
+        indicator_key: "technical_signals",
+        timeframe,
+        values: calculateTechnicalSignals(signalBars),
+        source_as_of: signalBars.at(-1)?.time,
+        calculated_at: new Date().toISOString(),
+        formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION,
+      });
+    }
+  }
+
+  const candleResult = await upsertRows(
+    base44,
+    "CandleChunk",
+    [...newDailyChunks, ...higherTimeframeChunks],
+    chunks,
+    ["instrument_id", "interval", "chunk_key"],
+  );
+  const signalResult = await upsertRows(
+    base44,
+    "IndicatorSnapshot",
+    indicatorRows,
+    snapshots,
+    ["instrument_id", "indicator_key", "timeframe"],
+  );
+  const skippedRows = [...new Map(skipped.map((item) => [`${item.instrument_id}:${item.reason}`, item])).values()];
+  return {
+    instruments: instruments.length,
+    candles: candleResult,
+    signals: signalResult,
+    skipped: skippedRows,
+    source_id: quotes.find((quote) => quote.source_id)?.source_id || "canonical-projection",
+    snapshot_version: quotes.find((quote) => quote.snapshot_version)?.snapshot_version || null,
+  };
+}
+
 Deno.serve(async (req) => {
   let base44: any = null;
   let run: Record<string, any> | null = null;
@@ -158,13 +290,21 @@ Deno.serve(async (req) => {
     base44 = createClientFromRequest(req);
     const requestBody = await req.json();
     const body = { ...requestBody, ...(requestBody.args || {}) };
+    const isServiceInvocation = Boolean(req.headers.get("Base44-Service-Authorization"));
+    if (body.mode === "projection_batch") {
+      if (!isServiceInvocation) throw Object.assign(new Error("Service invocation required"), { status: 403 });
+      const instrumentIds = Array.isArray(body.instrument_ids)
+        ? body.instrument_ids.map(String).filter(Boolean).slice(0, PROJECTION_BATCH_SIZE)
+        : [];
+      if (!instrumentIds.length) throw Object.assign(new Error("instrument_ids are required"), { status: 400 });
+      return Response.json(await projectInstrumentBatch(base44, instrumentIds, String(body.session_date || riyadhDate())));
+    }
     let user = null;
     try {
       user = await base44.auth.me();
     } catch {
       user = null;
     }
-    const isServiceInvocation = Boolean(req.headers.get("Base44-Service-Authorization")) && body.force !== true;
     if (!isServiceInvocation) {
       if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
       await requirePermission(base44, body.session_id, "data.ingestion.run");
@@ -196,137 +336,76 @@ Deno.serve(async (req) => {
       source_id: "canonical-projection",
       notes: "Canonical daily, weekly, monthly candle and technical signal projection",
     });
-    const [instrumentsRaw, quotesRaw, chunksRaw, snapshotsRaw] = await Promise.all([
-      base44.asServiceRole.entities.Instrument.list("symbol", 500),
-      base44.asServiceRole.entities.QuoteLatest.list("-updated_date", 500),
-      base44.asServiceRole.entities.CandleChunk.list("-end_time", 5000),
-      base44.asServiceRole.entities.IndicatorSnapshot.list("-source_as_of", 5000),
-    ]);
+    const instrumentsRaw = await base44.asServiceRole.entities.Instrument.list("symbol", 500);
     const instruments = entityRows(instrumentsRaw).filter((item) => (item.market_code || MARKET_CODE) === MARKET_CODE && item.status !== "delisted");
-    const quotes = entityRows(quotesRaw);
-    const chunks = entityRows(chunksRaw);
-    const snapshots = entityRows(snapshotsRaw);
-    const quoteByInstrument = new Map(quotes.map((quote) => [quote.instrument_id, quote]));
-    const latestSourceByInstrument = new Map();
-    for (const chunk of [...chunks].sort((left, right) => Date.parse(left.end_time || 0) - Date.parse(right.end_time || 0))) {
-      if (chunk.quality_status !== "quarantined") latestSourceByInstrument.set(chunk.instrument_id, chunk);
+    const batches = [];
+    for (let offset = 0; offset < instruments.length; offset += PROJECTION_BATCH_SIZE) {
+      batches.push(instruments.slice(offset, offset + PROJECTION_BATCH_SIZE).map((instrument) => instrument.id));
     }
-    const quarterBars = barsByInstrument(
-      chunks.filter((chunk) => chunk.session_date === sessionDate || String(chunk.chunk_key || "").endsWith(`-${sessionDate}`)),
-      "15m",
-    );
-    const dailyHistory = barsByInstrument(chunks, "1d");
-    const newDailyChunks: Array<Record<string, any>> = [];
-    const higherTimeframeChunks: Array<Record<string, any>> = [];
-    const indicatorRows: Array<Record<string, any>> = [];
-    const skipped: Array<{ instrument_id: string; symbol: string; reason: string }> = [];
-
-    for (const instrument of instruments) {
-      const quote = quoteByInstrument.get(instrument.id) || null;
-      const existingDaily = aggregateTechnicalBars(dailyHistory.get(instrument.id) || [], "1d");
-      let canonicalDaily = existingDaily;
-      if (quoteIsFinalForSession(quote, sessionDate)) {
-        const today = finalDailyBar(quarterBars.get(instrument.id) || [], quote);
-        if (today) {
-          canonicalDaily = aggregateTechnicalBars([...existingDaily, today], "1d");
-          newDailyChunks.push(await projectionChunk({
-            instrument,
-            interval: "1d",
-            chunkKey: `${instrument.symbol}-1d-${sessionDate}`,
-            bars: [canonicalDaily.at(-1)],
-            source: quote,
-            sessionDate,
-            isFinal: true,
-          }));
-        } else {
-          skipped.push({ instrument_id: instrument.id, symbol: instrument.symbol, reason: "missing_quarter_bars" });
-        }
-      } else {
-        skipped.push({ instrument_id: instrument.id, symbol: instrument.symbol, reason: "final_quote_unavailable" });
-      }
-      if (!canonicalDaily.length) {
-        skipped.push({ instrument_id: instrument.id, symbol: instrument.symbol, reason: "missing_daily_history" });
-        continue;
-      }
-
-      const frames = {
-        "1d": canonicalDaily,
-        "1wk": aggregateTechnicalBars(canonicalDaily, "1wk"),
-        "1mo": aggregateTechnicalBars(canonicalDaily, "1mo"),
-      };
-      for (const [timeframe, frameBars] of Object.entries(frames)) {
-        if (!frameBars.length) continue;
-        if (timeframe !== "1d") {
-          higherTimeframeChunks.push(await projectionChunk({
-            instrument,
-            interval: timeframe as "1wk" | "1mo",
-            chunkKey: `${instrument.symbol}-${timeframe}-canonical`,
-            bars: frameBars,
-            source: quote || latestSourceByInstrument.get(instrument.id) || null,
-            isFinal: false,
-          }));
-        }
-        const signalBars = timeframe === "1wk"
-          ? (isThursday(sessionDate) ? frameBars : frameBars.slice(0, -1))
-          : timeframe === "1mo"
-            ? frameBars.slice(0, -1)
-            : frameBars;
-        if (!signalBars.length) continue;
-        indicatorRows.push({
-          instrument_id: instrument.id,
-          symbol: instrument.symbol,
-          indicator_key: "technical_signals",
-          timeframe,
-          values: calculateTechnicalSignals(signalBars),
-          source_as_of: signalBars.at(-1)?.time,
-          calculated_at: new Date().toISOString(),
-          formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION,
+    const batchResults: Array<Record<string, any>> = [];
+    const failedBatches: Array<{ batch_index: number; instrument_ids: string[]; error: string }> = [];
+    for (let offset = 0; offset < batches.length; offset += PROJECTION_CONCURRENCY) {
+      const group = batches.slice(offset, offset + PROJECTION_CONCURRENCY);
+      const settled = await Promise.allSettled(group.map((instrumentIds, groupIndex) =>
+        base44.functions.invoke("marketSignalRefresh", {
+          mode: "projection_batch",
+          session_date: sessionDate,
+          run_id: run.id,
+          batch_index: offset + groupIndex,
+          instrument_ids: instrumentIds,
+        })
+      ));
+      settled.forEach((result, groupIndex) => {
+        const batchIndex = offset + groupIndex;
+        if (result.status === "fulfilled") batchResults.push(result.value?.data || result.value || {});
+        else failedBatches.push({
+          batch_index: batchIndex,
+          instrument_ids: batches[batchIndex],
+          error: result.reason?.response?.data?.error || result.reason?.message || "projection_batch_failed",
         });
-      }
+      });
     }
-
-    const candleResult = await upsertRows(
-      base44,
-      "CandleChunk",
-      [...newDailyChunks, ...higherTimeframeChunks],
-      chunks,
-      ["instrument_id", "interval", "chunk_key"],
-    );
-    const signalResult = await upsertRows(
-      base44,
-      "IndicatorSnapshot",
-      indicatorRows,
-      snapshots,
-      ["instrument_id", "indicator_key", "timeframe"],
-    );
-    const skippedRows = [...new Map(skipped.map((item) => [`${item.instrument_id}:${item.reason}`, item])).values()];
+    const candleResult = batchResults.reduce((total, item) => ({
+      created: total.created + Number(item.candles?.created || 0),
+      updated: total.updated + Number(item.candles?.updated || 0),
+    }), { created: 0, updated: 0 });
+    const signalResult = batchResults.reduce((total, item) => ({
+      created: total.created + Number(item.signals?.created || 0),
+      updated: total.updated + Number(item.signals?.updated || 0),
+    }), { created: 0, updated: 0 });
+    const skippedRows = batchResults.flatMap((item) => Array.isArray(item.skipped) ? item.skipped : []);
     const skippedInstrumentCount = new Set(skippedRows.map((item) => item.instrument_id)).size;
+    const failedInstrumentCount = failedBatches.reduce((total, item) => total + item.instrument_ids.length, 0);
+    const failureCount = Math.min(instruments.length, skippedInstrumentCount + failedInstrumentCount);
     const finishedAt = new Date().toISOString();
     await base44.asServiceRole.entities.IngestionRun.update(run.id, {
       finished_at: finishedAt,
       total_records: instruments.length,
-      success_count: Math.max(0, instruments.length - skippedInstrumentCount),
-      failed_count: skippedInstrumentCount,
-      status: skippedInstrumentCount ? "partial" : "success",
-      source_id: quotes.find((quote) => quote.source_id)?.source_id || "canonical-projection",
-      snapshot_version: quotes.find((quote) => quote.snapshot_version)?.snapshot_version,
-      coverage_percent: instruments.length ? (instruments.length - skippedInstrumentCount) / instruments.length * 100 : 0,
+      success_count: Math.max(0, instruments.length - failureCount),
+      failed_count: failureCount,
+      status: failureCount ? (failureCount < instruments.length ? "partial" : "failed") : "success",
+      source_id: batchResults.find((item) => item.source_id)?.source_id || "canonical-projection",
+      snapshot_version: batchResults.find((item) => item.snapshot_version)?.snapshot_version,
+      coverage_percent: instruments.length ? (instruments.length - failureCount) / instruments.length * 100 : 0,
       promoted_at: finishedAt,
       notes: JSON.stringify({
         candles: candleResult,
         signals: signalResult,
         skipped_count: skippedInstrumentCount,
+        batch_count: batches.length,
+        failed_batches: failedBatches,
         canonical_version: CANONICAL_VERSION,
       }),
     });
 
     return Response.json({
-      status: skippedInstrumentCount ? "degraded" : "success",
+      status: failureCount ? "degraded" : "success",
       session_date: sessionDate,
       instruments: instruments.length,
       candles: candleResult,
       signals: signalResult,
       skipped_count: skippedInstrumentCount,
+      failed_batch_count: failedBatches.length,
       skipped: skippedRows.slice(0, 100),
       run_id: run.id,
       formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION,
