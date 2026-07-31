@@ -53,7 +53,7 @@ export default function Screener() {
     {(data) => {
       const normalizedQuery = query.trim().toLocaleLowerCase(isArabic ? "ar" : "en");
       const rows = (data.instruments || [])
-        .filter((row) => row.signals?.[timeframe]?.values)
+        .filter((row) => row.screener_match?.timeframe === timeframe && row.screener_match?.values)
         .filter((row) => !normalizedQuery
           || `${row.symbol} ${row.name_ar} ${row.name_en} ${row.sector_ar} ${row.sector_en}`.toLocaleLowerCase(isArabic ? "ar" : "en").includes(normalizedQuery));
       return <div className="space-y-4">

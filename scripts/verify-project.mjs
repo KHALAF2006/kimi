@@ -301,7 +301,8 @@ const screenerPage = await readFile(new URL("../src/pages/Screener.jsx", import.
 for (const signal of ["pin_bar_signal", "engulfing_signal", "zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"]) {
   assert.match(screenerPage, new RegExp(signal), `screener signal is missing: ${signal}`);
 }
-assert.match(screenerPage, /row\.signals\?\.\[timeframe\]\?\.values/, "the screener UI must reject rows returned without a completed signal snapshot");
+assert.match(screenerPage, /row\.screener_match\?\.timeframe === timeframe/, "the screener UI must render the backend-proven matching candle instead of re-filtering the complete signal snapshot");
+assert.doesNotMatch(screenerPage, /\.filter\(\(row\) => row\.signals\?\.\[timeframe\]/, "the frontend must not discard valid backend screener results when full snapshots are omitted from transport");
 assert.match(screenerPage, /Number\.isFinite\(candleTimestamp\)/, "the screener must not render an invalid candle date");
 assert.match(screenerPage, /آخر 3 شموع محفوظة/, "the screener must tell customers the exact three-candle search window");
 const sessionLink = await readFile(new URL("../src/components/SessionLink.jsx", import.meta.url), "utf8");
