@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
       const watchlist = await ownedWatchlist(base44, profile, body.watchlist_id);
       const symbol = String(body.symbol || "").trim();
       if (!/^\d{4}$/.test(symbol)) return Response.json({ error: "Valid four-digit symbol required" }, { status: 400 });
-      const instruments = await base44.asServiceRole.entities.Instrument.filter({ symbol });
+      const instruments = await base44.asServiceRole.entities.Instrument.filter({ symbol, market_code: "SA_MAIN" });
       if (!instruments[0] || instruments[0].status === "delisted") return Response.json({ error: "Instrument not found" }, { status: 404 });
       const existing = await base44.asServiceRole.entities.WatchlistItem.filter({ watchlist_id: watchlist.id, instrument_id: instruments[0].id });
       const item = existing[0] || await base44.asServiceRole.entities.WatchlistItem.create({ watchlist_id: watchlist.id, instrument_id: instruments[0].id, symbol });

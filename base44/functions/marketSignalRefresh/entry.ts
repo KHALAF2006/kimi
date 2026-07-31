@@ -694,7 +694,7 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate) {
     base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery }, "-end_time", 1200),
     base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery }, "-source_as_of", PROJECTION_BATCH_SIZE * 12)
   ]);
-  const instruments = entityRows(instrumentsRaw).filter((item) => (item.market_code || MARKET_CODE) === MARKET_CODE && item.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
+  const instruments = entityRows(instrumentsRaw).filter((item) => item.market_code === MARKET_CODE && item.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
   const quotes = entityRows(quotesRaw);
   const chunks = entityRows(chunksRaw);
   const snapshots = entityRows(snapshotsRaw);
@@ -853,7 +853,20 @@ Deno.serve(async (req) => {
       notes: "Canonical daily, weekly, monthly candle and technical signal projection"
     });
     const instrumentsRaw = await base44.asServiceRole.entities.Instrument.list("symbol", 500);
-    const instruments = entityRows(instrumentsRaw).filter((item) => (item.market_code || MARKET_CODE) === MARKET_CODE && item.status !== "delisted");
+    const allInstruments = entityRows(instrumentsRaw);
+    const instruments = allInstruments.filter((item) => item.market_code === MARKET_CODE && item.status !== "delisted");
+    const outOfScopeIds = allInstruments.filter((item) => item.market_code !== MARKET_CODE).map((item) => item.id).filter(Boolean);
+    const cleanup = outOfScopeIds.length ? await Promise.all([
+      base44.asServiceRole.entities.IndicatorSnapshot.deleteMany({
+        indicator_key: "technical_signals",
+        instrument_id: { $in: outOfScopeIds }
+      }),
+      base44.asServiceRole.entities.CandleChunk.deleteMany({
+        canonical_version: CANONICAL_VERSION,
+        instrument_id: { $in: outOfScopeIds },
+        interval: { $in: ["1wk", "1mo"] }
+      })
+    ]) : [{ deleted: 0 }, { deleted: 0 }];
     const batches = [];
     for (let offset = 0; offset < instruments.length; offset += PROJECTION_BATCH_SIZE) {
       batches.push(instruments.slice(offset, offset + PROJECTION_BATCH_SIZE).map((instrument) => instrument.id));
@@ -910,6 +923,8 @@ Deno.serve(async (req) => {
         skipped_count: skippedInstrumentCount,
         batch_count: batches.length,
         failed_batches: failedBatches,
+        removed_out_of_scope_signals: Number(cleanup[0]?.deleted || 0),
+        removed_out_of_scope_candles: Number(cleanup[1]?.deleted || 0),
         canonical_version: CANONICAL_VERSION
       })
     });
@@ -921,6 +936,10 @@ Deno.serve(async (req) => {
       signals: signalResult,
       skipped_count: skippedInstrumentCount,
       failed_batch_count: failedBatches.length,
+      cleanup: {
+        signals: Number(cleanup[0]?.deleted || 0),
+        candles: Number(cleanup[1]?.deleted || 0)
+      },
       skipped: skippedRows.slice(0, 100),
       run_id: run.id,
       formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION,

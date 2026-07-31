@@ -5436,7 +5436,7 @@ async function sectorInstruments(base44, body) {
   const requestedMarket = String(body.market_code || "SA_MAIN");
   const sector = cleanSectorName(body.sector);
   const instruments = entityRows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
-    .filter((item) => (item.market_code || "SA_MAIN") === requestedMarket)
+    .filter((item) => item.market_code === requestedMarket)
     .filter((item) => item.sector_ar === sector || item.sector_en === sector);
   if (!instruments.length) throw Object.assign(new Error("Sector not found"), { status: 404, code: "SECTOR_NOT_FOUND" });
   return { requestedMarket, sector, instruments };
@@ -5566,7 +5566,7 @@ Deno.serve(async (req) => {
       const limit = Math.min(Math.max(Number(body.limit || 12), 1), 25);
       const requestedMarket = String(body.market_code || "SA_MAIN");
       const instruments = entityRows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
-        .filter((item) => (item.market_code || "SA_MAIN") === requestedMarket && item.status !== "delisted")
+        .filter((item) => item.market_code === requestedMarket && item.status !== "delisted")
         .filter((item) => `${item.symbol} ${item.name_ar || ""} ${item.name_en || ""} ${item.sector_ar || ""} ${item.sector_en || ""}`.toLocaleLowerCase("ar").includes(query))
         .slice(0, limit);
       const ids = new Set(instruments.map((item) => item.id));
@@ -5617,7 +5617,7 @@ Deno.serve(async (req) => {
     const limit = Math.min(Math.max(Number(body.limit || 500), 1), 500);
     const requestedMarket = String(body.market_code || "SA_MAIN");
     const instruments = entityRows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
-      .filter((item) => (item.market_code || "SA_MAIN") === requestedMarket)
+      .filter((item) => item.market_code === requestedMarket)
       .filter((item) => requestedMarket !== "SA_MAIN" || MAIN_MARKET_SYMBOLS.has(item.symbol));
     const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
     const [indicators, losses] = await Promise.all([
