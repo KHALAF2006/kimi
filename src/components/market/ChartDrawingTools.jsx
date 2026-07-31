@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowUpRight, BellOff, BellPlus, ChevronDown, ChevronRight, ClipboardPaste, Copy, Eye, EyeOff, GitCommitHorizontal,
+  AlertTriangle, ArrowUpRight, BellOff, BellPlus, ChevronDown, ChevronRight, ClipboardPaste, Copy, Eye, EyeOff, GitCommitHorizontal,
   Grip, LayoutList, Lock, MousePointer2, MoveHorizontal, MoveVertical, Paintbrush, PanelLeftClose, PanelTopClose,
   PenLine, Redo2, RefreshCcw, Route, Ruler, Spline, Square, Trash2, TrendingUp, Undo2, Unlock, X,
 } from "lucide-react";
@@ -341,6 +341,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   const toolbarRef = useRef(null);
   const toolbarDragRef = useRef(null);
   const selectionToolbarRef = useRef(null);
+  const confirmationRef = useRef(null);
   const selectionToolbarDragRef = useRef(null);
   const pendingSavesRef = useRef(new Map());
   const interactionRef = useRef(null);
@@ -358,6 +359,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   const [clipboardDrawing, setClipboardDrawing] = useState(storedClipboardDrawing);
   const [contextMenu, setContextMenu] = useState(null);
   const [busyDrawingId, setBusyDrawingId] = useState("");
+  const [pendingConfirmation, setPendingConfirmation] = useState(null);
   const [toolbarLayout, setToolbarLayout] = useState(storedToolbarLayout);
   const [selectionToolbarLayout, setSelectionToolbarLayout] = useState(storedSelectionToolbarLayout);
   const [alertForm, setAlertForm] = useState({ condition: "crosses", frequency: "repeat", cooldown_minutes: 15 });
@@ -372,6 +374,28 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   useEffect(() => {
     localStorage.setItem(TOOLBAR_STORAGE_KEY, JSON.stringify(toolbarLayout));
   }, [toolbarLayout]);
+
+  useEffect(() => {
+    if (!pendingConfirmation) return undefined;
+    const previousFocus = document.activeElement;
+    const dialog = confirmationRef.current;
+    /** @type {HTMLElement | null} */ (dialog?.querySelector("[data-confirm-cancel]") || null)?.focus();
+    const keyDown = (event) => {
+      if (event.key === "Escape" && !busyDrawingId) setPendingConfirmation(null);
+      if (event.key !== "Tab" || !dialog) return;
+      const controls = [...dialog.querySelectorAll("button:not(:disabled)")];
+      if (!controls.length) return;
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) { /** @type {HTMLElement} */ (last).focus(); event.preventDefault(); }
+      else if (!event.shiftKey && document.activeElement === last) { /** @type {HTMLElement} */ (first).focus(); event.preventDefault(); }
+    };
+    document.addEventListener("keydown", keyDown);
+    return () => {
+      document.removeEventListener("keydown", keyDown);
+      /** @type {HTMLElement | null} */ (previousFocus)?.focus?.();
+    };
+  }, [pendingConfirmation, busyDrawingId]);
 
   useEffect(() => {
     if (toolbarLayout.hidden) return undefined;
@@ -691,9 +715,8 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   async function removeDrawing(drawing, force = false) {
     if (!drawing) return;
     if (drawing.alert && !force) {
-      const confirmed = window.confirm(isArabic ? "هذا الرسم مرتبط بتنبيه. هل تريد حذف الرسم والتنبيه معًا؟" : "This drawing has an alert. Delete both the drawing and alert?");
-      if (!confirmed) return;
-      force = true;
+      setPendingConfirmation({ kind: "drawing", drawing });
+      return;
     }
     try {
       setBusyDrawingId(drawing.clientId);
@@ -715,7 +738,10 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       setSelectedId((value) => value === drawing.clientId ? "" : value);
       setStatus(isArabic ? "تم حذف الرسم." : "Drawing deleted.");
     } catch (error) {
-      if (error?.response?.data?.code === "DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED" && !force) return removeDrawing(drawing, true);
+      if (error?.response?.data?.code === "DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED" && !force) {
+        setPendingConfirmation({ kind: "drawing", drawing });
+        return;
+      }
       setStatus(displayError(error, isArabic));
     } finally {
       setBusyDrawingId("");
@@ -824,8 +850,10 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
 
   async function clearAllDrawings() {
     if (!drawingsRef.current.length) return;
-    const confirmed = window.confirm(isArabic ? "هل تريد مسح جميع الرسومات المحفوظة لهذا الشارت؟" : "Delete all saved drawings for this chart?");
-    if (!confirmed) return;
+    setPendingConfirmation({ kind: "all", hasAlerts: drawingsRef.current.some((drawing) => drawing.alert) });
+  }
+
+  async function performClearAllDrawings() {
     try {
       setBusyDrawingId("bulk");
       await deleteAllChartDrawings(symbol, interval, drawingsRef.current.some((drawing) => drawing.alert));
@@ -836,6 +864,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       setStatus(displayError(error, isArabic));
     } finally {
       setBusyDrawingId("");
+      setPendingConfirmation(null);
     }
   }
 
@@ -1064,6 +1093,45 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
         <label><span>{isArabic ? "مدة منع التكرار بالدقائق" : "Cooldown minutes"}</span><input type="number" min="15" max="10080" value={alertForm.cooldown_minutes} onChange={(event) => setAlertForm((value) => ({ ...value, cooldown_minutes: Number(event.target.value) }))} /></label>
         <div className="drawing-alert-actions">{selected.alert && <button type="button" className="danger" onClick={removeAlert}>{isArabic ? "حذف التنبيه" : "Delete alert"}</button>}<button type="button" onClick={() => setShowAlertEditor(false)}>{isArabic ? "إلغاء" : "Cancel"}</button><button type="submit" className="primary">{isArabic ? "حفظ التنبيه" : "Save alert"}</button></div>
       </form>
+    </div>}
+
+    {pendingConfirmation && <div className="drawing-confirm-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busyDrawingId && setPendingConfirmation(null)}>
+      <section ref={confirmationRef} role="alertdialog" aria-modal="true" aria-labelledby="drawing-confirm-title" aria-describedby="drawing-confirm-description" className="drawing-confirm-dialog" dir={isArabic ? "rtl" : "ltr"}>
+        <div className="drawing-confirm-accent" />
+        <header className="drawing-confirm-header">
+          <div className="drawing-confirm-icon"><AlertTriangle size={24} /></div>
+          <div>
+            <h2 id="drawing-confirm-title">{pendingConfirmation?.kind === "all"
+              ? (isArabic ? "مسح جميع رسومات الشارت؟" : "Delete every chart drawing?")
+              : (isArabic ? "حذف الرسم والتنبيه المرتبط؟" : "Delete the drawing and linked alert?")}</h2>
+            <p id="drawing-confirm-description">{pendingConfirmation?.kind === "all"
+              ? (pendingConfirmation?.hasAlerts
+                ? (isArabic ? "سيتم حذف جميع الرسومات المحفوظة والتنبيهات المرتبطة بها. لا يمكن التراجع بعد تأكيد الخادم." : "All saved drawings and their linked alerts will be deleted. This cannot be undone after server confirmation.")
+                : (isArabic ? "سيتم حذف جميع الرسومات المحفوظة لهذا السهم والفاصل. لا يمكن التراجع بعد تأكيد الخادم." : "All saved drawings for this symbol and interval will be deleted. This cannot be undone after server confirmation."))
+              : (isArabic ? "هذا الرسم يشغّل تنبيهًا سعريًا. سيحذف الخادم الرسم والتنبيه معًا في عملية واحدة." : "This drawing powers a price alert. The backend will delete both in one operation.")}</p>
+          </div>
+        </header>
+        <div className="drawing-confirm-summary">
+          <span>{isArabic ? "النطاق" : "Scope"}</span>
+          <b>{symbol} · {interval}</b>
+        </div>
+        <footer className="drawing-confirm-actions">
+          <button type="button" data-confirm-cancel disabled={Boolean(busyDrawingId)} onClick={() => setPendingConfirmation(null)}>{isArabic ? "إلغاء" : "Cancel"}</button>
+          <button
+            type="button"
+            className="drawing-confirm-danger"
+            disabled={Boolean(busyDrawingId)}
+            onClick={() => {
+              const current = pendingConfirmation;
+              setPendingConfirmation(null);
+              if (current?.kind === "all") performClearAllDrawings();
+              else if (current?.drawing) removeDrawing(current.drawing, true);
+            }}
+          >
+            <Trash2 size={16} />{isArabic ? "تأكيد الحذف" : "Confirm deletion"}
+          </button>
+        </footer>
+      </section>
     </div>}
   </>;
 }

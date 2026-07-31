@@ -160,15 +160,68 @@
   .chart-control-group > div { @apply flex flex-wrap gap-1.5; }
   .chart-chip { @apply rounded-full border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-black text-slate-500 transition hover:border-amber-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
   .chart-chip-active { @apply border-amber-500 bg-amber-500 text-slate-950 dark:bg-amber-500 dark:text-slate-950; }
+  .chart-menu-anchor { @apply relative z-20; }
+  .chart-type-button { @apply inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-600 transition hover:border-amber-400 hover:bg-amber-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-amber-950/20; }
+  .chart-type-button > svg:last-child { @apply rotate-90; }
+  .chart-type-popover { @apply absolute end-0 top-[calc(100%+8px)] z-50 w-72 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-950; }
+  .chart-type-popover > b { @apply block px-2 pt-1 text-sm font-black; }
+  .chart-type-popover > p { @apply px-2 pb-2 pt-1 text-[10px] leading-5 text-slate-500 dark:text-slate-400; }
+  .chart-type-popover > button { @apply mt-1 grid w-full grid-cols-[20px_minmax(0,1fr)_20px] items-center gap-2 rounded-xl px-3 py-2.5 text-start text-xs font-bold text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800; }
+  .chart-type-popover > button.active { @apply bg-amber-50 text-amber-800 ring-1 ring-amber-300 dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-500/40; }
   .indicator-toolbar { @apply mt-3 flex flex-wrap items-center gap-2; }
-  .indicator-control { @apply inline-flex overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-500 transition dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
-  .indicator-control-active { @apply border-emerald-500/60 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300; }
-  .indicator-toggle { @apply flex items-center gap-1.5 px-2.5 py-2 text-[11px] font-black; }
-  .indicator-settings-button { @apply border-s border-slate-200 px-2 transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800; }
-  .indicator-settings-active { @apply bg-amber-400 text-slate-950 hover:bg-amber-400 dark:bg-amber-400 dark:text-slate-950; }
-  .indicator-global-button { @apply inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-slate-50 px-2.5 py-2 text-[11px] font-black text-slate-600 transition hover:border-amber-400 hover:bg-amber-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-amber-500 dark:hover:bg-amber-950/20; }
-  .chart-settings-close { @apply inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-black text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
-  .chart-settings-close svg { @apply transition-transform; }
+  .indicator-toolbar-compact { @apply min-h-10; }
+  .indicator-hub-button { @apply inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 shadow-sm transition hover:border-amber-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  .indicator-hub-button.active { @apply border-emerald-400 bg-emerald-50 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-300; }
+  .indicator-hub-button small { @apply grid h-5 min-w-5 place-items-center rounded-full bg-slate-100 px-1 font-mono text-[9px] dark:bg-slate-800; }
+  .indicator-hub-popover { @apply absolute end-0 top-[calc(100%+8px)] z-50 w-[min(380px,calc(100vw-24px))] rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-950; }
+  .indicator-hub-popover > header { @apply mb-2 flex items-start gap-2 border-b border-slate-100 p-2 pb-3 dark:border-slate-800; }
+  .indicator-hub-popover > header > div { @apply min-w-0 flex-1; }
+  .indicator-hub-popover > header b { @apply text-sm font-black; }
+  .indicator-hub-popover > header p { @apply mt-1 text-[10px] leading-5 text-slate-500 dark:text-slate-400; }
+  .indicator-hub-popover > header > button { @apply inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 px-2 py-1.5 text-[10px] font-black text-slate-500 dark:border-slate-700 dark:text-slate-300; }
+  .indicator-hub-row { @apply mt-1 grid grid-cols-[minmax(0,1fr)_38px] overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  .indicator-hub-row.active { @apply border-emerald-400/70 bg-emerald-50 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-300; }
+  .indicator-hub-toggle { @apply grid min-h-11 grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 px-3 text-start text-[11px] font-black; }
+  .indicator-hub-icon { @apply grid h-7 w-7 place-items-center rounded-lg bg-slate-100 dark:bg-slate-800; }
+  .indicator-hub-settings { @apply grid place-items-center border-s border-slate-200 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800; }
+  .indicator-everything-button { @apply mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] font-black text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  .chart-settings-backdrop { @apply fixed inset-0 z-[120] bg-slate-950/55 backdrop-blur-sm; }
+  .chart-settings-sheet { @apply fixed inset-y-0 flex w-[min(520px,100vw)] max-w-none flex-col gap-0 overflow-hidden border-slate-200 bg-slate-50 p-0 shadow-2xl dark:border-slate-700 dark:bg-[#08111f]; }
+  .chart-settings-sheet-right { @apply right-0 border-s; }
+  .chart-settings-sheet-left { @apply left-0 border-e; }
+  .chart-settings-dismiss { @apply absolute end-5 top-5 z-10 grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900; }
+  .chart-settings-header { @apply flex flex-row items-start gap-3 border-b border-slate-200 bg-white p-5 pe-16 text-start dark:border-slate-800 dark:bg-[#0d192a]; }
+  .chart-settings-header > div:last-child { @apply min-w-0 flex-1; }
+  .chart-settings-heading-icon { @apply grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-400/10 dark:text-amber-300; }
+  .chart-settings-header h2 { @apply text-lg font-black; }
+  .chart-settings-header p { @apply mt-1 text-[11px] leading-5; }
+  .chart-settings-scroll { @apply flex-1 space-y-4 overflow-y-auto p-4; }
+  .chart-settings-section { @apply rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-[#0d192a]; }
+  .chart-settings-section-title { @apply flex items-start gap-2; }
+  .chart-settings-section-title > svg { @apply mt-0.5 shrink-0 text-amber-600 dark:text-amber-400; }
+  .chart-settings-section-title > div { @apply min-w-0 flex-1; }
+  .chart-settings-section-title b { @apply block text-sm font-black; }
+  .chart-settings-section-title small { @apply mt-1 block text-[10px] leading-5 text-slate-500 dark:text-slate-400; }
+  .chart-candle-type-grid { @apply mt-4 grid grid-cols-3 gap-2; }
+  .chart-candle-type-grid button { @apply flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 text-center text-[10px] font-black text-slate-500 transition hover:border-amber-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  .chart-candle-type-grid button.active { @apply border-amber-500 bg-amber-50 text-amber-800 ring-1 ring-amber-300 dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-500/30; }
+  .chart-settings-grid { @apply mt-4 grid gap-3 sm:grid-cols-2; }
+  .chart-setting-field { @apply flex min-w-0 flex-col gap-1.5; }
+  .chart-setting-field > span:first-child { @apply text-[10px] font-black text-slate-500 dark:text-slate-400; }
+  .chart-setting-field input[type="number"], .chart-setting-field select { @apply h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-900; }
+  .chart-setting-color > span:last-child { @apply flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900; }
+  .chart-setting-color input { @apply h-8 w-11 cursor-pointer rounded-lg border-0 bg-transparent p-0; }
+  .chart-setting-color code { @apply font-mono text-[10px] text-slate-500; direction:ltr; }
+  .chart-setting-check { @apply flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  .chart-setting-check input { @apply accent-amber-500; }
+  .chart-setting-check span { @apply inline-flex items-center gap-1.5; }
+  .chart-background-mode { @apply mt-4 grid grid-cols-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-900; }
+  .chart-background-mode button { @apply rounded-lg px-3 py-2 text-[10px] font-black text-slate-500; }
+  .chart-background-mode button.active { @apply bg-white text-slate-950 shadow-sm dark:bg-slate-800 dark:text-white; }
+  .chart-settings-footer { @apply flex flex-row justify-between gap-2 border-t border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0d192a]; }
+  .chart-settings-footer button { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-4 text-xs font-black; }
+  .chart-settings-footer .secondary-button { @apply border border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  .chart-settings-footer .primary-button { @apply bg-slate-950 text-white disabled:opacity-50 dark:bg-amber-400 dark:text-slate-950; }
   .indicator-settings-panel { @apply mt-3 rounded-2xl border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-500/20 dark:bg-amber-950/10; }
   .indicator-settings-title { @apply flex flex-wrap items-start gap-2; }
   .indicator-settings-title > div { @apply min-w-0 flex-1; }
@@ -252,6 +305,20 @@
   .drawing-alert-actions button { @apply rounded-lg border border-slate-200 px-3 py-2 text-xs font-black dark:border-slate-700; }
   .drawing-alert-actions button.primary { @apply border-slate-950 bg-slate-950 text-white dark:border-amber-400 dark:bg-amber-400 dark:text-slate-950; }
   .drawing-alert-actions button.danger { @apply me-auto border-red-200 text-red-600 dark:border-red-900 dark:text-red-400; }
+  .drawing-confirm-backdrop { @apply fixed inset-0 z-[130] grid place-items-center bg-slate-950/60 p-4 backdrop-blur-sm; }
+  .drawing-confirm-dialog { @apply w-full max-w-md overflow-hidden rounded-[1.75rem] border border-red-300 bg-white p-0 shadow-2xl dark:border-red-500/30 dark:bg-slate-950; }
+  .drawing-confirm-accent { @apply h-1.5 w-full bg-red-500; }
+  .drawing-confirm-header { @apply flex flex-row items-start gap-3 px-5 pt-5 text-start; }
+  .drawing-confirm-header > div:last-child { @apply min-w-0 flex-1; }
+  .drawing-confirm-header h2 { @apply text-base font-black text-slate-950 dark:text-white; }
+  .drawing-confirm-header p { @apply mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400; }
+  .drawing-confirm-icon { @apply grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-red-300 bg-red-50 text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400; }
+  .drawing-confirm-summary { @apply mx-5 flex items-center justify-between gap-3 rounded-2xl border border-red-100 bg-red-50/60 px-4 py-3 text-xs dark:border-red-500/20 dark:bg-red-500/5; }
+  .drawing-confirm-summary span { @apply text-slate-500 dark:text-slate-400; }
+  .drawing-confirm-summary b { @apply font-mono text-slate-950 dark:text-white; direction:ltr; }
+  .drawing-confirm-actions { @apply flex flex-row justify-end gap-2 border-t border-slate-200 px-5 py-4 dark:border-slate-800; }
+  .drawing-confirm-actions button { @apply mt-0 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black; }
+  .drawing-confirm-danger { @apply bg-red-600 text-white hover:bg-red-700; }
   .ohlc-strip { @apply mt-3 flex flex-wrap gap-3 rounded-xl bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-600 dark:bg-slate-950/50 dark:text-slate-300; }
   .ohlc-strip time { @apply font-black text-slate-950 dark:text-white; }
   .chart-message { @apply mt-3 rounded-xl bg-slate-50 px-4 py-8 text-center text-xs text-slate-500 dark:bg-slate-950/50; }

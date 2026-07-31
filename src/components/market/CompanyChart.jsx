@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, LineStyle } from "lightweight-charts";
-import { BarChart3, ChevronLeft, ChevronRight, Eye, EyeOff, Layers3, Maximize2, Minus, Plus, RotateCcw, Settings2, TrendingUp, Waves } from "lucide-react";
+import { BarChart3, ChartCandlestick, ChevronLeft, ChevronRight, Eye, EyeOff, Layers3, Maximize2, Minus, Plus, RotateCcw, Settings2, SlidersHorizontal, TrendingUp, Waves } from "lucide-react";
 import { invokeAppFunction } from "@/services/marketService";
 import { calculateMomentumSnapshot, calculateRsiSeries, formatNumber, MOMENTUM_ZONE_DEFINITIONS, normalizeMomentum } from "@/lib/market";
 import { calculateSmaSeries } from "@/lib/technical-signals";
+import { buildDisplayCandles, chartPreferencePayload, chartVisualDefaults, resolvedChartColors, sanitizeChartPreferences } from "@/lib/chart-visuals";
 import { usePreferences } from "@/lib/preferences";
 import ChartDrawingTools from "@/components/market/ChartDrawingTools";
+import ChartSettingsSheet from "@/components/market/ChartSettingsSheet";
 
 const intervalOptions = [
   { value: "15m", ar: "15 د", en: "15m", defaultRange: "5d" },
@@ -122,15 +124,6 @@ function sameZoneGeometry(current, next) {
   });
 }
 
-function ToggleButton({ active, label, icon: Icon, onClick, settings = false, onSettings = null, isArabic }) {
-  return <div className={"indicator-control " + (active ? "indicator-control-active" : "")}>
-    <button type="button" onClick={onClick} className="indicator-toggle" title={(active ? (isArabic ? "إخفاء " : "Hide ") : (isArabic ? "إظهار " : "Show ")) + label}>
-      <Icon size={15} /><span>{label}</span>{active ? <Eye size={14} /> : <EyeOff size={14} />}
-    </button>
-    {onSettings && <button type="button" onClick={onSettings} className={"indicator-settings-button " + (settings ? "indicator-settings-active" : "")} title={isArabic ? "إعدادات المؤشر" : "Indicator settings"}><Settings2 size={14} /></button>}
-  </div>;
-}
-
 export default function CompanyChart({ symbol = "", sector = "", marketCode = "SA_MAIN", momentum: rawMomentum = null, previousCompany = null, nextCompany = null, onSelectCompany = (_symbol) => {}, onResetWidth = () => {} }) {
   const { language, isArabic, theme } = usePreferences();
   const containerRef = useRef(null);
@@ -141,6 +134,9 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const rsiSeriesRef = useRef(null);
   const sma20SeriesRef = useRef(null);
   const sma50SeriesRef = useRef(null);
+  const actualPriceSeriesRef = useRef(null);
+  const mainPaneHeightRef = useRef(470);
+  const preferenceSaveQueueRef = useRef(/** @type {Promise<any>} */ (Promise.resolve(null)));
   const momentumLinesRef = useRef([]);
   const overlayUpdateRef = useRef(() => {});
   const overlayFrameRef = useRef(0);
@@ -155,9 +151,18 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const [showMomentumCard, setShowMomentumCard] = useState(() => localStorage.getItem("kmy_show_momentum_card") !== "false");
   const [showVolume, setShowVolume] = useState(() => localStorage.getItem("kmy_show_volume") !== "false");
   const [showRsi, setShowRsi] = useState(() => localStorage.getItem("kmy_show_rsi") !== "false");
-  const [showSma20, setShowSma20] = useState(() => localStorage.getItem("kmy_show_sma20") !== "false");
-  const [showSma50, setShowSma50] = useState(() => localStorage.getItem("kmy_show_sma50") !== "false");
   const [settingsPanel, setSettingsPanel] = useState("");
+  const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
+  const [candleTypeMenuOpen, setCandleTypeMenuOpen] = useState(false);
+  const [chartSettingsOpen, setChartSettingsOpen] = useState(false);
+  const [savingChartSettings, setSavingChartSettings] = useState(false);
+  const [chartPreferences, setChartPreferences] = useState(() => sanitizeChartPreferences({
+    ...storedObject("kmy_chart_preferences_v2", chartVisualDefaults(theme)),
+    sma: storedObject("kmy_chart_preferences_v2", chartVisualDefaults(theme)).sma || {
+      fast: { ...chartVisualDefaults(theme).sma.fast, enabled: localStorage.getItem("kmy_show_sma20") !== "false" },
+      slow: { ...chartVisualDefaults(theme).sma.slow, enabled: localStorage.getItem("kmy_show_sma50") !== "false" },
+    },
+  }, theme));
   const [rsiSettings, setRsiSettings] = useState(() => storedObject("kmy_rsi_settings", rsiDefaults));
   const [momentumSettings, setMomentumSettings] = useState(() => {
     const stored = storedObject("kmy_momentum_settings", momentumDefaults);
@@ -172,6 +177,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   });
   const [zoneGeometry, setZoneGeometry] = useState([]);
   const [mainPaneHeight, setMainPaneHeight] = useState(470);
+  mainPaneHeightRef.current = mainPaneHeight;
   const [, setChartRevision] = useState(0);
   const [drawingsVisible, setDrawingsVisible] = useState(true);
   const [drawingVisibilityCommand, setDrawingVisibilityCommand] = useState(null);
@@ -179,14 +185,28 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const chartTitle = sector ? (isArabic ? `مؤشر قطاع ${sector}` : `${sector} sector index`) : (isArabic ? "الرسم البياني" : "Chart");
 
   const orderedCandles = useMemo(() => normalizeCandles(candles), [candles]);
+  const resolvedVisuals = useMemo(() => resolvedChartColors(chartPreferences, theme), [chartPreferences, theme]);
+  const displayCandles = useMemo(() => buildDisplayCandles(orderedCandles, chartPreferences, theme), [orderedCandles, chartPreferences, theme]);
+  const showSma20 = chartPreferences.sma.fast.enabled;
+  const showSma50 = chartPreferences.sma.slow.enabled;
+  const setShowSma20 = useCallback((next) => setChartPreferences((current) => sanitizeChartPreferences({
+    ...current,
+    sma: { ...current.sma, fast: { ...current.sma.fast, enabled: typeof next === "function" ? next(current.sma.fast.enabled) : Boolean(next) } },
+  }, theme)), [theme]);
+  const setShowSma50 = useCallback((next) => setChartPreferences((current) => sanitizeChartPreferences({
+    ...current,
+    sma: { ...current.sma, slow: { ...current.sma.slow, enabled: typeof next === "function" ? next(current.sma.slow.enabled) : Boolean(next) } },
+  }, theme)), [theme]);
   const rsiData = useMemo(() => calculateRsiSeries(orderedCandles, rsiSettings.length, rsiSettings.source), [orderedCandles, rsiSettings.length, rsiSettings.source]);
-  const sma20Data = useMemo(() => calculateSmaSeries(orderedCandles, 20), [orderedCandles]);
-  const sma50Data = useMemo(() => calculateSmaSeries(orderedCandles, 50), [orderedCandles]);
+  const sma20Data = useMemo(() => calculateSmaSeries(orderedCandles, chartPreferences.sma.fast.length), [orderedCandles, chartPreferences.sma.fast.length]);
+  const sma50Data = useMemo(() => calculateSmaSeries(orderedCandles, chartPreferences.sma.slow.length), [orderedCandles, chartPreferences.sma.slow.length]);
   const orderedCandlesRef = useRef(orderedCandles);
+  const displayCandlesRef = useRef(displayCandles);
   const rsiDataRef = useRef(rsiData);
   const sma20DataRef = useRef(sma20Data);
   const sma50DataRef = useRef(sma50Data);
   orderedCandlesRef.current = orderedCandles;
+  displayCandlesRef.current = displayCandles;
   rsiDataRef.current = rsiData;
   sma20DataRef.current = sma20Data;
   sma50DataRef.current = sma50Data;
@@ -247,22 +267,78 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
 
   useEffect(() => { localStorage.setItem("kmy_rsi_settings", JSON.stringify(rsiSettings)); }, [rsiSettings]);
   useEffect(() => { localStorage.setItem("kmy_momentum_settings", JSON.stringify(momentumSettings)); }, [momentumSettings]);
+  useEffect(() => { localStorage.setItem("kmy_chart_preferences_v2", JSON.stringify(chartPreferencePayload(chartPreferences, theme))); }, [chartPreferences, theme]);
+
+  useEffect(() => {
+    const closeMenus = (event) => {
+      if (event.type === "keydown" && event.key !== "Escape") return;
+      if (event.type === "pointerdown" && event.target.closest?.(".chart-menu-anchor")) return;
+      setIndicatorMenuOpen(false);
+      setCandleTypeMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeMenus);
+    document.addEventListener("keydown", closeMenus);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenus);
+      document.removeEventListener("keydown", closeMenus);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    invokeAppFunction("customerSelfService", { action: "get_chart_preferences" })
+      .then((data) => {
+        if (active && data?.preferences) setChartPreferences(sanitizeChartPreferences(data.preferences, theme));
+      })
+      .catch(() => {
+        // Local preferences remain the fallback when the authenticated profile is unavailable.
+      });
+    return () => { active = false; };
+  }, [theme]);
+
+  async function saveChartPreferences(preferences) {
+    const clean = sanitizeChartPreferences(preferences, theme);
+    setChartPreferences(clean);
+    setSavingChartSettings(true);
+    try {
+      const data = await persistChartPreferences(clean);
+      if (data?.preferences) setChartPreferences(sanitizeChartPreferences(data.preferences, theme));
+      setChartSettingsOpen(false);
+    } catch {
+      // The local copy is intentionally retained; the next explicit save retries the protected backend.
+    } finally {
+      setSavingChartSettings(false);
+    }
+  }
+
+  function persistChartPreferences(preferences) {
+    const request = () => invokeAppFunction("customerSelfService", {
+      action: "save_chart_preferences",
+      preferences,
+    });
+    preferenceSaveQueueRef.current = preferenceSaveQueueRef.current.catch(() => null).then(request);
+    return preferenceSaveQueueRef.current;
+  }
 
   useEffect(() => {
     if (!containerRef.current) return;
     const dark = theme === "dark";
+    const visual = resolvedChartColors(chartPreferences, theme);
     const chart = createChart(containerRef.current, {
       autoSize: false,
       width: Math.max(320, containerRef.current.clientWidth),
       height: chartHeight,
       layout: {
-        background: { type: ColorType.Solid, color: dark ? "#091321" : "#ffffff" },
-        textColor: dark ? "#cbd5e1" : "#475569",
+        background: { type: ColorType.Solid, color: visual.backgroundColor },
+        textColor: visual.textColor,
         fontFamily: "Tajawal",
         attributionLogo: false,
         panes: { separatorColor: dark ? "#243247" : "#dbe3ee", separatorHoverColor: "#f59e0b", enableResize: true },
       },
-      grid: { vertLines: { color: dark ? "#172337" : "#edf1f6" }, horzLines: { color: dark ? "#172337" : "#edf1f6" } },
+      grid: {
+        vertLines: { color: visual.gridColor, visible: visual.gridVisible },
+        horzLines: { color: visual.gridColor, visible: visual.gridVisible },
+      },
       rightPriceScale: { borderVisible: true, borderColor: dark ? "#475569" : "#94a3b8", ticksVisible: true, minimumWidth: 74, scaleMargins: { top: 0.08, bottom: 0.08 } },
       timeScale: {
         borderVisible: true,
@@ -291,11 +367,13 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     });
 
     const candlesSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "#16a34a", downColor: "#dc2626", borderUpColor: "#16a34a", borderDownColor: "#dc2626", wickUpColor: "#16a34a", wickDownColor: "#dc2626",
+      upColor: visual.upColor, downColor: visual.downColor, borderUpColor: visual.upColor, borderDownColor: visual.downColor, wickUpColor: visual.upColor, wickDownColor: visual.downColor,
+      borderVisible: visual.borderVisible,
+      wickVisible: visual.wickVisible,
       priceLineVisible: true,
       lastValueVisible: true,
     }, 0);
-    candlesSeries.setData(orderedCandlesRef.current.map(({ volume: _volume, ...candle }) => candle));
+    candlesSeries.setData(displayCandlesRef.current.map(({ volume: _volume, sourceOpen: _sourceOpen, sourceHigh: _sourceHigh, sourceLow: _sourceLow, sourceClose: _sourceClose, ...candle }) => candle));
     const scheduleOverlayUpdate = () => {
       if (overlayFrameRef.current) window.cancelAnimationFrame(overlayFrameRef.current);
       overlayFrameRef.current = window.requestAnimationFrame(() => {
@@ -312,6 +390,11 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       setHovered(candle && typeof candle.open === "number" ? { ...candle, time: param.time, volume: volume?.value, rsi: rsi?.value } : null);
       scheduleOverlayUpdate();
     });
+    const doubleClickHandler = (param) => {
+      if (!param.point || param.point.y > mainPaneHeightRef.current) return;
+      setChartSettingsOpen(true);
+    };
+    chart.subscribeDblClick(doubleClickHandler);
     const visibleHandler = scheduleOverlayUpdate;
     chart.timeScale().subscribeVisibleLogicalRangeChange(visibleHandler);
     const resizeObserver = new ResizeObserver((entries) => {
@@ -326,23 +409,33 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     chartRef.current = chart;
     candleSeriesRef.current = candlesSeries;
     sma20SeriesRef.current = chart.addSeries(LineSeries, {
-      color: "#2563eb",
-      lineWidth: 2,
+      color: chartPreferences.sma.fast.color,
+      lineWidth: /** @type {any} */ (chartPreferences.sma.fast.lineWidth),
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: true,
       visible: showSma20,
-      title: "SMA 20",
+      title: `SMA ${chartPreferences.sma.fast.length}`,
     }, 0);
     sma50SeriesRef.current = chart.addSeries(LineSeries, {
-      color: "#f59e0b",
-      lineWidth: 2,
+      color: chartPreferences.sma.slow.color,
+      lineWidth: /** @type {any} */ (chartPreferences.sma.slow.lineWidth),
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: true,
       visible: showSma50,
-      title: "SMA 50",
+      title: `SMA ${chartPreferences.sma.slow.length}`,
     }, 0);
+    actualPriceSeriesRef.current = chart.addSeries(LineSeries, {
+      color: visual.textColor,
+      lineVisible: false,
+      pointMarkersVisible: false,
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+      lastValueVisible: chartPreferences.candleType === "heikin_ashi",
+      title: isArabic ? "السعر الفعلي" : "Actual price",
+    }, 0);
+    actualPriceSeriesRef.current.setData(orderedCandlesRef.current.map((candle) => ({ time: candle.time, value: candle.close })));
     sma20SeriesRef.current.setData(sma20DataRef.current);
     sma50SeriesRef.current.setData(sma50DataRef.current);
     setChartRevision((value) => value + 1);
@@ -358,6 +451,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       interactionEvents.forEach((eventName) => containerRef.current?.removeEventListener(eventName, scheduleOverlayUpdate));
       if (overlayFrameRef.current) window.cancelAnimationFrame(overlayFrameRef.current);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleHandler);
+      chart.unsubscribeDblClick(doubleClickHandler);
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
@@ -365,14 +459,56 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       rsiSeriesRef.current = null;
       sma20SeriesRef.current = null;
       sma50SeriesRef.current = null;
+      actualPriceSeriesRef.current = null;
       momentumLinesRef.current = [];
     };
   }, [theme, language, interval]);
 
   useEffect(() => {
-    sma20SeriesRef.current?.applyOptions({ visible: showSma20 });
-    sma50SeriesRef.current?.applyOptions({ visible: showSma50 });
-  }, [showSma20, showSma50]);
+    sma20SeriesRef.current?.applyOptions({
+      visible: showSma20,
+      color: chartPreferences.sma.fast.color,
+      lineWidth: /** @type {any} */ (chartPreferences.sma.fast.lineWidth),
+      title: `SMA ${chartPreferences.sma.fast.length}`,
+    });
+    sma50SeriesRef.current?.applyOptions({
+      visible: showSma50,
+      color: chartPreferences.sma.slow.color,
+      lineWidth: /** @type {any} */ (chartPreferences.sma.slow.lineWidth),
+      title: `SMA ${chartPreferences.sma.slow.length}`,
+    });
+  }, [showSma20, showSma50, chartPreferences.sma.fast, chartPreferences.sma.slow]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = candleSeriesRef.current;
+    if (!chart || !series) return;
+    chart.applyOptions({
+      layout: {
+        background: { type: ColorType.Solid, color: resolvedVisuals.backgroundColor },
+        textColor: resolvedVisuals.textColor,
+      },
+      grid: {
+        vertLines: { color: resolvedVisuals.gridColor, visible: resolvedVisuals.gridVisible },
+        horzLines: { color: resolvedVisuals.gridColor, visible: resolvedVisuals.gridVisible },
+      },
+    });
+    series.applyOptions({
+      upColor: resolvedVisuals.upColor,
+      downColor: resolvedVisuals.downColor,
+      borderUpColor: resolvedVisuals.upColor,
+      borderDownColor: resolvedVisuals.downColor,
+      wickUpColor: resolvedVisuals.upColor,
+      wickDownColor: resolvedVisuals.downColor,
+      borderVisible: resolvedVisuals.borderVisible,
+      wickVisible: resolvedVisuals.wickVisible,
+    });
+    actualPriceSeriesRef.current?.applyOptions({
+      color: resolvedVisuals.textColor,
+      lastValueVisible: chartPreferences.candleType === "heikin_ashi",
+      title: isArabic ? "السعر الفعلي" : "Actual price",
+    });
+  }, [resolvedVisuals, chartPreferences.candleType, isArabic]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -423,14 +559,15 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   }, [showVolume, showRsi, rsiSettings.lineColor, rsiSettings.lineWidth, rsiSettings.upper, rsiSettings.lower, rsiSettings.upperColor, rsiSettings.lowerColor, chartHeight, theme, language, interval, isArabic]);
 
   useEffect(() => {
-    candleSeriesRef.current?.setData(orderedCandles.map(({ volume: _volume, ...candle }) => candle));
+    candleSeriesRef.current?.setData(displayCandles.map(({ volume: _volume, sourceOpen: _sourceOpen, sourceHigh: _sourceHigh, sourceLow: _sourceLow, sourceClose: _sourceClose, ...candle }) => candle));
     volumeSeriesRef.current?.setData(orderedCandles.map((candle) => ({ time: candle.time, value: candle.volume, color: candle.close >= candle.open ? "#16a34acc" : "#dc2626cc" })));
     rsiSeriesRef.current?.setData(rsiData);
     sma20SeriesRef.current?.setData(sma20Data);
     sma50SeriesRef.current?.setData(sma50Data);
+    actualPriceSeriesRef.current?.setData(orderedCandles.map((candle) => ({ time: candle.time, value: candle.close })));
     if (orderedCandles.length) chartRef.current?.timeScale().fitContent();
     window.requestAnimationFrame(() => overlayUpdateRef.current());
-  }, [orderedCandles, rsiData, sma20Data, sma50Data]);
+  }, [orderedCandles, displayCandles, rsiData, sma20Data, sma50Data]);
 
   useEffect(() => {
     const series = candleSeriesRef.current;
@@ -566,6 +703,31 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     setDrawingVisibilityCommand({ id: Date.now(), visible: nextVisible });
   }
 
+  function selectCandleType(candleType) {
+    const next = sanitizeChartPreferences({ ...chartPreferences, candleType }, theme);
+    setChartPreferences(next);
+    setCandleTypeMenuOpen(false);
+    persistChartPreferences(next).catch(() => {});
+  }
+
+  function toggleSmaSlot(slot) {
+    const next = sanitizeChartPreferences({
+      ...chartPreferences,
+      sma: {
+        ...chartPreferences.sma,
+        [slot]: { ...chartPreferences.sma[slot], enabled: !chartPreferences.sma[slot].enabled },
+      },
+    }, theme);
+    setChartPreferences(next);
+    persistChartPreferences(next).catch(() => {});
+  }
+
+  const candleTypeLabel = {
+    candles: isArabic ? "شموع عادية" : "Candles",
+    hollow: isArabic ? "شموع مفرغة" : "Hollow candles",
+    heikin_ashi: isArabic ? "هايكن آشي" : "Heikin Ashi",
+  }[chartPreferences.candleType];
+
   const sourceOptions = [
     ["close", isArabic ? "الإغلاق" : "Close"],
     ["open", isArabic ? "الافتتاح" : "Open"],
@@ -587,6 +749,19 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
         <button type="button" disabled={!nextCompany} onClick={() => nextCompany && onSelectCompany?.(nextCompany.symbol)} title={isArabic ? "الشركة التالية حسب القائمة الحالية" : "Next company in current list"}><span><small>{isArabic ? "التالي" : "Next"}</small><b>{nextCompany ? (isArabic ? nextCompany.name_ar : nextCompany.name_en) : "—"}</b></span><ChevronLeft size={16} /></button>
       </div>}
       <div className="flex flex-wrap items-center gap-2">
+        <div className="chart-menu-anchor">
+          <button type="button" className="chart-type-button" onClick={() => setCandleTypeMenuOpen((value) => !value)} title={isArabic ? "تغيير نوع الشموع" : "Change candle type"} aria-expanded={candleTypeMenuOpen} aria-label={isArabic ? `نوع الشموع: ${candleTypeLabel}` : `Candle type: ${candleTypeLabel}`}><ChartCandlestick size={17} /><span>{candleTypeLabel}</span><ChevronLeft size={14} /></button>
+          {candleTypeMenuOpen && <div role="menu" className="chart-type-popover" dir={isArabic ? "rtl" : "ltr"}>
+            <b>{isArabic ? "نوع عرض الشموع" : "Candle display"}</b>
+            <p>{isArabic ? "يظهر نوع واحد فقط في كل مرة." : "Only one candle type is shown at a time."}</p>
+            {[
+              ["candles", isArabic ? "شموع عادية" : "Candles"],
+              ["hollow", isArabic ? "شموع مفرغة" : "Hollow candles"],
+              ["heikin_ashi", isArabic ? "هايكن آشي" : "Heikin Ashi"],
+            ].map(([value, label]) => <button type="button" key={value} className={chartPreferences.candleType === value ? "active" : ""} onClick={() => selectCandleType(value)} aria-pressed={chartPreferences.candleType === value}><ChartCandlestick size={17} /><span>{label}</span>{chartPreferences.candleType === value && <span aria-hidden="true">✓</span>}</button>)}
+          </div>}
+        </div>
+        <button type="button" className="icon-button" onClick={() => setChartSettingsOpen(true)} title={isArabic ? "إعدادات الشارت" : "Chart settings"} aria-label={isArabic ? "فتح إعدادات الشارت" : "Open chart settings"}><Settings2 size={17} /></button>
         <button className="icon-button" onClick={() => zoom(0.75)} title={isArabic ? "تكبير" : "Zoom in"}><Plus size={17} /></button>
         <button className="icon-button" onClick={() => zoom(1.35)} title={isArabic ? "تصغير" : "Zoom out"}><Minus size={17} /></button>
         <button className="icon-button" onClick={resetChartView} title={isArabic ? "إعادة الرسم للوضع الطبيعي" : "Reset chart view"}><RotateCcw size={17} /></button>
@@ -599,14 +774,27 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       <div className="chart-control-group"><span>{isArabic ? "النطاق" : "Range"}</span><div>{availableRanges.map((item) => <button type="button" key={item.value} onClick={() => setRange(item.value)} className={"chart-chip " + (range === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>)}</div></div>
     </div>
 
-    <div className="indicator-toolbar">
-      <ToggleButton active={showVolume} label={isArabic ? "أحجام التداول" : "Volume"} icon={BarChart3} onClick={() => setShowVolume((value) => !value)} isArabic={isArabic} />
-      <ToggleButton active={showMomentum} label={investorZoneLabel} icon={Layers3} onClick={() => setShowMomentum((value) => !value)} onSettings={() => setSettingsPanel((value) => value === "momentum" ? "" : "momentum")} settings={settingsPanel === "momentum"} isArabic={isArabic} />
-      <ToggleButton active={showRsi} label={isArabic ? "مؤشر القوة النسبية" : "RSI"} icon={Waves} onClick={() => setShowRsi((value) => !value)} onSettings={() => setSettingsPanel((value) => value === "rsi" ? "" : "rsi")} settings={settingsPanel === "rsi"} isArabic={isArabic} />
-      <ToggleButton active={showSma20} label={isArabic ? "المتوسط البسيط 20" : "SMA 20"} icon={TrendingUp} onClick={() => setShowSma20((value) => !value)} isArabic={isArabic} />
-      <ToggleButton active={showSma50} label={isArabic ? "المتوسط البسيط 50" : "SMA 50"} icon={TrendingUp} onClick={() => setShowSma50((value) => !value)} isArabic={isArabic} />
-      <button type="button" className="indicator-global-button" data-action="toggle-all-indicators" onClick={toggleAllIndicators} title={anyIndicatorVisible ? (isArabic ? "إخفاء جميع المؤشرات ومناطق المستثمر" : "Hide all indicators and investor zones") : (isArabic ? "إظهار جميع المؤشرات ومناطق المستثمر" : "Show all indicators and investor zones")}>{anyIndicatorVisible ? <EyeOff size={15} /> : <Eye size={15} />}<span>{isArabic ? "كل المؤشرات" : "All indicators"}</span></button>
-      {symbol && <button type="button" className="indicator-global-button" data-action="toggle-all-chart-objects" onClick={toggleAllChartObjects} title={anyIndicatorVisible || drawingsVisible ? (isArabic ? "إخفاء الرسومات والمؤشرات معاً" : "Hide drawings and indicators") : (isArabic ? "إظهار الرسومات والمؤشرات معاً" : "Show drawings and indicators")}>{anyIndicatorVisible || drawingsVisible ? <EyeOff size={15} /> : <Eye size={15} />}<span>{isArabic ? "الكل" : "Everything"}</span></button>}
+    <div className="indicator-toolbar indicator-toolbar-compact">
+      <div className="chart-menu-anchor">
+        <button type="button" className={"indicator-hub-button " + (anyIndicatorVisible ? "active" : "")} onClick={() => setIndicatorMenuOpen((value) => !value)} aria-expanded={indicatorMenuOpen}><SlidersHorizontal size={17} /><span>{isArabic ? "المؤشرات" : "Indicators"}</span><small>{[showVolume, showMomentum, showRsi, showSma20, showSma50].filter(Boolean).length}</small></button>
+        {indicatorMenuOpen && <div role="menu" className="indicator-hub-popover" dir={isArabic ? "rtl" : "ltr"}>
+          <header><div><b>{isArabic ? "المؤشرات" : "Indicators"}</b><p>{isArabic ? "إغلاق هذه القائمة لا يخفي المؤشرات المفعلة." : "Closing this menu keeps active indicators visible."}</p></div><button type="button" data-action="toggle-all-indicators" onClick={toggleAllIndicators}>{anyIndicatorVisible ? <EyeOff size={15} /> : <Eye size={15} />}{anyIndicatorVisible ? (isArabic ? "إخفاء الكل" : "Hide all") : (isArabic ? "إظهار الكل" : "Show all")}</button></header>
+          {[
+            { key: "volume", label: isArabic ? "أحجام التداول" : "Volume", icon: BarChart3, active: showVolume, toggle: () => setShowVolume((value) => !value) },
+            { key: "momentum", label: investorZoneLabel, icon: Layers3, active: showMomentum, toggle: () => setShowMomentum((value) => !value), settings: () => { setSettingsPanel((value) => value === "momentum" ? "" : "momentum"); setIndicatorMenuOpen(false); } },
+            { key: "rsi", label: isArabic ? "مؤشر القوة النسبية" : "RSI", icon: Waves, active: showRsi, toggle: () => setShowRsi((value) => !value), settings: () => { setSettingsPanel((value) => value === "rsi" ? "" : "rsi"); setIndicatorMenuOpen(false); } },
+            { key: "sma-fast", label: isArabic ? `المتوسط البسيط ${chartPreferences.sma.fast.length}` : `SMA ${chartPreferences.sma.fast.length}`, icon: TrendingUp, active: showSma20, color: chartPreferences.sma.fast.color, toggle: () => toggleSmaSlot("fast"), settings: () => { setIndicatorMenuOpen(false); setChartSettingsOpen(true); } },
+            { key: "sma-slow", label: isArabic ? `المتوسط البسيط ${chartPreferences.sma.slow.length}` : `SMA ${chartPreferences.sma.slow.length}`, icon: TrendingUp, active: showSma50, color: chartPreferences.sma.slow.color, toggle: () => toggleSmaSlot("slow"), settings: () => { setIndicatorMenuOpen(false); setChartSettingsOpen(true); } },
+          ].map((item) => {
+            const Icon = item.icon;
+            return <div key={item.key} className={"indicator-hub-row " + (item.active ? "active" : "")}>
+              <button type="button" className="indicator-hub-toggle" onClick={item.toggle} aria-pressed={item.active}><span className="indicator-hub-icon" style={item.color ? { color: item.color } : undefined}><Icon size={16} /></span><span>{item.label}</span>{item.active ? <Eye size={15} /> : <EyeOff size={15} />}</button>
+              {item.settings && <button type="button" className="indicator-hub-settings" onClick={item.settings} aria-label={(isArabic ? "إعدادات " : "Settings for ") + item.label}><Settings2 size={15} /></button>}
+            </div>;
+          })}
+          {symbol && <button type="button" className="indicator-everything-button" data-action="toggle-all-chart-objects" onClick={toggleAllChartObjects}>{anyIndicatorVisible || drawingsVisible ? <EyeOff size={15} /> : <Eye size={15} />}{anyIndicatorVisible || drawingsVisible ? (isArabic ? "إخفاء الرسومات والمؤشرات" : "Hide drawings and indicators") : (isArabic ? "إظهار الرسومات والمؤشرات" : "Show drawings and indicators")}</button>}
+        </div>}
+      </div>
     </div>
 
     {settingsPanel === "rsi" && <section className="indicator-settings-panel">
@@ -646,7 +834,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       })}</div>
     </section>}
 
-    <div className={"ohlc-strip " + (hovered ? "" : "invisible")} dir="ltr" aria-hidden={!hovered}>{hovered ? <><time>{formatChartDate(hovered.time, isArabic ? "ar-SA" : "en-GB", interval === "15m" || interval === "1h")}</time><span>O {formatNumber(hovered.open, "en")}</span><span>H {formatNumber(hovered.high, "en")}</span><span>L {formatNumber(hovered.low, "en")}</span><span>C {formatNumber(hovered.close, "en")}</span>{Number.isFinite(Number(hovered.volume)) && <span>VOL {formatNumber(hovered.volume, "en", 0)}</span>}{Number.isFinite(Number(hovered.rsi)) && <span>RSI {formatNumber(hovered.rsi, "en")}</span>}</> : <span>&nbsp;</span>}</div>
+    <div className={"ohlc-strip " + (hovered ? "" : "invisible")} dir="ltr" aria-hidden={!hovered}>{hovered ? <><time>{formatChartDate(hovered.time, isArabic ? "ar-SA" : "en-GB", interval === "15m" || interval === "1h")}</time>{chartPreferences.candleType === "heikin_ashi" && <b>HA</b>}<span>O {formatNumber(hovered.open, "en")}</span><span>H {formatNumber(hovered.high, "en")}</span><span>L {formatNumber(hovered.low, "en")}</span><span>C {formatNumber(hovered.close, "en")}</span>{Number.isFinite(Number(hovered.volume)) && <span>VOL {formatNumber(hovered.volume, "en", 0)}</span>}{Number.isFinite(Number(hovered.rsi)) && <span>RSI {formatNumber(hovered.rsi, "en")}</span>}</> : <span>&nbsp;</span>}</div>
     {loading && <div className="chart-message">{isArabic ? "جارٍ تحميل الشموع الحقيقية…" : "Loading verified candles…"}</div>}
     {error && <div className="chart-message text-red-600">{isArabic ? "تعذر جلب الشموع." : "Candles are unavailable."}</div>}
     {!loading && !error && !candles.length && <div className="chart-message">{isArabic ? "لا توجد شموع موثقة لهذا النطاق." : "No verified candles for this range."}</div>}
@@ -661,5 +849,6 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
         {momentum.zones.map((zone) => <div key={zone.key} className={zone.active === false ? "opacity-45" : ""}><b style={{ color: momentumSettings.zones[zone.key]?.color }}>{isArabic ? zone.nameAr : zone.nameEn}</b><span>{zone.active === false ? (isArabic ? "بانتظار" : "Waiting") : formatNumber(zone.top, "en")}</span><span>{zone.active === false ? "—" : formatNumber(zone.bottom, "en")}</span><span className="text-red-500">{zone.active === false ? "—" : formatNumber(zone.stop, "en")}</span></div>)}</>}
       </div>}
     </div>
+    <ChartSettingsSheet open={chartSettingsOpen} onOpenChange={setChartSettingsOpen} preferences={chartPreferences} onApply={saveChartPreferences} theme={theme} isArabic={isArabic} saving={savingChartSettings} />
   </div>;
 }

@@ -23,6 +23,11 @@ import {
   calculateTechnicalSignals,
   detectBullishPinBar,
 } from "../base44/shared/technical-signals.ts";
+import {
+  buildDisplayCandles,
+  calculateHeikinAshiCandles,
+  sanitizeChartPreferences,
+} from "../src/lib/chart-visuals.js";
 
 assert.equal(MARKET_AUTOMATION_SPECS.length, 5);
 assert.deepEqual(MARKET_AUTOMATION_SPECS.map((automation) => automation.cron), [
@@ -369,6 +374,28 @@ const weeklyBoundaryBars = [
 assert.equal(aggregateTechnicalBars(weeklyBoundaryBars, "1wk").length, 2, "Saudi trading weeks must roll over on Sunday");
 assert.equal(aggregateTechnicalBars(weeklyBoundaryBars, "1mo").length, 2, "monthly projection must follow the Riyadh session month");
 
+const standardVisualBars = [
+  { time: 1, open: 10, high: 14, low: 8, close: 12, volume: 100 },
+  { time: 2, open: 12, high: 16, low: 11, close: 15, volume: 120 },
+  { time: 3, open: 15, high: 16, low: 10, close: 11, volume: 140 },
+];
+const heikinAshiBars = calculateHeikinAshiCandles(standardVisualBars);
+assert.equal(heikinAshiBars.length, standardVisualBars.length, "Heikin Ashi must replace every standard candle one-for-one");
+assert.equal(heikinAshiBars[0].open, 11);
+assert.equal(heikinAshiBars[0].close, 11);
+assert.equal(heikinAshiBars[1].open, 11);
+assert.equal(heikinAshiBars[1].close, 13.5);
+assert.equal(heikinAshiBars[2].open, 12.25);
+assert.equal(heikinAshiBars[2].high, 16);
+assert.equal(heikinAshiBars[2].low, 10);
+assert.deepEqual(standardVisualBars.map((bar) => bar.close), [12, 15, 11], "display conversion must not mutate the canonical OHLC source");
+
+const hollowPreferences = sanitizeChartPreferences({ candleType: "hollow", backgroundMode: "custom", backgroundColor: "#ffffff" });
+const hollowBars = buildDisplayCandles(standardVisualBars, hollowPreferences);
+assert.equal(hollowBars[0].color, "#ffffff", "a rising hollow candle body must use the chart background");
+assert.equal(hollowBars[2].color, hollowPreferences.downColor, "a falling filled candle must use the prior-close trend color");
+assert.equal(buildDisplayCandles(standardVisualBars, { candleType: "candles" }).length, standardVisualBars.length);
+
 let requestedPublicUrl = "";
 const incrementalFetch = await fetchPublicDelayedCharts({
   symbols: ["1321"],
@@ -420,4 +447,5 @@ console.log(JSON.stringify({
   canonicalQuarterHourBuckets: true,
   technicalSignals: true,
   saudiHigherTimeframeBoundaries: true,
+  chartCandleTypes: true,
 }, null, 2));

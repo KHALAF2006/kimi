@@ -195,6 +195,11 @@ assert.match(companyChart, /calculateMomentumSnapshot/);
 assert.match(companyChart, /calculateSmaSeries/);
 assert.match(companyChart, /showSma20/);
 assert.match(companyChart, /showSma50/);
+assert.match(companyChart, /subscribeDblClick/, "double-clicking the chart plot must open chart settings");
+assert.match(companyChart, /ChartSettingsSheet/, "chart settings must use the professional settings sheet");
+assert.match(companyChart, /buildDisplayCandles/, "the chart must switch one exclusive candle representation at a time");
+assert.match(companyChart, /indicator-hub-button/, "indicators must be grouped under one compact menu");
+assert.match(companyChart, /save_chart_preferences/, "chart preferences must persist through the protected backend");
 assert.match(companyChart, /axisLabelVisible:\s*false,\s*title:\s*""/, "investor-zone boundaries must not crowd the price axis with repeated labels");
 assert.match(companyChart, /rsiSettings\.lineColor/);
 assert.match(companyChart, /momentumSettings\.zones/);
@@ -241,6 +246,8 @@ assert.match(drawingTools, /DRAWING_CLIPBOARD_STORAGE_KEY/, "the drawing clipboa
 assert.match(drawingTools, /navigator\.clipboard/, "copy/paste must integrate with the secure browser clipboard when available");
 assert.match(drawingTools, /setAllChartDrawingsVisibility/, "hide/show all drawings must use the protected backend");
 assert.match(drawingTools, /deleteAllChartDrawings/, "clear all drawings must use the protected backend");
+assert.doesNotMatch(drawingTools, /window\.confirm/, "drawing deletion must never use the browser-native confirmation window");
+assert.match(drawingTools, /role="alertdialog"/, "drawing deletion must use the accessible in-app confirmation dialog");
 assert.match(drawingTools, /smoothPath/, "curve and brush strokes must use a smoothed path");
 assert.match(drawingTools, /simplifyFreehand/, "freehand input must be sampled before persistence");
 assert.match(drawingTools, /bezierCurveTo/, "curve and brush strokes must use a continuous cubic spline");
@@ -248,6 +255,11 @@ assert.match(drawingTools, /squareDistanceToSegment/, "freehand simplification m
 assert.match(drawingTools, /Show and reset drawing tools/, "the hidden drawing toolbar must expose an explicit restore control");
 assert.match(drawingTools, /function wheelZoom\(event\)/, "mouse-wheel zoom must remain available while the drawing layer is active");
 assert.match(drawingTools, /aria-orientation/, "the drawing toolbar must expose its orientation");
+
+const customerSelfService = await readFile(new URL("../base44/functions/customerSelfService/entry.ts", import.meta.url), "utf8");
+assert.match(customerSelfService, /authorizationContext\(base44, body\.session_id\)/, "chart preferences must require the verified customer session");
+assert.match(customerSelfService, /body\.action === "save_chart_preferences"/, "chart preferences must have a protected save action");
+assert.match(customerSelfService, /chart\.preferences\.update/, "chart preference changes must be audited");
 assert.match(drawingTools, /LayoutList/, "the drawing object tree must be available");
 assert.match(drawingTools, /fillOpacity/, "filled drawings must expose opacity controls");
 assert.match(drawingTools, /ALERT_TYPES/, "alert-capable drawing types must be explicit");

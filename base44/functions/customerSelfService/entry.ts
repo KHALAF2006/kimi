@@ -8,6 +8,40 @@ function text(value, field, min = 1, max = 80) {
 function maskPhone(phone) {
   return `${phone.slice(0, 4)}\u2022\u2022\u2022\u2022${phone.slice(-3)}`;
 }
+function chartColor(value, fallback) {
+  const color = String(value || "");
+  return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : fallback;
+}
+function chartSma(value, fallback) {
+  return {
+    enabled: value?.enabled !== false,
+    length: Math.max(1, Math.min(500, Math.round(Number(value?.length) || fallback.length))),
+    color: chartColor(value?.color, fallback.color),
+    lineWidth: Math.max(1, Math.min(5, Math.round(Number(value?.lineWidth) || fallback.lineWidth)))
+  };
+}
+function cleanChartPreferences(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const candleTypes = new Set(["candles", "hollow", "heikin_ashi"]);
+  const fast = { enabled: true, length: 20, color: "#2563eb", lineWidth: 2 };
+  const slow = { enabled: true, length: 50, color: "#f59e0b", lineWidth: 2 };
+  return {
+    candleType: candleTypes.has(source.candleType) ? source.candleType : "candles",
+    backgroundMode: source.backgroundMode === "custom" ? "custom" : "theme",
+    backgroundColor: chartColor(source.backgroundColor, "#ffffff"),
+    textColor: chartColor(source.textColor, "#475569"),
+    gridVisible: source.gridVisible !== false,
+    gridColor: chartColor(source.gridColor, "#edf1f6"),
+    upColor: chartColor(source.upColor, "#16a34a"),
+    downColor: chartColor(source.downColor, "#dc2626"),
+    wickVisible: source.wickVisible !== false,
+    borderVisible: source.borderVisible !== false,
+    sma: {
+      fast: chartSma(source.sma?.fast, fast),
+      slow: chartSma(source.sma?.slow, slow)
+    }
+  };
+}
 async function owned(base44, entity, id, profile) {
   const row = await base44.asServiceRole.entities[entity].get(String(id || ""));
   if (!row || row.customer_id !== profile.id) throw Object.assign(new Error(`${entity} not found`), { status: 404 });
@@ -22,6 +56,15 @@ Deno.serve(async (req) => {
       const sessions = await base44.asServiceRole.entities.ActiveDeviceSession.filter({ customer_id: profile.id });
       const consents = await base44.asServiceRole.entities.CustomerConsent.filter({ customer_id: profile.id });
       return Response.json({ profile, sessions, consents });
+    }
+    if (body.action === "get_chart_preferences") {
+      return Response.json({ preferences: profile.chart_preferences || null });
+    }
+    if (body.action === "save_chart_preferences") {
+      const preferences = cleanChartPreferences(body.preferences);
+      const updated = await base44.asServiceRole.entities.CustomerProfile.update(profile.id, { chart_preferences: preferences });
+      await audit(base44, user.id, "chart.preferences.update", "CustomerProfile", profile.id, "success", "", profile.chart_preferences || null, preferences);
+      return Response.json({ preferences: updated.chart_preferences || preferences });
     }
     if (body.action === "alerts") {
       const rules = await base44.asServiceRole.entities.AlertRule.filter({ customer_id: profile.id });
