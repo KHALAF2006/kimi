@@ -309,6 +309,7 @@ const previewAuthHandoff = await readFile(new URL("../src/lib/preview-auth-hando
 const appParams = await readFile(new URL("../src/lib/app-params.js", import.meta.url), "utf8");
 assert.match(sessionLink, /previewSafeHref/, "internal links must support authenticated Base44 preview tabs");
 assert.match(previewAuthHandoff, /preview--|preview-sandbox--/, "the session handoff must be limited to Base44 preview hosts");
+assert.match(previewAuthHandoff, /functions_version/, "new preview tabs must invoke the same Base44 backend version as the source preview");
 assert.match(previewAuthHandoff, /browserHistory\.replaceState/, "the preview handoff fragment must be removed before the page continues");
 assert.match(appParams, /persist:\s*false[\s\S]*useStored:\s*false/, "the one-shot clear_access_token flag must never be replayed from browser storage");
 const internalLinkFiles = [

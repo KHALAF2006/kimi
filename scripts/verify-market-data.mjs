@@ -74,8 +74,8 @@ const sourcePreviewStorage = memoryStorage([
   ["kmy_session_id", "test-session-id"],
   ["kmy_session_expires_at", "2026-08-30T00:00:00.000Z"],
 ]);
-const handedOffHref = previewSafeHref("/screener?timeframe=1wk", { hostname: previewHost, storage: sourcePreviewStorage });
-assert.match(handedOffHref, /^\/screener\?timeframe=1wk#kmy_preview_auth=/u, "preview links must carry a one-time tab handoff in the URL fragment");
+const handedOffHref = previewSafeHref("/screener?timeframe=1wk", { hostname: previewHost, search: "?functions_version=preview-functions-v3", storage: sourcePreviewStorage });
+assert.match(handedOffHref, /^\/screener\?timeframe=1wk&functions_version=preview-functions-v3#kmy_preview_auth=/u, "preview links must carry the exact backend preview version and a one-time tab handoff");
 assert.equal(previewSafeHref("/screener", { hostname: "neat-smart-ops-flow.base44.app", storage: sourcePreviewStorage }), "/screener", "production links must never carry preview credentials");
 const targetPreviewStorage = memoryStorage();
 let cleanedPreviewUrl = "";
@@ -83,7 +83,7 @@ const restored = consumePreviewAuthHandoff({
   location: {
     hostname: previewHost,
     pathname: "/screener",
-    search: "?timeframe=1wk",
+    search: "?timeframe=1wk&functions_version=preview-functions-v3",
     hash: new URL(`https://${previewHost}${handedOffHref}`).hash,
   },
   history: { replaceState: (_state, _title, url) => { cleanedPreviewUrl = url; } },
@@ -92,7 +92,7 @@ const restored = consumePreviewAuthHandoff({
 assert.equal(restored, true);
 assert.equal(targetPreviewStorage.getItem("base44_access_token"), "test-access-token");
 assert.equal(targetPreviewStorage.getItem("kmy_session_id"), "test-session-id");
-assert.equal(cleanedPreviewUrl, "/screener?timeframe=1wk", "the credential fragment must be removed immediately after restoration");
+assert.equal(cleanedPreviewUrl, "/screener?timeframe=1wk&functions_version=preview-functions-v3", "the credential fragment must be removed while preserving the exact backend preview version");
 let malformedCleanUrl = "";
 assert.doesNotThrow(() => {
   const malformedRestored = consumePreviewAuthHandoff({

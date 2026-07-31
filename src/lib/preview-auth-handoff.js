@@ -19,10 +19,10 @@ function decodePayload(value) {
 
 /**
  * @param {import("react-router-dom").LinkProps["to"]} to
- * @param {{hostname?: string, storage?: Storage | null}} [options]
+ * @param {{hostname?: string, search?: string, storage?: Storage | null}} [options]
  */
 export function previewSafeHref(to, options = {}) {
-  const { hostname, storage } = options;
+  const { hostname, search, storage } = options;
   if (typeof to !== "string" || !to.startsWith("/")) return to;
   const browserHostname = hostname ?? (typeof window === "undefined" ? "" : window.location.hostname);
   const browserStorage = storage ?? (typeof window === "undefined" ? null : window.localStorage);
@@ -36,6 +36,11 @@ export function previewSafeHref(to, options = {}) {
     session_expires_at: browserStorage.getItem("kmy_session_expires_at") || "",
   });
   const url = new URL(to, "https://preview.invalid");
+  const currentSearch = new URLSearchParams(search ?? (typeof window === "undefined" ? "" : window.location.search));
+  const functionsVersion = currentSearch.get("functions_version");
+  if (functionsVersion && !url.searchParams.has("functions_version")) {
+    url.searchParams.set("functions_version", functionsVersion);
+  }
   const hash = new URLSearchParams(url.hash.slice(1));
   hash.set(HANDOFF_HASH_KEY, payload);
   return `${url.pathname}${url.search}#${hash.toString()}`;
