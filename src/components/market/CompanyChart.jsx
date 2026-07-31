@@ -24,10 +24,22 @@ const rangeOptions = [
   { value: "5d", ar: "5 أيام", en: "5D", intervals: ["15m", "1h", "2h", "3h", "4h", "1d"] },
   { value: "1mo", ar: "شهر", en: "1M", intervals: ["15m", "1h", "2h", "3h", "4h", "1d"] },
   { value: "3mo", ar: "3 أشهر", en: "3M", intervals: ["1h", "2h", "3h", "4h", "1d", "1wk"] },
-  { value: "1y", ar: "سنة", en: "1Y", intervals: ["1h", "2h", "3h", "4h", "1d", "1wk", "1mo"] },
+  { value: "1y", ar: "سنة", en: "1Y", intervals: ["1d", "1wk", "1mo"] },
   { value: "5y", ar: "5 سنوات", en: "5Y", intervals: ["1d", "1wk", "1mo"] },
   { value: "max", ar: "تاريخي", en: "History", intervals: ["1d", "1wk", "1mo"] },
 ];
+
+function initialChartInterval() {
+  const stored = localStorage.getItem("kmy_chart_interval") || "1d";
+  return intervalOptions.some((item) => item.value === stored) ? stored : "1d";
+}
+
+function initialChartRange() {
+  const interval = initialChartInterval();
+  const stored = localStorage.getItem("kmy_chart_range") || "1y";
+  if (rangeOptions.some((item) => item.value === stored && item.intervals.includes(interval))) return stored;
+  return intervalOptions.find((item) => item.value === interval)?.defaultRange || "1y";
+}
 
 const rsiDefaults = {
   length: 14,
@@ -144,8 +156,8 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const momentumLinesRef = useRef([]);
   const overlayUpdateRef = useRef(() => {});
   const overlayFrameRef = useRef(0);
-  const [interval, setInterval] = useState(() => localStorage.getItem("kmy_chart_interval") || "1d");
-  const [range, setRange] = useState(() => localStorage.getItem("kmy_chart_range") || "1y");
+  const [interval, setInterval] = useState(initialChartInterval);
+  const [range, setRange] = useState(initialChartRange);
   const [candles, setCandles] = useState([]);
   const [indicatorCandles, setIndicatorCandles] = useState([]);
   const [historyMeta, setHistoryMeta] = useState(null);
@@ -232,7 +244,6 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const fallbackMomentum = useMemo(() => normalizeMomentum(rawMomentum, theme), [rawMomentum, theme]);
   const calculatedMomentum = useMemo(() => calculateMomentumSnapshot(indicatorCandles, momentumSettings.peakLookbackDays, Number.POSITIVE_INFINITY, theme), [indicatorCandles, momentumSettings.peakLookbackDays, theme]);
   const momentum = calculatedMomentum || fallbackMomentum;
-  const availableRanges = rangeOptions.filter((item) => item.intervals.includes(interval));
   const chartHeight = 470 + (showVolume ? 115 : 0) + (showRsi ? 165 : 0);
   const investorZoneLabel = isArabic
     ? { "15m": "مناطق المستثمر لفاصل 15 دقيقة", "1h": "مناطق المستثمر الساعية", "2h": "مناطق المستثمر لساعتين", "3h": "مناطق المستثمر لثلاث ساعات", "4h": "مناطق المستثمر لأربع ساعات", "1d": "مناطق المستثمر اليومية", "1wk": "مناطق المستثمر الأسبوعية", "1mo": "مناطق المستثمر الشهرية" }[interval]
@@ -670,6 +681,13 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     }
   }
 
+  function changeRange(nextRange) {
+    const option = rangeOptions.find((item) => item.value === nextRange);
+    if (!option) return;
+    if (!option.intervals.includes(interval)) setInterval("1d");
+    setRange(nextRange);
+  }
+
   function zoom(factor) {
     const scale = chartRef.current?.timeScale();
     const visible = scale?.getVisibleLogicalRange();
@@ -814,7 +832,10 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
 
     <div className="chart-toolbar-grid">
       <div className="chart-control-group"><span>{isArabic ? "الفاصل" : "Interval"}</span><div>{intervalOptions.map((item) => <button type="button" key={item.value} onClick={() => changeInterval(item.value)} className={"chart-chip " + (interval === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>)}</div></div>
-      <div className="chart-control-group"><span>{isArabic ? "النطاق" : "Range"}</span><div>{availableRanges.map((item) => <button type="button" key={item.value} onClick={() => setRange(item.value)} className={"chart-chip " + (range === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>)}</div></div>
+      <div className="chart-control-group"><span>{isArabic ? "النطاق" : "Range"}</span><div>{rangeOptions.map((item) => {
+        const switchesToDaily = !item.intervals.includes(interval);
+        return <button type="button" key={item.value} onClick={() => changeRange(item.value)} title={switchesToDaily ? (isArabic ? "يفتح هذا النطاق على الفاصل اليومي" : "Opens this range on the daily interval") : undefined} className={"chart-chip " + (range === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>;
+      })}</div></div>
     </div>
 
     <div className="indicator-toolbar indicator-toolbar-compact">

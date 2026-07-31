@@ -352,11 +352,15 @@ const adminMarketDataFunction = await readFile(new URL("../base44/functions/admi
 assert.match(adminMarketDataFunction, /marketSignalRefresh/, "manual signal refresh must invoke the protected projection backend");
 assert.match(adminMarketDataFunction, /historicalCandleBackfill/, "historical archive imports must run through the protected backend");
 const historicalBackfillFunction = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
-assert.match(historicalBackfillFunction, /SAHMK_API_KEY/, "trusted historical import must read its provider key from Base44 Secrets");
+assert.match(historicalBackfillFunction, /YAHOO_PUBLIC_HISTORICAL_DAILY/, "historical import must have a no-secret daily archive source");
+assert.match(historicalBackfillFunction, /includeAdjustedClose/, "historical import must request the complete daily chart payload");
+assert.match(historicalBackfillFunction, /if \(apiKey\)/, "a configured paid provider may override the no-secret archive source without changing storage");
 assert.match(historicalBackfillFunction, /history_already_complete/, "completed instrument archives must not be requested again");
-assert.match(historicalBackfillFunction, /canonical_version:\s*CANONICAL_VERSION/, "historical candles must be persisted as canonical yearly chunks");
+assert.match(historicalBackfillFunction, /canonical_version:\s*options\.provider\.canonicalVersion/, "historical candles must be persisted as canonical yearly chunks");
 const historicalCompanyChart = await readFile(new URL("../src/components/market/CompanyChart.jsx", import.meta.url), "utf8");
 assert.match(historicalCompanyChart, /value:\s*"max",\s*ar:\s*"تاريخي"/, "the chart must expose a stored full-history range");
+assert.match(historicalCompanyChart, /rangeOptions\.map/, "all chart ranges must remain visible instead of disappearing with the selected interval");
+assert.match(historicalCompanyChart, /if \(!option\.intervals\.includes\(interval\)\) setInterval\("1d"\)/, "long history ranges must switch incompatible intraday views to daily candles");
 assert.match(historicalCompanyChart, /history_complete/, "the chart must disclose an incomplete historical archive");
 assert.match(historicalCompanyChart, /chart-type-popover chart-type-inline-panel/, "the candle-type chooser must use an in-flow panel instead of covering the indicator controls");
 assert.match(historicalCompanyChart, /chart-menu-anchor, \.chart-type-inline-panel/, "the in-flow candle chooser must remain interactive when the outside-click handler is active");

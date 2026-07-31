@@ -35,6 +35,7 @@ const {
   mergeStoredCandleSeries,
   groupHistoricalBarsByYear,
   normalizeAdjustedHistoricalBars,
+  normalizeYahooHistoricalBars,
   normalizeLicensedSnapshot,
   normalizePublicDelayedCharts,
   normalizeProviderCandles,
@@ -588,6 +589,30 @@ assert.equal(normalizedHistory.duplicateCount, 1);
 assert.equal(normalizedHistory.rejectedCount, 1);
 assert.deepEqual([...groupHistoricalBarsByYear(normalizedHistory.bars).keys()], ["2024", "2025"], "stored historical chunks must be partitioned by year");
 assert.equal(normalizeAdjustedHistoricalBars({ interval: "1d", metadata: { partial: true }, data: [{ date: "2025-01-02", open: 1, high: 2, low: 1, close: 2, volume: 1 }] }, "2025-01-01", "2025-12-31").providerPartial, true);
+
+const yahooHistory = normalizeYahooHistoricalBars({
+  chart: {
+    error: null,
+    result: [{
+      meta: { dataGranularity: "1d", firstTradeDate: 1704092400, exchangeTimezoneName: "Asia/Riyadh" },
+      timestamp: [1704092400, 1704178800, 1704178800, 1704265200],
+      indicators: { quote: [{
+        open: [100, 101, 101, 105],
+        high: [103, 104, 104, 104],
+        low: [99, 100, 100, 106],
+        close: [102, 103, 103, 105],
+        volume: [1000, 1200, 1200, 900],
+      }] },
+    }],
+  },
+}, "2024-01-01", "2024-12-31");
+assert.equal(yahooHistory.bars.length, 2, "public daily history must reject invalid OHLC and coalesce duplicate sessions");
+assert.equal(yahooHistory.bars[0].time, "2024-01-01T07:00:00.000Z", "daily history must use the Riyadh session date");
+assert.equal(yahooHistory.bars[1].close, 103);
+assert.equal(yahooHistory.duplicateCount, 1);
+assert.equal(yahooHistory.rejectedCount, 1);
+assert.equal(yahooHistory.providerPartial, false, "a full period request beginning at first trade must be accepted as complete");
+assert.throws(() => normalizeYahooHistoricalBars({ chart: { error: { code: "Not Found", description: "No data" }, result: null } }, "2024-01-01", "2024-12-31"), /No data/);
 
 const longHistory = Array.from({ length: 650 }, (_, index) => ({
   time: new Date(Date.UTC(2020, 0, index + 1)).toISOString(),

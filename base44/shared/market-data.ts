@@ -15,6 +15,83 @@ export function historicalProviderDateTime(value) {
   return Number.isFinite(time.getTime()) ? time.toISOString() : null;
 }
 
+export function yahooHistoricalDateTime(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  const instant = new Date(seconds * 1000);
+  if (!Number.isFinite(instant.getTime())) return null;
+  const date = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Riyadh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(instant);
+  return historicalProviderDateTime(date);
+}
+
+export function normalizeYahooHistoricalBars(payload, requestedFrom, requestedTo) {
+  const chartError = payload?.chart?.error;
+  if (chartError) {
+    throw Object.assign(new Error(String(chartError.description || chartError.code || "Historical source returned an error")), {
+      code: String(chartError.code || "HISTORY_PROVIDER_FAILED"),
+    });
+  }
+  const result = payload?.chart?.result?.[0];
+  if (!result || String(result?.meta?.dataGranularity || "1d") !== "1d") {
+    throw Object.assign(new Error("Historical source returned a non-daily dataset"), { code: "HISTORY_INTERVAL_MISMATCH" });
+  }
+  const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
+  const quote = result?.indicators?.quote?.[0] || {};
+  const opens = Array.isArray(quote.open) ? quote.open : [];
+  const highs = Array.isArray(quote.high) ? quote.high : [];
+  const lows = Array.isArray(quote.low) ? quote.low : [];
+  const closes = Array.isArray(quote.close) ? quote.close : [];
+  const volumes = Array.isArray(quote.volume) ? quote.volume : [];
+  const byTime = new Map();
+  let duplicateCount = 0;
+  let rejectedCount = 0;
+  for (let index = 0; index < timestamps.length; index += 1) {
+    const time = yahooHistoricalDateTime(timestamps[index]);
+    const bar = {
+      time,
+      open: Number(opens[index]),
+      high: Number(highs[index]),
+      low: Number(lows[index]),
+      close: Number(closes[index]),
+      volume: Math.max(0, Number(volumes[index] || 0)),
+    };
+    const date = String(time || "").slice(0, 10);
+    if (!time
+      || ![bar.open, bar.high, bar.low, bar.close, bar.volume].every(Number.isFinite)
+      || bar.open <= 0 || bar.high <= 0 || bar.low <= 0 || bar.close <= 0
+      || bar.high < Math.max(bar.open, bar.close)
+      || bar.low > Math.min(bar.open, bar.close)
+      || date < requestedFrom || date > requestedTo) {
+      rejectedCount += 1;
+      continue;
+    }
+    if (byTime.has(time)) duplicateCount += 1;
+    byTime.set(time, bar);
+  }
+  const bars = [...byTime.values()].sort((left, right) => String(left.time).localeCompare(String(right.time)));
+  if (!bars.length) {
+    throw Object.assign(new Error("Historical source returned no valid daily candles"), { code: "HISTORY_EMPTY" });
+  }
+  const firstTradeTime = yahooHistoricalDateTime(result?.meta?.firstTradeDate);
+  const firstTradeDate = firstTradeTime ? new Date(firstTradeTime).getTime() : null;
+  const firstBarDate = new Date(bars[0].time).getTime();
+  const providerPartial = Number.isFinite(firstTradeDate)
+    && firstBarDate > firstTradeDate + 21 * 24 * 60 * 60 * 1000;
+  return {
+    bars,
+    providerPartial,
+    duplicateCount,
+    rejectedCount,
+    firstTradeTime,
+    exchangeTimezone: String(result?.meta?.exchangeTimezoneName || ""),
+  };
+}
+
 export function normalizeAdjustedHistoricalBars(payload, requestedFrom, requestedTo) {
   if (String(payload?.interval || "1d") !== "1d") {
     throw Object.assign(new Error("Historical provider returned a non-daily interval"), { code: "HISTORY_INTERVAL_MISMATCH" });
