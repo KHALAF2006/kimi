@@ -1,5 +1,26 @@
 import assert from "node:assert/strict";
-import {
+import { build } from "esbuild";
+import path from "node:path";
+
+async function importTypeScriptModule(relativePath) {
+  const entryPoint = path.resolve(relativePath);
+  const result = await build({
+    entryPoints: [entryPoint],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    target: "node20",
+    write: false,
+    logLevel: "silent",
+  });
+  const source = result.outputFiles[0].text;
+  return import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+}
+
+const marketDataModule = await importTypeScriptModule("./base44/shared/market-data.ts");
+const technicalSignalsModule = await importTypeScriptModule("./base44/shared/technical-signals.ts");
+
+const {
   SAUDI_DELAY_SECONDS,
   MARKET_AUTOMATION_SPECS,
   buildPublicCandleContexts,
@@ -16,13 +37,13 @@ import {
   normalizeProviderCandles,
   publicChartRequestWindow,
   slotDecision,
-} from "../base44/shared/market-data.ts";
-import {
+} = marketDataModule;
+const {
   aggregateTechnicalBars,
   calculateSmaSeries,
   calculateTechnicalSignals,
   detectBullishPinBar,
-} from "../base44/shared/technical-signals.ts";
+} = technicalSignalsModule;
 import {
   buildDisplayCandles,
   calculateHeikinAshiCandles,
