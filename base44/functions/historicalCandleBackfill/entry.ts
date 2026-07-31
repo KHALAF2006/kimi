@@ -311,7 +311,197 @@ var MARKET_AUTOMATION_SPECS = Object.freeze([
   { name: "saudi_close_price_1526_riyadh", cron: "26 12 * * 0-4", slotKind: "close_price", active: false },
   { name: "saudi_session_final_1536_riyadh", cron: "36 12 * * 0-4", slotKind: "session_final", active: false }
 ]);
+var RIYADH_TIMEZONE = "Asia/Riyadh";
+function candleBucket(value, interval) {
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return "";
+  if (interval === "15m") return `quarter:${Math.floor(time / (15 * 60 * 1e3))}`;
+  if (["1h", "2h", "3h", "4h"].includes(interval)) {
+    const hours = Number(interval.slice(0, -1));
+    const local = new Date(time + 3 * 60 * 60 * 1e3);
+    const dateKey2 = local.toISOString().slice(0, 10);
+    const minuteOfDay = local.getUTCHours() * 60 + local.getUTCMinutes();
+    const sessionMinute = minuteOfDay - 10 * 60;
+    if (sessionMinute < 0) return "";
+    return `${interval}:${dateKey2}:${Math.floor(sessionMinute / (hours * 60))}`;
+  }
+  const dateKey = riyadhClock(new Date(time)).date;
+  if (interval === "1d") return `day:${dateKey}`;
+  if (interval === "1mo") return `month:${dateKey.slice(0, 7)}`;
+  if (interval === "1wk") {
+    const start = /* @__PURE__ */ new Date(`${dateKey}T00:00:00.000Z`);
+    start.setUTCDate(start.getUTCDate() - start.getUTCDay());
+    return `week:${start.toISOString().slice(0, 10)}`;
+  }
+  return "";
+}
+function normalizedCandleBar(bar) {
+  const time = new Date(bar?.time).getTime();
+  const open = positiveNumber(bar?.open);
+  const high = positiveNumber(bar?.high);
+  const low = positiveNumber(bar?.low);
+  const close = positiveNumber(bar?.close);
+  const volume = nonNegativeNumber(bar?.volume);
+  if (!Number.isFinite(time) || [open, high, low, close].some((value) => value === null) || high < Math.max(open, close) || low > Math.min(open, close)) return null;
+  return {
+    time: new Date(time).toISOString(),
+    open,
+    high,
+    low,
+    close,
+    volume
+  };
+}
+function mergeStoredCandleSeries(series, requestedInterval) {
+  const intervalPriority = /* @__PURE__ */ new Map();
+  const storedIntervals = [];
+  const normalizedSeries = [];
+  for (const candidateSeries of Array.isArray(series) ? series : []) {
+    const sourceInterval = String(candidateSeries?.interval || "");
+    if (!sourceInterval || !Array.isArray(candidateSeries?.bars)) continue;
+    if (!intervalPriority.has(sourceInterval)) {
+      intervalPriority.set(sourceInterval, intervalPriority.size);
+      storedIntervals.push(sourceInterval);
+    }
+    normalizedSeries.push({
+      interval: sourceInterval,
+      bars: candidateSeries.bars,
+      rank: intervalPriority.get(sourceInterval)
+    });
+  }
+  function materialize(candidateSeries, bucketInterval) {
+    const grouped = /* @__PURE__ */ new Map();
+    const sourceBars = candidateSeries.interval === "15m" ? canonicalizeQuarterHourBars(candidateSeries.bars) : candidateSeries.bars;
+    for (const rawBar of sourceBars) {
+      const bar = normalizedCandleBar(rawBar);
+      if (!bar) continue;
+      const bucket = candleBucket(bar.time, bucketInterval);
+      if (!bucket) continue;
+      const current = grouped.get(bucket);
+      if (!current) {
+        grouped.set(bucket, {
+          ...bar,
+          source_end: bar.time,
+          source_interval: candidateSeries.interval,
+          source_rank: candidateSeries.rank
+        });
+        continue;
+      }
+      current.high = Math.max(current.high, bar.high);
+      current.low = Math.min(current.low, bar.low);
+      current.close = bar.close;
+      current.volume += bar.volume;
+      current.source_end = bar.time;
+    }
+    return [...grouped.values()];
+  }
+  function mergeByBucket(bars, bucketInterval) {
+    const merged = /* @__PURE__ */ new Map();
+    for (const bar of bars) {
+      const bucket = candleBucket(bar.time, bucketInterval);
+      if (!bucket) continue;
+      const current = merged.get(bucket);
+      const candidateEnd = new Date(bar.source_end).getTime();
+      const currentEnd = new Date(current?.source_end || 0).getTime();
+      if (!current || bar.source_rank < current.source_rank || bar.source_rank === current.source_rank && candidateEnd >= currentEnd) {
+        merged.set(bucket, bar);
+      }
+    }
+    return [...merged.values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  }
+  function aggregateMaterialized(bars, bucketInterval) {
+    const grouped = /* @__PURE__ */ new Map();
+    for (const bar of bars) {
+      const bucket = candleBucket(bar.time, bucketInterval);
+      if (!bucket) continue;
+      const current = grouped.get(bucket);
+      if (!current) {
+        grouped.set(bucket, { ...bar, source_rank: Number.MAX_SAFE_INTEGER });
+        continue;
+      }
+      current.high = Math.max(current.high, bar.high);
+      current.low = Math.min(current.low, bar.low);
+      current.close = bar.close;
+      current.volume += bar.volume;
+      current.source_end = bar.source_end;
+    }
+    return [...grouped.values()];
+  }
+  let ordered;
+  if (requestedInterval === "1wk" || requestedInterval === "1mo") {
+    const direct = normalizedSeries.filter((candidateSeries) => candidateSeries.interval === requestedInterval).flatMap((candidateSeries) => materialize(candidateSeries, requestedInterval));
+    const dailyInputs = normalizedSeries.filter((candidateSeries) => candidateSeries.interval !== requestedInterval).flatMap((candidateSeries) => materialize(candidateSeries, "1d"));
+    const mergedDaily = mergeByBucket(dailyInputs, "1d");
+    const derived = aggregateMaterialized(mergedDaily, requestedInterval);
+    ordered = mergeByBucket([...direct, ...derived], requestedInterval);
+  } else {
+    const materialized = normalizedSeries.flatMap((candidateSeries) => materialize(candidateSeries, requestedInterval));
+    ordered = mergeByBucket(materialized, requestedInterval);
+  }
+  const latestSourceTime = ordered.map((bar) => bar.source_end).sort((a, b) => new Date(a).getTime() - new Date(b).getTime()).at(-1) || null;
+  return {
+    bars: ordered.map(({ source_end: _sourceEnd, source_interval: _sourceInterval, source_rank: _sourceRank, ...bar }) => bar),
+    storedIntervals,
+    latestSourceTime
+  };
+}
+function finiteNumber(value) {
+  if (value === null || value === void 0 || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function positiveNumber(value) {
+  const parsed = finiteNumber(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
+}
+function nonNegativeNumber(value, fallback = 0) {
+  const parsed = finiteNumber(value);
+  return parsed !== null && parsed >= 0 ? parsed : fallback;
+}
+function riyadhClock(now = /* @__PURE__ */ new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: RIYADH_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    weekday: parts.weekday,
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+    second: Number(parts.second)
+  };
+}
 var QUARTER_HOUR_MILLISECONDS = 15 * 60 * 1e3;
+function canonicalizeQuarterHourBars(bars) {
+  const byBucket = /* @__PURE__ */ new Map();
+  for (const rawBar of Array.isArray(bars) ? bars : []) {
+    const bar = normalizedCandleBar(rawBar);
+    if (!bar) continue;
+    const rawTime = new Date(bar.time).getTime();
+    const bucketTime = Math.floor(rawTime / QUARTER_HOUR_MILLISECONDS) * QUARTER_HOUR_MILLISECONDS;
+    const exactGridTime = rawTime === bucketTime;
+    const current = byBucket.get(bucketTime);
+    if (current && (current.exactGridTime && !exactGridTime || current.exactGridTime === exactGridTime && current.rawTime > rawTime)) continue;
+    const bucketDate = new Date(bucketTime);
+    byBucket.set(bucketTime, {
+      bar: {
+        ...bar,
+        time: bucketDate.toISOString(),
+        session_date: rawBar?.session_date || riyadhClock(bucketDate).date
+      },
+      exactGridTime,
+      rawTime
+    });
+  }
+  return [...byBucket.values()].sort((a, b) => new Date(a.bar.time).getTime() - new Date(b.bar.time).getTime()).map(({ bar }) => bar);
+}
 
 // base44/functions/historicalCandleBackfill/source.ts
 var MARKET_CODE = "SA_MAIN";
@@ -322,6 +512,14 @@ var YAHOO_BASE_URL = "https://query1.finance.yahoo.com";
 var DEFAULT_FROM = "1985-01-01";
 var BATCH_SIZE = 10;
 var BATCH_CONCURRENCY = 3;
+async function requireBackfillOperator(base44, sessionId) {
+  if (sessionId) return await requirePermission(base44, sessionId, "data.ingestion.run");
+  const user = await requireUser(base44);
+  if (user.role !== "admin") {
+    throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
+  }
+  return { user };
+}
 var PROVIDER_CONCURRENCY = 2;
 var MAX_INSTRUMENTS_PER_RUN = 90;
 var REQUEST_TIMEOUT_MS = 2e4;
@@ -338,6 +536,39 @@ function dateOnly(value = /* @__PURE__ */ new Date()) {
     month: "2-digit",
     day: "2-digit"
   }).format(value);
+}
+async function archiveStatus(base44, requestedSymbols) {
+  const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((instrument) => instrument.market_code === MARKET_CODE && instrument.status !== "delisted");
+  const syncRows = rows(await base44.asServiceRole.entities.HistoricalCandleSync.filter({ market_code: MARKET_CODE, interval: "1d" }, "symbol", 500));
+  const preferredSymbols = Array.isArray(requestedSymbols) ? [...new Set(requestedSymbols.map(String).filter((symbol) => /^\d{4}$/.test(symbol)))].slice(0, 10) : ["1010", "1111", "1211", "1321", "2010", "2222", "4001", "4323"];
+  const samples = [];
+  for (const symbol of preferredSymbols) {
+    const instrument = instruments.find((item) => item.symbol === symbol);
+    if (!instrument) continue;
+    const chunks = rows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrument.id, interval: "1d" }, "start_time", 500)).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+    const daily = mergeStoredCandleSeries([{ interval: "1d", bars: chunks.flatMap((chunk) => chunk.bars) }], "1d").bars;
+    const weekly = mergeStoredCandleSeries([{ interval: "1d", bars: daily }], "1wk").bars;
+    const monthly = mergeStoredCandleSeries([{ interval: "1d", bars: daily }], "1mo").bars;
+    const sync = syncRows.find((item) => item.instrument_id === instrument.id) || null;
+    samples.push({
+      symbol,
+      status: sync?.status || "not_started",
+      coverage_verified: sync?.coverage_verified === true,
+      daily_bars: daily.length,
+      weekly_bars: weekly.length,
+      monthly_bars: monthly.length,
+      first_daily: daily[0]?.time || null,
+      last_daily: daily.at(-1)?.time || null
+    });
+  }
+  return {
+    instruments: instruments.length,
+    complete: syncRows.filter((item) => item.status === "complete").length,
+    partial: syncRows.filter((item) => item.status === "partial").length,
+    failed: syncRows.filter((item) => item.status === "failed").length,
+    stored_daily_bars: syncRows.reduce((sum, item) => sum + Number(item.bar_count || 0), 0),
+    samples
+  };
 }
 function validateDate(value, fallback) {
   const text = String(value || fallback);
@@ -616,7 +847,8 @@ Deno.serve(async (req) => {
         force: body.force === true
       }));
     }
-    if (!isServiceInvocation) await requirePermission(base44, body.session_id, "data.ingestion.run");
+    if (!isServiceInvocation) await requireBackfillOperator(base44, body.session_id);
+    if (body.mode === "status") return Response.json(await archiveStatus(base44, body.symbols));
     const source = await ensureSource(base44, provider);
     const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((instrument) => instrument.market_code === MARKET_CODE && instrument.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
     const existingSync = rows(await base44.asServiceRole.entities.HistoricalCandleSync.filter({

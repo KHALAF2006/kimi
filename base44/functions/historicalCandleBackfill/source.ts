@@ -1,6 +1,6 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { replyError, requirePermission } from "../../shared/security.ts";
-import { groupHistoricalBarsByYear, normalizeAdjustedHistoricalBars, normalizeYahooHistoricalBars } from "../../shared/market-data.ts";
+import { replyError, requirePermission, requireUser } from "../../shared/security.ts";
+import { groupHistoricalBarsByYear, mergeStoredCandleSeries, normalizeAdjustedHistoricalBars, normalizeYahooHistoricalBars } from "../../shared/market-data.ts";
 
 const MARKET_CODE = "SA_MAIN";
 const SAHMK_PROVIDER_CODE = "SAHMK_HISTORICAL_ADJUSTED_DAILY";
@@ -10,6 +10,15 @@ const YAHOO_BASE_URL = "https://query1.finance.yahoo.com";
 const DEFAULT_FROM = "1985-01-01";
 const BATCH_SIZE = 10;
 const BATCH_CONCURRENCY = 3;
+
+async function requireBackfillOperator(base44: any, sessionId?: string) {
+  if (sessionId) return await requirePermission(base44, sessionId, "data.ingestion.run");
+  const user = await requireUser(base44);
+  if (user.role !== "admin") {
+    throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
+  }
+  return { user };
+}
 const PROVIDER_CONCURRENCY = 2;
 const MAX_INSTRUMENTS_PER_RUN = 90;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -28,6 +37,44 @@ function dateOnly(value = new Date()) {
     month: "2-digit",
     day: "2-digit",
   }).format(value);
+}
+
+async function archiveStatus(base44: any, requestedSymbols: unknown) {
+  const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
+    .filter((instrument) => instrument.market_code === MARKET_CODE && instrument.status !== "delisted");
+  const syncRows = rows(await base44.asServiceRole.entities.HistoricalCandleSync.filter({ market_code: MARKET_CODE, interval: "1d" }, "symbol", 500));
+  const preferredSymbols = Array.isArray(requestedSymbols)
+    ? [...new Set(requestedSymbols.map(String).filter((symbol) => /^\d{4}$/.test(symbol)))].slice(0, 10)
+    : ["1010", "1111", "1211", "1321", "2010", "2222", "4001", "4323"];
+  const samples = [];
+  for (const symbol of preferredSymbols) {
+    const instrument = instruments.find((item) => item.symbol === symbol);
+    if (!instrument) continue;
+    const chunks = rows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrument.id, interval: "1d" }, "start_time", 500))
+      .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+    const daily = mergeStoredCandleSeries([{ interval: "1d", bars: chunks.flatMap((chunk) => chunk.bars) }], "1d").bars;
+    const weekly = mergeStoredCandleSeries([{ interval: "1d", bars: daily }], "1wk").bars;
+    const monthly = mergeStoredCandleSeries([{ interval: "1d", bars: daily }], "1mo").bars;
+    const sync = syncRows.find((item) => item.instrument_id === instrument.id) || null;
+    samples.push({
+      symbol,
+      status: sync?.status || "not_started",
+      coverage_verified: sync?.coverage_verified === true,
+      daily_bars: daily.length,
+      weekly_bars: weekly.length,
+      monthly_bars: monthly.length,
+      first_daily: daily[0]?.time || null,
+      last_daily: daily.at(-1)?.time || null,
+    });
+  }
+  return {
+    instruments: instruments.length,
+    complete: syncRows.filter((item) => item.status === "complete").length,
+    partial: syncRows.filter((item) => item.status === "partial").length,
+    failed: syncRows.filter((item) => item.status === "failed").length,
+    stored_daily_bars: syncRows.reduce((sum, item) => sum + Number(item.bar_count || 0), 0),
+    samples,
+  };
 }
 
 function validateDate(value: unknown, fallback: string) {
@@ -327,7 +374,8 @@ Deno.serve(async (req) => {
       }));
     }
 
-    if (!isServiceInvocation) await requirePermission(base44, body.session_id, "data.ingestion.run");
+    if (!isServiceInvocation) await requireBackfillOperator(base44, body.session_id);
+    if (body.mode === "status") return Response.json(await archiveStatus(base44, body.symbols));
     const source = await ensureSource(base44, provider);
     const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
       .filter((instrument) => instrument.market_code === MARKET_CODE && instrument.status !== "delisted")
