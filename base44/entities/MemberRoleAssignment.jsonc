@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "name": "MemberRoleAssignment",
+  "properties": {
+    "member_id": {
+      "type": "string"
+    },
+    "role_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "revoked"
+      ],
+      "default": "active"
+    },
+    "assigned_by_user_id": {
+      "type": "string"
+    },
+    "revoked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "member_id",
+    "role_id",
+    "status",
+    "assigned_by_user_id",
+    "reason",
+    "revision"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

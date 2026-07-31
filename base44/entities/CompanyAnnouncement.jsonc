@@ -1,0 +1,66 @@
+{
+  "type": "object",
+  "name": "CompanyAnnouncement",
+  "properties": {
+    "instrument_id": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string",
+      "pattern": "^[0-9]{4}$"
+    },
+    "announcement_id": {
+      "type": "string"
+    },
+    "title_ar": {
+      "type": "string"
+    },
+    "title_en": {
+      "type": "string"
+    },
+    "summary_ar": {
+      "type": "string"
+    },
+    "summary_en": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "source_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "checksum": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "instrument_id",
+    "symbol",
+    "announcement_id",
+    "title_ar",
+    "published_at",
+    "source_id",
+    "source_url",
+    "checksum",
+    "as_of"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

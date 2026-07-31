@@ -1,0 +1,76 @@
+{
+  "type": "object",
+  "name": "Market",
+  "properties": {
+    "market_code": {
+      "type": "string"
+    },
+    "country_code": {
+      "type": "string",
+      "enum": [
+        "SA",
+        "AE",
+        "KW",
+        "QA",
+        "BH",
+        "OM"
+      ]
+    },
+    "name_ar": {
+      "type": "string"
+    },
+    "name_en": {
+      "type": "string"
+    },
+    "currency": {
+      "type": "string"
+    },
+    "timezone": {
+      "type": "string"
+    },
+    "quote_mode": {
+      "type": "string",
+      "enum": [
+        "realtime",
+        "delayed",
+        "end_of_day",
+        "disabled"
+      ]
+    },
+    "delay_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "license_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "suspended",
+        "expired"
+      ]
+    },
+    "active": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "market_code",
+    "country_code",
+    "name_ar",
+    "name_en",
+    "currency",
+    "timezone",
+    "quote_mode",
+    "delay_seconds",
+    "license_status",
+    "active"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

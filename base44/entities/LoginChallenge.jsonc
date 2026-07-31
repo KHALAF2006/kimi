@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "name": "LoginChallenge",
+  "properties": {
+    "customer_id": {
+      "type": "string"
+    },
+    "purpose": {
+      "type": "string",
+      "enum": [
+        "registration",
+        "login",
+        "password_reset"
+      ]
+    },
+    "email_otp_hash": {
+      "type": "string"
+    },
+    "phone_otp_hash": {
+      "type": "string"
+    },
+    "attempts": {
+      "type": "integer",
+      "default": 0
+    },
+    "max_attempts": {
+      "type": "integer",
+      "default": 5
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "customer_id",
+    "purpose",
+    "attempts",
+    "max_attempts",
+    "expires_at"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

@@ -1,0 +1,145 @@
+{
+  "type": "object",
+  "name": "QuoteLatest",
+  "properties": {
+    "instrument_id": {
+      "type": "string"
+    },
+    "market_code": {
+      "type": "string"
+    },
+    "session_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "last_price": {
+      "type": "number"
+    },
+    "previous_close": {
+      "type": "number"
+    },
+    "change_value": {
+      "type": "number"
+    },
+    "change_percent": {
+      "type": "number"
+    },
+    "open": {
+      "type": "number"
+    },
+    "high": {
+      "type": "number"
+    },
+    "low": {
+      "type": "number"
+    },
+    "volume": {
+      "type": "number"
+    },
+    "trade_count": {
+      "type": "number"
+    },
+    "week52_high": {
+      "type": "number"
+    },
+    "week52_low": {
+      "type": "number"
+    },
+    "avg_volume": {
+      "type": "number"
+    },
+    "traded_value": {
+      "type": "number"
+    },
+    "market_cap": {
+      "type": "number"
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "source_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "provider_as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_trade_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "received_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "delay_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "license_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "suspended",
+        "expired"
+      ]
+    },
+    "quote_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "quality_status": {
+      "type": "string",
+      "enum": [
+        "verified",
+        "stale",
+        "quarantined"
+      ]
+    },
+    "snapshot_version": {
+      "type": "string"
+    },
+    "market_phase": {
+      "type": "string",
+      "enum": [
+        "opening_auction",
+        "continuous",
+        "closing_auction",
+        "trade_at_last",
+        "closed"
+      ]
+    },
+    "freshness_status": {
+      "type": "string",
+      "enum": [
+        "fresh",
+        "stale"
+      ]
+    },
+    "is_final": {
+      "type": "boolean"
+    },
+    "run_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "instrument_id",
+    "symbol",
+    "last_price",
+    "source_id",
+    "quote_time",
+    "quality_status"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

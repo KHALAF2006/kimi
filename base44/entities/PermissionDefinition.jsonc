@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "name": "PermissionDefinition",
+  "properties": {
+    "code": {
+      "type": "string"
+    },
+    "group_code": {
+      "type": "string"
+    },
+    "name_ar": {
+      "type": "string"
+    },
+    "name_en": {
+      "type": "string"
+    },
+    "sensitive": {
+      "type": "boolean",
+      "default": false
+    },
+    "owner_only": {
+      "type": "boolean",
+      "default": false
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "code",
+    "group_code",
+    "name_ar",
+    "name_en",
+    "sensitive",
+    "owner_only",
+    "active"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

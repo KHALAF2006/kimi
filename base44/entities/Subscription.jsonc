@@ -1,0 +1,74 @@
+{
+  "type": "object",
+  "name": "Subscription",
+  "properties": {
+    "customer_id": {
+      "type": "string"
+    },
+    "account_id": {
+      "type": "string"
+    },
+    "plan_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "active",
+        "suspended",
+        "expired",
+        "banned"
+      ]
+    },
+    "starts_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ends_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "suspended_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "banned_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "created_by_user_id": {
+      "type": "string"
+    },
+    "activation_method": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "payment",
+        "migration"
+      ],
+      "default": "manual"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "customer_id",
+    "plan_id",
+    "status",
+    "starts_at",
+    "ends_at",
+    "created_by_user_id"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "name": "LossClassification",
+  "properties": {
+    "instrument_id": {
+      "type": "string"
+    },
+    "level": {
+      "type": "string",
+      "enum": [
+        "none",
+        "yellow",
+        "orange",
+        "red"
+      ]
+    },
+    "label_ar": {
+      "type": "string"
+    },
+    "label_en": {
+      "type": "string"
+    },
+    "accumulated_losses_pct": {
+      "type": "number"
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "instrument_id",
+    "level",
+    "label_ar",
+    "label_en",
+    "source_id",
+    "as_of"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

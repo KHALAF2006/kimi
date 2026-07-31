@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "name": "Watchlist",
+  "properties": {
+    "customer_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "customer_id",
+    "name"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

@@ -1,0 +1,154 @@
+{
+  "type": "object",
+  "name": "CustomerProfile",
+  "properties": {
+    "customer_number": {
+      "type": "string"
+    },
+    "auth_user_id": {
+      "type": "string"
+    },
+    "personal_account_id": {
+      "type": "string"
+    },
+    "email_normalized": {
+      "type": "string",
+      "format": "email"
+    },
+    "phone_e164": {
+      "type": "string"
+    },
+    "full_name": {
+      "type": "string"
+    },
+    "country_code": {
+      "type": "string",
+      "enum": [
+        "SA",
+        "AE",
+        "KW",
+        "QA",
+        "BH",
+        "OM"
+      ]
+    },
+    "preferred_language": {
+      "type": "string",
+      "enum": [
+        "ar",
+        "en"
+      ],
+      "default": "ar"
+    },
+    "account_status": {
+      "type": "string",
+      "enum": [
+        "pending_verification",
+        "active",
+        "suspended",
+        "banned",
+        "closed"
+      ]
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "user",
+        "support",
+        "admin",
+        "owner"
+      ],
+      "default": "user"
+    },
+    "acquisition_source": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "email_verified_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "phone_verified_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_login_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_seen_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "chart_preferences": {
+      "type": "object",
+      "properties": {
+        "candleType": {
+          "type": "string",
+          "enum": [
+            "candles",
+            "hollow",
+            "heikin_ashi"
+          ]
+        },
+        "backgroundMode": {
+          "type": "string",
+          "enum": [
+            "theme",
+            "custom"
+          ]
+        },
+        "backgroundColor": {
+          "type": "string"
+        },
+        "textColor": {
+          "type": "string"
+        },
+        "gridVisible": {
+          "type": "boolean"
+        },
+        "gridColor": {
+          "type": "string"
+        },
+        "upColor": {
+          "type": "string"
+        },
+        "downColor": {
+          "type": "string"
+        },
+        "wickVisible": {
+          "type": "boolean"
+        },
+        "borderVisible": {
+          "type": "boolean"
+        },
+        "sma": {
+          "type": "object"
+        },
+        "reversal": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "required": [
+    "customer_number",
+    "auth_user_id",
+    "email_normalized",
+    "full_name",
+    "preferred_language",
+    "account_status",
+    "role"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

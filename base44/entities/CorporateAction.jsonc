@@ -1,0 +1,89 @@
+{
+  "type": "object",
+  "name": "CorporateAction",
+  "properties": {
+    "instrument_id": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "dividend",
+        "split",
+        "rights_issue",
+        "bonus",
+        "other"
+      ]
+    },
+    "announce_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "ex_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "record_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "pay_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "amount": {
+      "type": "number"
+    },
+    "currency": {
+      "type": "string"
+    },
+    "ratio": {
+      "type": "number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "announced",
+        "confirmed",
+        "completed",
+        "cancelled"
+      ]
+    },
+    "description_ar": {
+      "type": "string"
+    },
+    "description_en": {
+      "type": "string"
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "source_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "instrument_id",
+    "event_type",
+    "announce_date",
+    "ex_date",
+    "record_date",
+    "status",
+    "description_ar",
+    "description_en",
+    "source_id",
+    "source_url",
+    "as_of"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}
