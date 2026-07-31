@@ -306,6 +306,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       setChartSettingsOpen(false);
     } catch {
       // The local copy is intentionally retained; the next explicit save retries the protected backend.
+      setChartSettingsOpen(false);
     } finally {
       setSavingChartSettings(false);
     }
