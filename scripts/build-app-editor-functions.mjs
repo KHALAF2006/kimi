@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const sourceRoot = join(root, "base44", "functions");
 const checkOnly = process.argv.includes("--check");
 
-const generatedFunctions = ["marketSignalRefresh"];
+const generatedFunctions = ["historicalCandleBackfill", "marketSignalRefresh"];
 
 for (const functionName of generatedFunctions) {
   const sourcePoint = join(sourceRoot, functionName, "source.ts");

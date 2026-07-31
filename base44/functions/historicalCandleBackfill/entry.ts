@@ -1,53 +1,360 @@
+// GENERATED from historicalCandleBackfill/source.ts. Do not edit directly.
+
+// base44/functions/historicalCandleBackfill/source.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { replyError, requirePermission } from "../../shared/security.ts";
-import { groupHistoricalBarsByYear, normalizeAdjustedHistoricalBars, normalizeYahooHistoricalBars } from "../../shared/market-data.ts";
 
-const MARKET_CODE = "SA_MAIN";
-const SAHMK_PROVIDER_CODE = "SAHMK_HISTORICAL_ADJUSTED_DAILY";
-const YAHOO_PROVIDER_CODE = "YAHOO_PUBLIC_HISTORICAL_DAILY";
-const SAHMK_BASE_URL = "https://app.sahmk.sa/api/v1";
-const YAHOO_BASE_URL = "https://query1.finance.yahoo.com";
-const DEFAULT_FROM = "1985-01-01";
-const BATCH_SIZE = 10;
-const BATCH_CONCURRENCY = 3;
-const PROVIDER_CONCURRENCY = 2;
-const MAX_INSTRUMENTS_PER_RUN = 90;
-const REQUEST_TIMEOUT_MS = 20_000;
+// base44/shared/permissions.ts
+var PERMISSION_CATALOG = [
+  { code: "dashboard.owner.read", group_code: "dashboard", name_ar: "\u0639\u0631\u0636 \u0644\u0648\u062D\u0629 \u0627\u0644\u0645\u0627\u0644\u0643", name_en: "View owner dashboard", sensitive: true, owner_only: false },
+  { code: "customers.masked.read", group_code: "customers", name_ar: "\u0639\u0631\u0636 \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0627\u0644\u0645\u0642\u0646\u0651\u0639\u0629", name_en: "View masked customer data", sensitive: false, owner_only: false },
+  { code: "customers.full.read", group_code: "customers", name_ar: "\u0639\u0631\u0636 \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0627\u0644\u0643\u0627\u0645\u0644\u0629", name_en: "View full customer data", sensitive: true, owner_only: false },
+  { code: "customers.status.manage", group_code: "customers", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u062D\u0627\u0644\u0629 \u0627\u0644\u0639\u0645\u064A\u0644", name_en: "Manage customer status", sensitive: true, owner_only: false },
+  { code: "customers.sessions.revoke", group_code: "customers", name_ar: "\u0625\u0644\u063A\u0627\u0621 \u062C\u0644\u0633\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621", name_en: "Revoke customer sessions", sensitive: true, owner_only: false },
+  { code: "subscriptions.read", group_code: "subscriptions", name_ar: "\u0639\u0631\u0636 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643\u0627\u062A", name_en: "View subscriptions", sensitive: false, owner_only: false },
+  { code: "subscriptions.manage", group_code: "subscriptions", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643\u0627\u062A", name_en: "Manage subscriptions", sensitive: true, owner_only: false },
+  { code: "plans.manage", group_code: "subscriptions", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062E\u0637\u0637 \u0648\u0627\u0644\u062D\u062F\u0648\u062F", name_en: "Manage plans and entitlements", sensitive: true, owner_only: true },
+  { code: "data.operations.read", group_code: "data", name_ar: "\u0639\u0631\u0636 \u062A\u0634\u063A\u064A\u0644 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A", name_en: "View data operations", sensitive: false, owner_only: false },
+  { code: "data.ingestion.run", group_code: "data", name_ar: "\u062A\u0634\u063A\u064A\u0644 \u062C\u0644\u0628 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A", name_en: "Run data ingestion", sensitive: true, owner_only: false },
+  { code: "data.quality.manage", group_code: "data", name_ar: "\u0645\u0639\u0627\u0644\u062C\u0629 \u062C\u0648\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A", name_en: "Manage data quality", sensitive: true, owner_only: false },
+  { code: "alerts.operations.read", group_code: "alerts", name_ar: "\u0639\u0631\u0636 \u062A\u0634\u063A\u064A\u0644 \u0627\u0644\u062A\u0646\u0628\u064A\u0647\u0627\u062A", name_en: "View alert operations", sensitive: false, owner_only: false },
+  { code: "alerts.operations.manage", group_code: "alerts", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u062A\u0634\u063A\u064A\u0644 \u0627\u0644\u062A\u0646\u0628\u064A\u0647\u0627\u062A", name_en: "Manage alert operations", sensitive: true, owner_only: false },
+  { code: "audit.read", group_code: "audit", name_ar: "\u0639\u0631\u0636 \u0633\u062C\u0644 \u0627\u0644\u062A\u062F\u0642\u064A\u0642", name_en: "View audit log", sensitive: true, owner_only: false },
+  { code: "audit.export", group_code: "audit", name_ar: "\u062A\u0635\u062F\u064A\u0631 \u0633\u062C\u0644 \u0627\u0644\u062A\u062F\u0642\u064A\u0642", name_en: "Export audit log", sensitive: true, owner_only: true },
+  { code: "roles.manage", group_code: "administration", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0623\u062F\u0648\u0627\u0631 \u0648\u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0627\u062A", name_en: "Manage roles and permissions", sensitive: true, owner_only: true },
+  { code: "settings.manage", group_code: "administration", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0625\u0639\u062F\u0627\u062F\u0627\u062A \u0627\u0644\u0646\u0638\u0627\u0645", name_en: "Manage system settings", sensitive: true, owner_only: true }
+].map((permission) => ({ ...permission, active: true }));
+var PERMISSION_CODES = new Set(PERMISSION_CATALOG.map((permission) => permission.code));
+var LEGACY_ROLE_PERMISSIONS = {
+  support: ["dashboard.owner.read", "customers.masked.read"],
+  admin: [
+    "dashboard.owner.read",
+    "customers.masked.read",
+    "customers.full.read",
+    "customers.status.manage",
+    "customers.sessions.revoke",
+    "subscriptions.read",
+    "subscriptions.manage",
+    "data.operations.read",
+    "data.ingestion.run",
+    "data.quality.manage",
+    "alerts.operations.read",
+    "alerts.operations.manage",
+    "audit.read"
+  ]
+};
 
-function rows(value: unknown): Array<Record<string, any>> {
-  if (Array.isArray(value)) return value;
-  if (Array.isArray((value as any)?.data)) return (value as any).data;
-  if (Array.isArray((value as any)?.items)) return (value as any).items;
-  return [];
+// base44/shared/security.ts
+async function requireUser(base44) {
+  const user = await base44.auth.me();
+  if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
+  return user;
+}
+async function profileFor(base44, user) {
+  const rows2 = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
+  return rows2[0] || null;
+}
+function hasTrustedOwnerMarker(user, profile) {
+  return user?.role === "admin" && profile?.acquisition_source === "platform_owner_bootstrap" && Array.isArray(profile?.tags) && profile.tags.includes("owner");
+}
+function resolvedRole(user, profile) {
+  return hasTrustedOwnerMarker(user, profile) ? "owner" : profile?.role || user?.role;
+}
+async function requireActiveSession(base44, profile, sessionId) {
+  if (!profile || !sessionId) throw Object.assign(new Error("Active device session required"), { status: 403 });
+  let session = null;
+  try {
+    session = await base44.asServiceRole.entities.ActiveDeviceSession.get(sessionId);
+  } catch {
+    session = null;
+  }
+  if (!session || session.customer_id !== profile.id || session.revoked_at || new Date(session.expires_at) <= /* @__PURE__ */ new Date()) throw Object.assign(new Error("Active device session required"), { status: 403 });
+  return session;
+}
+function replyError(error) {
+  const status = Number(error?.status) || 500;
+  if (status >= 500) console.error("KMY backend error", error);
+  return Response.json({
+    error: status >= 500 ? "Backend operation failed" : error?.message || "Request failed",
+    code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
+  }, { status });
+}
+async function audit(base44, userId, action, entityType, entityId, result, reason = "", before = {}, after = {}) {
+  return await base44.asServiceRole.entities.AuditLog.create({
+    actor_user_id: userId,
+    action,
+    entity_type: entityType,
+    entity_id: entityId || "system",
+    reason,
+    before: before && typeof before === "object" ? before : {},
+    after: after && typeof after === "object" ? after : {},
+    result,
+    ip_hash: "server-managed"
+  });
+}
+async function ensurePersonalAccount(base44, profile, userId) {
+  if (!profile || profile.account_status !== "active") throw Object.assign(new Error("Active account required"), { status: 403, code: "ACCOUNT_INACTIVE" });
+  let account = null;
+  if (profile.personal_account_id) account = await base44.asServiceRole.entities.Account.get(profile.personal_account_id);
+  if (!account) {
+    const matches = await base44.asServiceRole.entities.Account.filter({ owner_customer_id: profile.id, account_type: "personal" });
+    account = matches[0] || null;
+  }
+  if (!account) {
+    account = await base44.asServiceRole.entities.Account.create({
+      account_number: `KMY-A-${String(profile.customer_number || profile.id).replace(/[^A-Za-z0-9-]/g, "").slice(-24)}`,
+      account_type: "personal",
+      name: profile.full_name,
+      owner_customer_id: profile.id,
+      status: "active",
+      revision: 1
+    });
+    await base44.asServiceRole.entities.CustomerProfile.update(profile.id, { personal_account_id: account.id });
+    await audit(base44, userId, "account.personal_created", "Account", account.id, "success", "automatic personal account");
+  }
+  if (account.status !== "active") throw Object.assign(new Error("Active account required"), { status: 403, code: "ACCOUNT_INACTIVE" });
+  const memberships = await base44.asServiceRole.entities.AccountMember.filter({ account_id: account.id, customer_id: profile.id });
+  let membership = memberships.find((item) => item.status === "active") || null;
+  if (!membership) {
+    membership = await base44.asServiceRole.entities.AccountMember.create({
+      account_id: account.id,
+      customer_id: profile.id,
+      member_type: account.owner_customer_id === profile.id ? "owner" : "member",
+      status: "active",
+      revision: 1
+    });
+  }
+  return { account, membership };
+}
+async function assignedPermissions(base44, membership) {
+  const assignments = await base44.asServiceRole.entities.MemberRoleAssignment.filter({ member_id: membership.id, status: "active" });
+  const codes = /* @__PURE__ */ new Set();
+  const roles = [];
+  for (const assignment of assignments) {
+    const role = await base44.asServiceRole.entities.RoleDefinition.get(assignment.role_id);
+    if (!role?.active) continue;
+    roles.push({ id: role.id, code: role.code, name_ar: role.name_ar, name_en: role.name_en });
+    const grants = await base44.asServiceRole.entities.RolePermission.filter({ role_id: role.id });
+    grants.forEach((grant) => codes.add(grant.permission_code));
+  }
+  return { codes, roles };
+}
+async function subscriptionContext(base44, profile, account) {
+  const accountSubscriptions = await base44.asServiceRole.entities.Subscription.filter({ account_id: account.id, status: "active" });
+  const customerSubscriptions = accountSubscriptions.length ? [] : await base44.asServiceRole.entities.Subscription.filter({ customer_id: profile.id, status: "active" });
+  const now = Date.now();
+  const subscription = [...accountSubscriptions, ...customerSubscriptions].find((item) => !item.ends_at || new Date(item.ends_at).getTime() > now) || null;
+  if (!subscription) return { subscription: null, plan: null, entitlements: [] };
+  const plan = await base44.asServiceRole.entities.SubscriptionPlan.get(subscription.plan_id);
+  const entitlements = await base44.asServiceRole.entities.PlanEntitlement.filter({ plan_id: subscription.plan_id, enabled: true });
+  return { subscription, plan, entitlements };
+}
+async function authorizationContext(base44, sessionId) {
+  const user = await requireUser(base44);
+  const profile = await profileFor(base44, user);
+  if (!profile) throw Object.assign(new Error("Profile not found"), { status: 404, code: "PROFILE_NOT_FOUND" });
+  await requireActiveSession(base44, profile, sessionId);
+  const role = resolvedRole(user, profile);
+  const { account, membership } = await ensurePersonalAccount(base44, profile, user.id);
+  const assigned = await assignedPermissions(base44, membership);
+  const permissions = role === "owner" ? new Set(PERMISSION_CATALOG.map((permission) => permission.code)) : /* @__PURE__ */ new Set([...LEGACY_ROLE_PERMISSIONS[role] || [], ...assigned.codes]);
+  const subscription = await subscriptionContext(base44, profile, account);
+  return {
+    user,
+    profile,
+    role,
+    account,
+    membership,
+    roles: assigned.roles,
+    permissions,
+    ...subscription
+  };
+}
+async function requirePermission(base44, sessionId, permissionCode) {
+  const context = await authorizationContext(base44, sessionId);
+  if (!context.permissions.has(permissionCode)) {
+    throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
+  }
+  return context;
 }
 
-function dateOnly(value = new Date()) {
+// base44/shared/market-data.ts
+var SAUDI_DELAY_SECONDS = 15 * 60;
+var PROVIDER_FRESHNESS_GRACE_SECONDS = 5 * 60;
+var EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
+var PUBLIC_CANDLE_OVERLAP_MILLISECONDS = 15 * 60 * 1e3;
+var PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS = 8 * 24 * 60 * 60 * 1e3;
+function historicalProviderDateTime(value) {
+  const date = String(value || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const time = /* @__PURE__ */ new Date(`${date}T07:00:00.000Z`);
+  return Number.isFinite(time.getTime()) ? time.toISOString() : null;
+}
+function yahooHistoricalDateTime(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  const instant = new Date(seconds * 1e3);
+  if (!Number.isFinite(instant.getTime())) return null;
+  const date = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Riyadh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(instant);
+  return historicalProviderDateTime(date);
+}
+function normalizeYahooHistoricalBars(payload, requestedFrom, requestedTo) {
+  const chartError = payload?.chart?.error;
+  if (chartError) {
+    throw Object.assign(new Error(String(chartError.description || chartError.code || "Historical source returned an error")), {
+      code: String(chartError.code || "HISTORY_PROVIDER_FAILED")
+    });
+  }
+  const result = payload?.chart?.result?.[0];
+  if (!result || String(result?.meta?.dataGranularity || "1d") !== "1d") {
+    throw Object.assign(new Error("Historical source returned a non-daily dataset"), { code: "HISTORY_INTERVAL_MISMATCH" });
+  }
+  const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
+  const quote = result?.indicators?.quote?.[0] || {};
+  const opens = Array.isArray(quote.open) ? quote.open : [];
+  const highs = Array.isArray(quote.high) ? quote.high : [];
+  const lows = Array.isArray(quote.low) ? quote.low : [];
+  const closes = Array.isArray(quote.close) ? quote.close : [];
+  const volumes = Array.isArray(quote.volume) ? quote.volume : [];
+  const byTime = /* @__PURE__ */ new Map();
+  let duplicateCount = 0;
+  let rejectedCount = 0;
+  for (let index = 0; index < timestamps.length; index += 1) {
+    const time = yahooHistoricalDateTime(timestamps[index]);
+    const bar = {
+      time,
+      open: Number(opens[index]),
+      high: Number(highs[index]),
+      low: Number(lows[index]),
+      close: Number(closes[index]),
+      volume: Math.max(0, Number(volumes[index] || 0))
+    };
+    const date = String(time || "").slice(0, 10);
+    if (!time || ![bar.open, bar.high, bar.low, bar.close, bar.volume].every(Number.isFinite) || bar.open <= 0 || bar.high <= 0 || bar.low <= 0 || bar.close <= 0 || bar.high < Math.max(bar.open, bar.close) || bar.low > Math.min(bar.open, bar.close) || date < requestedFrom || date > requestedTo) {
+      rejectedCount += 1;
+      continue;
+    }
+    if (byTime.has(time)) duplicateCount += 1;
+    byTime.set(time, bar);
+  }
+  const bars = [...byTime.values()].sort((left, right) => String(left.time).localeCompare(String(right.time)));
+  if (!bars.length) {
+    throw Object.assign(new Error("Historical source returned no valid daily candles"), { code: "HISTORY_EMPTY" });
+  }
+  const firstTradeTime = yahooHistoricalDateTime(result?.meta?.firstTradeDate);
+  const firstTradeDate = firstTradeTime ? new Date(firstTradeTime).getTime() : null;
+  const firstBarDate = new Date(bars[0].time).getTime();
+  const providerPartial = Number.isFinite(firstTradeDate) && firstBarDate > firstTradeDate + 21 * 24 * 60 * 60 * 1e3;
+  return {
+    bars,
+    providerPartial,
+    duplicateCount,
+    rejectedCount,
+    firstTradeTime,
+    exchangeTimezone: String(result?.meta?.exchangeTimezoneName || "")
+  };
+}
+function normalizeAdjustedHistoricalBars(payload, requestedFrom, requestedTo) {
+  if (String(payload?.interval || "1d") !== "1d") {
+    throw Object.assign(new Error("Historical provider returned a non-daily interval"), { code: "HISTORY_INTERVAL_MISMATCH" });
+  }
+  const values = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.data?.data) ? payload.data.data : [];
+  const byTime = /* @__PURE__ */ new Map();
+  let duplicateCount = 0;
+  let rejectedCount = 0;
+  for (const row of values) {
+    const time = historicalProviderDateTime(row.date || row.time || row.timestamp);
+    const rawClose = Number(row.close);
+    const adjustedClose = Number(row.adjusted_close ?? row.adjustedClose ?? row.close);
+    const scale = Number.isFinite(rawClose) && rawClose > 0 && Number.isFinite(adjustedClose) && adjustedClose > 0 ? adjustedClose / rawClose : 1;
+    const bar = {
+      time,
+      open: Number(row.open) * scale,
+      high: Number(row.high) * scale,
+      low: Number(row.low) * scale,
+      close: adjustedClose,
+      volume: Math.max(0, Number(row.volume || 0))
+    };
+    const date = String(time || "").slice(0, 10);
+    if (!time || ![bar.open, bar.high, bar.low, bar.close, bar.volume].every(Number.isFinite) || bar.open <= 0 || bar.high <= 0 || bar.low <= 0 || bar.close <= 0 || bar.high < Math.max(bar.open, bar.close) || bar.low > Math.min(bar.open, bar.close) || date < requestedFrom || date > requestedTo) {
+      rejectedCount += 1;
+      continue;
+    }
+    if (byTime.has(time)) duplicateCount += 1;
+    byTime.set(time, bar);
+  }
+  const bars = [...byTime.values()].sort((left, right) => String(left.time).localeCompare(String(right.time)));
+  if (!bars.length) {
+    throw Object.assign(new Error("Historical provider returned no valid daily candles"), { code: "HISTORY_EMPTY" });
+  }
+  const providerPartial = payload?.metadata?.partial === true || payload?.partial === true;
+  return { bars, providerPartial, duplicateCount, rejectedCount };
+}
+function groupHistoricalBarsByYear(bars) {
+  const grouped = /* @__PURE__ */ new Map();
+  for (const bar of Array.isArray(bars) ? bars : []) {
+    const year = String(bar.time || "").slice(0, 4);
+    if (!/^\d{4}$/.test(year)) continue;
+    if (!grouped.has(year)) grouped.set(year, []);
+    grouped.get(year).push(bar);
+  }
+  return grouped;
+}
+var MARKET_AUTOMATION_SPECS = Object.freeze([
+  { name: "saudi_t15_1015_1045_riyadh", cron: "15,30,45 7 * * 0-4", slotKind: "quarter_hour", active: false },
+  { name: "saudi_t15_1100_1445_riyadh", cron: "0,15,30,45 8-11 * * 0-4", slotKind: "quarter_hour", active: false },
+  { name: "saudi_t15_1500_1515_riyadh", cron: "0,15 12 * * 0-4", slotKind: "quarter_hour", active: false },
+  { name: "saudi_close_price_1526_riyadh", cron: "26 12 * * 0-4", slotKind: "close_price", active: false },
+  { name: "saudi_session_final_1536_riyadh", cron: "36 12 * * 0-4", slotKind: "session_final", active: false }
+]);
+var QUARTER_HOUR_MILLISECONDS = 15 * 60 * 1e3;
+
+// base44/functions/historicalCandleBackfill/source.ts
+var MARKET_CODE = "SA_MAIN";
+var SAHMK_PROVIDER_CODE = "SAHMK_HISTORICAL_ADJUSTED_DAILY";
+var YAHOO_PROVIDER_CODE = "YAHOO_PUBLIC_HISTORICAL_DAILY";
+var SAHMK_BASE_URL = "https://app.sahmk.sa/api/v1";
+var YAHOO_BASE_URL = "https://query1.finance.yahoo.com";
+var DEFAULT_FROM = "1985-01-01";
+var BATCH_SIZE = 10;
+var BATCH_CONCURRENCY = 3;
+var PROVIDER_CONCURRENCY = 2;
+var MAX_INSTRUMENTS_PER_RUN = 90;
+var REQUEST_TIMEOUT_MS = 2e4;
+function rows(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.items)) return value.items;
+  return [];
+}
+function dateOnly(value = /* @__PURE__ */ new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Riyadh",
     year: "numeric",
     month: "2-digit",
-    day: "2-digit",
+    day: "2-digit"
   }).format(value);
 }
-
-function validateDate(value: unknown, fallback: string) {
+function validateDate(value, fallback) {
   const text = String(value || fallback);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || !Number.isFinite(Date.parse(`${text}T00:00:00.000Z`))) {
     throw Object.assign(new Error("Historical date must use YYYY-MM-DD"), { status: 400, code: "INVALID_HISTORY_DATE" });
   }
   return text;
 }
-
-async function digest(value: unknown) {
+async function digest(value) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
   return [...new Uint8Array(bytes)].map((item) => item.toString(16).padStart(2, "0")).join("");
 }
-
-async function upsertUnique(base44: any, entityName: string, values: Array<Record<string, any>>, existing: Array<Record<string, any>>, keyFor: (row: Record<string, any>) => string) {
+async function upsertUnique(base44, entityName, values, existing, keyFor) {
   const unique = new Map(values.map((value) => [keyFor(value), value]));
   const existingByKey = new Map(existing.map((value) => [keyFor(value), value]));
-  const creates: Array<Record<string, any>> = [];
-  const updates: Array<Record<string, any>> = [];
+  const creates = [];
+  const updates = [];
   for (const [key, value] of unique) {
     const current = existingByKey.get(key);
     if (current) updates.push({ id: current.id, ...value });
@@ -57,20 +364,19 @@ async function upsertUnique(base44: any, entityName: string, values: Array<Recor
   if (updates.length) await base44.asServiceRole.entities[entityName].bulkUpdate(updates);
   return { created: creates.length, updated: updates.length };
 }
-
-async function fetchSahmkHistorical(symbol: string, from: string, to: string, apiKey: string, baseUrl: string) {
+async function fetchSahmkHistorical(symbol, from, to, apiKey, baseUrl) {
   const url = new URL(`${baseUrl.replace(/\/$/, "")}/historical/${encodeURIComponent(symbol)}/`);
   url.searchParams.set("from", from);
   url.searchParams.set("to", to);
   url.searchParams.set("interval", "1d");
-  let lastError: any = null;
+  let lastError = null;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const response = await fetch(url, {
         headers: { Accept: "application/json", "X-API-Key": apiKey },
-        signal: controller.signal,
+        signal: controller.signal
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -87,10 +393,9 @@ async function fetchSahmkHistorical(symbol: string, from: string, to: string, ap
   }
   throw lastError || Object.assign(new Error("Historical provider request failed"), { code: "HISTORY_PROVIDER_FAILED" });
 }
-
-async function fetchYahooHistorical(symbol: string, from: string, to: string, baseUrl: string) {
-  const start = Math.floor(new Date(`${from}T00:00:00.000Z`).getTime() / 1000);
-  const end = Math.floor((new Date(`${to}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000) / 1000);
+async function fetchYahooHistorical(symbol, from, to, baseUrl) {
+  const start = Math.floor((/* @__PURE__ */ new Date(`${from}T00:00:00.000Z`)).getTime() / 1e3);
+  const end = Math.floor(((/* @__PURE__ */ new Date(`${to}T00:00:00.000Z`)).getTime() + 24 * 60 * 60 * 1e3) / 1e3);
   const url = new URL(`${baseUrl.replace(/\/$/, "")}/v8/finance/chart/${encodeURIComponent(`${symbol}.SR`)}`);
   url.searchParams.set("period1", String(start));
   url.searchParams.set("period2", String(end));
@@ -98,14 +403,14 @@ async function fetchYahooHistorical(symbol: string, from: string, to: string, ba
   url.searchParams.set("includePrePost", "false");
   url.searchParams.set("events", "div,splits");
   url.searchParams.set("includeAdjustedClose", "true");
-  let lastError: any = null;
+  let lastError = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const response = await fetch(url, {
         headers: { Accept: "application/json", "User-Agent": "KMY-Historical-Archive/1.0" },
-        signal: controller.signal,
+        signal: controller.signal
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -122,7 +427,6 @@ async function fetchYahooHistorical(symbol: string, from: string, to: string, ba
   }
   throw lastError || Object.assign(new Error("Historical source request failed"), { code: "HISTORY_PROVIDER_FAILED" });
 }
-
 function historyProvider() {
   const apiKey = String(Deno.env.get("SAHMK_API_KEY") || "").trim();
   if (apiKey) {
@@ -135,8 +439,8 @@ function historyProvider() {
       licenseStatus: "approved",
       adjustmentMode: "provider_adjusted",
       canonicalVersion: "trusted-adjusted-daily-v1",
-      fetch: (symbol: string, from: string, to: string) => fetchSahmkHistorical(symbol, from, to, apiKey, baseUrl),
-      normalize: normalizeAdjustedHistoricalBars,
+      fetch: (symbol, from, to) => fetchSahmkHistorical(symbol, from, to, apiKey, baseUrl),
+      normalize: normalizeAdjustedHistoricalBars
     };
   }
   return {
@@ -147,12 +451,11 @@ function historyProvider() {
     licenseStatus: "approved",
     adjustmentMode: "provider_ohlcv",
     canonicalVersion: "trusted-daily-ohlcv-v2",
-    fetch: (symbol: string, from: string, to: string) => fetchYahooHistorical(symbol, from, to, YAHOO_BASE_URL),
-    normalize: normalizeYahooHistoricalBars,
+    fetch: (symbol, from, to) => fetchYahooHistorical(symbol, from, to, YAHOO_BASE_URL),
+    normalize: normalizeYahooHistoricalBars
   };
 }
-
-async function ensureSource(base44: any, provider: Record<string, any>) {
+async function ensureSource(base44, provider) {
   const existing = rows(await base44.asServiceRole.entities.DataSource.filter({ code: provider.code }))[0] || null;
   const values = {
     name: provider.name,
@@ -163,19 +466,16 @@ async function ensureSource(base44: any, provider: Record<string, any>) {
     source_type: provider.sourceType,
     license_status: provider.licenseStatus,
     base_url: provider.baseUrl,
-    last_verified_at: new Date().toISOString(),
+    last_verified_at: (/* @__PURE__ */ new Date()).toISOString()
   };
-  return existing
-    ? await base44.asServiceRole.entities.DataSource.update(existing.id, values)
-    : await base44.asServiceRole.entities.DataSource.create({ code: provider.code, ...values });
+  return existing ? await base44.asServiceRole.entities.DataSource.update(existing.id, values) : await base44.asServiceRole.entities.DataSource.create({ code: provider.code, ...values });
 }
-
-async function persistInstrumentHistory(base44: any, instrument: Record<string, any>, options: Record<string, any>) {
-  const now = new Date().toISOString();
+async function persistInstrumentHistory(base44, instrument, options) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
   const currentSync = rows(await base44.asServiceRole.entities.HistoricalCandleSync.filter({
     instrument_id: instrument.id,
     provider_code: options.provider.code,
-    interval: "1d",
+    interval: "1d"
   }))[0] || null;
   if (currentSync?.status === "complete" && options.force !== true) {
     return { symbol: instrument.symbol, status: "skipped", reason: "history_already_complete", bar_count: currentSync.bar_count || 0 };
@@ -192,11 +492,9 @@ async function persistInstrumentHistory(base44: any, instrument: Record<string, 
     adjustment_mode: options.provider.adjustmentMode,
     source_id: options.sourceId,
     run_id: options.runId,
-    last_attempt_at: now,
+    last_attempt_at: now
   };
-  const sync = currentSync
-    ? await base44.asServiceRole.entities.HistoricalCandleSync.update(currentSync.id, { ...syncBase, status: "running", failure_code: "", failure_message: "" })
-    : await base44.asServiceRole.entities.HistoricalCandleSync.create({ ...syncBase, status: "running" });
+  const sync = currentSync ? await base44.asServiceRole.entities.HistoricalCandleSync.update(currentSync.id, { ...syncBase, status: "running", failure_code: "", failure_message: "" }) : await base44.asServiceRole.entities.HistoricalCandleSync.create({ ...syncBase, status: "running" });
   try {
     const payload = await options.provider.fetch(instrument.symbol, options.from, options.to);
     const normalized = options.provider.normalize(payload, options.from, options.to);
@@ -209,7 +507,7 @@ async function persistInstrumentHistory(base44: any, instrument: Record<string, 
     const existingChunks = rows(await base44.asServiceRole.entities.CandleChunk.filter({
       instrument_id: instrument.id,
       interval: "1d",
-      canonical_version: options.provider.canonicalVersion,
+      canonical_version: options.provider.canonicalVersion
     }));
     const chunkRows = [];
     for (const [year, yearBars] of years) {
@@ -236,7 +534,7 @@ async function persistInstrumentHistory(base44: any, instrument: Record<string, 
         is_historical_archive: true,
         adjustment_mode: options.provider.adjustmentMode,
         history_from: options.from,
-        history_to: options.to,
+        history_to: options.to
       });
     }
     const persisted = await upsertUnique(
@@ -244,7 +542,7 @@ async function persistInstrumentHistory(base44: any, instrument: Record<string, 
       "CandleChunk",
       chunkRows,
       existingChunks,
-      (row) => `${row.instrument_id}:${row.interval}:${row.chunk_key}`,
+      (row) => `${row.instrument_id}:${row.interval}:${row.chunk_key}`
     );
     await base44.asServiceRole.entities.HistoricalCandleSync.update(sync.id, {
       ...syncBase,
@@ -257,11 +555,9 @@ async function persistInstrumentHistory(base44: any, instrument: Record<string, 
       provider_partial: false,
       provider_first_trade_time: normalized.firstTradeTime || bars[0].time,
       coverage_verified: true,
-      failure_message: normalized.rejectedCount || normalized.duplicateCount
-        ? `Validated with ${normalized.rejectedCount} rejected and ${normalized.duplicateCount} duplicate rows`
-        : "",
-      completed_at: new Date().toISOString(),
-      failure_code: "",
+      failure_message: normalized.rejectedCount || normalized.duplicateCount ? `Validated with ${normalized.rejectedCount} rejected and ${normalized.duplicateCount} duplicate rows` : "",
+      completed_at: (/* @__PURE__ */ new Date()).toISOString(),
+      failure_code: ""
     });
     return { symbol: instrument.symbol, status: "complete", bar_count: bars.length, year_chunk_count: years.size, ...persisted };
   } catch (error) {
@@ -271,16 +567,14 @@ async function persistInstrumentHistory(base44: any, instrument: Record<string, 
       provider_partial: error?.code === "HISTORY_PARTIAL",
       coverage_verified: false,
       failure_code: String(error?.code || "HISTORY_PROVIDER_FAILED"),
-      failure_message: String(error?.message || "Historical synchronization failed").slice(0, 500),
+      failure_message: String(error?.message || "Historical synchronization failed").slice(0, 500)
     });
     return { symbol: instrument.symbol, status: "failed", error: String(error?.code || error?.message || "HISTORY_PROVIDER_FAILED") };
   }
 }
-
-async function processBatch(base44: any, instrumentIds: string[], options: Record<string, any>) {
-  const instruments = rows(await base44.asServiceRole.entities.Instrument.filter({ id: { $in: instrumentIds } }, "symbol", BATCH_SIZE))
-    .filter((instrument) => instrument.market_code === MARKET_CODE && instrument.status !== "delisted");
-  const results: Array<Record<string, any>> = [];
+async function processBatch(base44, instrumentIds, options) {
+  const instruments = rows(await base44.asServiceRole.entities.Instrument.filter({ id: { $in: instrumentIds } }, "symbol", BATCH_SIZE)).filter((instrument) => instrument.market_code === MARKET_CODE && instrument.status !== "delisted");
+  const results = [];
   let cursor = 0;
   async function worker() {
     while (cursor < instruments.length) {
@@ -294,28 +588,24 @@ async function processBatch(base44: any, instrumentIds: string[], options: Recor
     results,
     completed: results.filter((item) => item.status === "complete").length,
     skipped: results.filter((item) => item.status === "skipped").length,
-    failed: results.filter((item) => item.status === "failed").length,
+    failed: results.filter((item) => item.status === "failed").length
   };
 }
-
 Deno.serve(async (req) => {
-  let base44: any = null;
-  let run: Record<string, any> | null = null;
+  let base44 = null;
+  let run = null;
   try {
     base44 = createClientFromRequest(req);
     const requestBody = await req.json();
-    const body = { ...requestBody, ...(requestBody.args || {}) };
+    const body = { ...requestBody, ...requestBody.args || {} };
     const isServiceInvocation = Boolean(req.headers.get("Base44-Service-Authorization"));
     const provider = historyProvider();
     const from = validateDate(body.from, DEFAULT_FROM);
     const to = validateDate(body.to, dateOnly());
     if (from > to) throw Object.assign(new Error("Historical start date must not follow the end date"), { status: 400, code: "INVALID_HISTORY_RANGE" });
-
     if (body.mode === "history_batch") {
       if (!isServiceInvocation) throw Object.assign(new Error("Service invocation required"), { status: 403 });
-      const instrumentIds = Array.isArray(body.instrument_ids)
-        ? [...new Set(body.instrument_ids.map(String).filter(Boolean))].slice(0, BATCH_SIZE)
-        : [];
+      const instrumentIds = Array.isArray(body.instrument_ids) ? [...new Set(body.instrument_ids.map(String).filter(Boolean))].slice(0, BATCH_SIZE) : [];
       if (!instrumentIds.length) throw Object.assign(new Error("instrument_ids are required"), { status: 400 });
       return Response.json(await processBatch(base44, instrumentIds, {
         provider,
@@ -323,19 +613,16 @@ Deno.serve(async (req) => {
         to,
         sourceId: String(body.source_id),
         runId: String(body.run_id),
-        force: body.force === true,
+        force: body.force === true
       }));
     }
-
     if (!isServiceInvocation) await requirePermission(base44, body.session_id, "data.ingestion.run");
     const source = await ensureSource(base44, provider);
-    const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
-      .filter((instrument) => instrument.market_code === MARKET_CODE && instrument.status !== "delisted")
-      .sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
+    const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((instrument) => instrument.market_code === MARKET_CODE && instrument.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
     const existingSync = rows(await base44.asServiceRole.entities.HistoricalCandleSync.filter({
       market_code: MARKET_CODE,
       provider_code: provider.code,
-      interval: "1d",
+      interval: "1d"
     }));
     const completeIds = new Set(existingSync.filter((item) => item.status === "complete").map((item) => item.instrument_id));
     const allPending = body.force === true ? instruments : instruments.filter((instrument) => !completeIds.has(instrument.id));
@@ -343,28 +630,28 @@ Deno.serve(async (req) => {
       return Response.json({ status: "skipped", reason: "all_history_already_complete", instruments: instruments.length, completed: completeIds.size });
     }
     const pending = allPending.slice(0, MAX_INSTRUMENTS_PER_RUN);
-    const startedAt = new Date().toISOString();
+    const startedAt = (/* @__PURE__ */ new Date()).toISOString();
     run = await base44.asServiceRole.entities.IngestionRun.create({
       run_type: "historical_backfill",
       market_code: MARKET_CODE,
       slot_key: `historical-backfill:${provider.code}:${from}:${to}`,
       slot_kind: "historical_backfill",
       scheduled_for: startedAt,
-      lease_expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      lease_expires_at: new Date(Date.now() + 5 * 60 * 1e3).toISOString(),
       started_at: startedAt,
       total_records: pending.length,
       success_count: 0,
       failed_count: pending.length,
       status: "running",
       source_id: source.id,
-      notes: JSON.stringify({ provider_code: provider.code, from, to, stored_once: true }),
+      notes: JSON.stringify({ provider_code: provider.code, from, to, stored_once: true })
     });
     const batches = [];
     for (let offset = 0; offset < pending.length; offset += BATCH_SIZE) {
       batches.push(pending.slice(offset, offset + BATCH_SIZE).map((instrument) => instrument.id));
     }
-    const batchResults: Array<Record<string, any>> = [];
-    const batchFailures: Array<Record<string, any>> = [];
+    const batchResults = [];
+    const batchFailures = [];
     for (let offset = 0; offset < batches.length; offset += BATCH_CONCURRENCY) {
       const group = batches.slice(offset, offset + BATCH_CONCURRENCY);
       const settled = await Promise.allSettled(group.map((instrumentIds) => base44.functions.invoke("historicalCandleBackfill", {
@@ -374,7 +661,7 @@ Deno.serve(async (req) => {
         run_id: run.id,
         from,
         to,
-        force: body.force === true,
+        force: body.force === true
       })));
       settled.forEach((result, index) => {
         if (result.status === "fulfilled") batchResults.push(result.value?.data || result.value || {});
@@ -383,7 +670,7 @@ Deno.serve(async (req) => {
     }
     const completed = batchResults.reduce((sum, item) => sum + Number(item.completed || 0) + Number(item.skipped || 0), 0);
     const failed = Math.max(0, pending.length - completed);
-    const finishedAt = new Date().toISOString();
+    const finishedAt = (/* @__PURE__ */ new Date()).toISOString();
     const status = failed === 0 ? "success" : completed > 0 ? "partial" : "failed";
     await base44.asServiceRole.entities.IngestionRun.update(run.id, {
       finished_at: finishedAt,
@@ -391,8 +678,8 @@ Deno.serve(async (req) => {
       failed_count: failed,
       coverage_percent: pending.length ? completed / pending.length * 100 : 100,
       status,
-      promoted_at: completed ? finishedAt : undefined,
-      notes: JSON.stringify({ provider_code: provider.code, from, to, stored_once: true, batch_count: batches.length, batch_failures: batchFailures }),
+      promoted_at: completed ? finishedAt : void 0,
+      notes: JSON.stringify({ provider_code: provider.code, from, to, stored_once: true, batch_count: batches.length, batch_failures: batchFailures })
     });
     return Response.json({
       status,
@@ -405,19 +692,18 @@ Deno.serve(async (req) => {
       total_instruments: instruments.length,
       remaining_instruments: Math.max(0, allPending.length - pending.length + failed),
       from,
-      to,
+      to
     });
   } catch (error) {
     if (base44 && run?.id) {
       try {
         await base44.asServiceRole.entities.IngestionRun.update(run.id, {
           status: "failed",
-          finished_at: new Date().toISOString(),
+          finished_at: (/* @__PURE__ */ new Date()).toISOString(),
           failure_code: String(error?.code || "HISTORICAL_BACKFILL_FAILED"),
-          notes: String(error?.message || "Historical backfill failed").slice(0, 500),
+          notes: String(error?.message || "Historical backfill failed").slice(0, 500)
         });
       } catch {
-        // Preserve the original error.
       }
     }
     return replyError(error);
