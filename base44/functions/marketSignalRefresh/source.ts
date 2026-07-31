@@ -318,8 +318,16 @@ Deno.serve(async (req) => {
       return Response.json({ status: "skipped", reason: "already_projected", session_date: sessionDate, run_id: completedRun.id });
     }
     const activeRun = existingRuns.find((item) => item.status === "running" && Date.parse(item.lease_expires_at || 0) > Date.now());
-    if (activeRun) {
+    if (activeRun && body.force !== true) {
       return Response.json({ status: "skipped", reason: "projection_in_progress", session_date: sessionDate, run_id: activeRun.id });
+    }
+    if (activeRun && body.force === true) {
+      await base44.asServiceRole.entities.IngestionRun.update(activeRun.id, {
+        status: "failed",
+        finished_at: new Date().toISOString(),
+        failure_code: "SUPERSEDED_BY_FORCED_RUN",
+        notes: "A forced technical projection replaced a stale or interrupted run",
+      });
     }
     run = await base44.asServiceRole.entities.IngestionRun.create({
       run_type: "technical_projection",
