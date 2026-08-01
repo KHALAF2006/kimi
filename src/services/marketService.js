@@ -132,7 +132,17 @@ async function referenceMarketRead(payload) {
       candles: data.candles || [],
       as_of: data.asOf,
       data_state: { label: "آخر بيانات متاحة", stale: true, code: "stale" },
-      data_meta: { provider_as_of: data.asOf || null, received_time: data.asOf || null, delay_seconds: 900, freshness_status: "stale", quality_status: "unverified", license_status: "restricted", is_final: false },
+      data_meta: {
+        provider_as_of: data.asOf || null,
+        received_time: data.asOf || null,
+        delay_seconds: 900,
+        freshness_status: "stale",
+        quality_status: "unverified",
+        license_status: "restricted",
+        is_final: false,
+        history_status: data.historyStatus || data.data_meta?.history_status || "available",
+        history_complete: data.historyComplete ?? data.data_meta?.history_complete ?? null,
+      },
     };
   }
   const symbol = payload.symbol || (/^\d{4}$/.test(String(payload.instrument_id || "")) ? payload.instrument_id : "");

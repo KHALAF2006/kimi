@@ -915,7 +915,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     {loading && <div className="chart-message">{isArabic ? "جارٍ تحميل الشموع الحقيقية…" : "Loading verified candles…"}</div>}
     {error && <div className="chart-message text-red-600">{isArabic ? "تعذر جلب الشموع." : "Candles are unavailable."}</div>}
     {!loading && !error && !candles.length && <div className="chart-message">{isArabic ? "لا توجد شموع موثقة لهذا النطاق." : "No verified candles for this range."}</div>}
-    {!loading && !error && range === "max" && historyMeta?.history_complete !== true && <div className="chart-history-status" role="status">{isArabic ? "السجل التاريخي لهذا السهم غير مكتمل بعد؛ المعروض هو الجزء المحفوظ فقط." : "This instrument's historical archive is not complete yet; only stored candles are shown."}</div>}
+    {!loading && !error && range === "max" && historyMeta?.history_complete === false && <div className="chart-history-status" role="status">{isArabic ? "السجل التاريخي لهذا السهم غير مكتمل بعد؛ المعروض هو الجزء المحفوظ فقط." : "This instrument's historical archive is not complete yet; only stored candles are shown."}</div>}
 
     <div className={candles.length ? "chart-canvas-wrap" : "h-0"} style={candles.length ? { height: chartHeight } : undefined}>
       <div ref={containerRef} className="absolute inset-0" />

@@ -5335,7 +5335,7 @@ async function chartResponse(base44, body, sources) {
   if (!candles.length) throw Object.assign(new Error("Stored chart data contains no valid candles for the requested range"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   const source = sources.find((item) => item.id === latestChunk.source_id) || null;
   const asOf = latestChunk.provider_as_of || stored.latestSourceTime || latestChunk.end_time || candles[candles.length - 1].time;
-  const history = historyRows.find((item) => item.status === "complete") || historyRows[0] || null;
+  const history = historyRows.find((item) => item.status === "complete" && item.coverage_verified === true && item.provider_partial !== true) || historyRows[0] || null;
   return {
     candles,
     as_of: asOf,
@@ -5353,7 +5353,7 @@ async function chartResponse(base44, body, sources) {
       run_id: latestChunk.run_id || null,
       provider_as_of: latestChunk.provider_as_of || asOf,
       history_status: history?.status || "not_started",
-      history_complete: history?.status === "complete",
+      history_complete: history?.status === "complete" && history?.coverage_verified === true && history?.provider_partial !== true,
       history_available_from: history?.earliest_bar_time || stored.bars[0]?.time || null,
       history_available_to: history?.latest_bar_time || stored.bars.at(-1)?.time || null,
       history_bar_count: Number(history?.bar_count || stored.bars.length),

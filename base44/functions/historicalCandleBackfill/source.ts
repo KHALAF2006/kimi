@@ -39,6 +39,12 @@ function dateOnly(value = new Date()) {
   }).format(value);
 }
 
+function latestExpectedTradingDate(value: string) {
+  const date = new Date(`${value}T12:00:00.000Z`);
+  while ([5, 6].includes(date.getUTCDay())) date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
 async function archiveStatus(base44: any, requestedSymbols: unknown) {
   const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
     .filter((instrument) => instrument.market_code === MARKET_CODE && instrument.status !== "delisted");
@@ -209,7 +215,11 @@ async function persistInstrumentHistory(base44: any, instrument: Record<string, 
     provider_code: options.provider.code,
     interval: "1d",
   }))[0] || null;
-  if (currentSync?.status === "complete" && options.force !== true) {
+  const currentCoverageComplete = currentSync?.status === "complete"
+    && currentSync.coverage_verified === true
+    && currentSync.provider_partial !== true
+    && String(currentSync.latest_bar_time || "").slice(0, 10) >= latestExpectedTradingDate(options.to);
+  if (currentCoverageComplete && options.force !== true) {
     return { symbol: instrument.symbol, status: "skipped", reason: "history_already_complete", bar_count: currentSync.bar_count || 0 };
   }
   const syncBase = {
@@ -297,11 +307,12 @@ async function persistInstrumentHistory(base44: any, instrument: Record<string, 
     });
     return { symbol: instrument.symbol, status: "complete", bar_count: bars.length, year_chunk_count: years.size, ...persisted };
   } catch (error) {
+    const preserveVerifiedArchive = currentSync?.status === "complete" && currentSync.coverage_verified === true && currentSync.provider_partial !== true;
     await base44.asServiceRole.entities.HistoricalCandleSync.update(sync.id, {
       ...syncBase,
-      status: error?.code === "HISTORY_PARTIAL" ? "partial" : "failed",
-      provider_partial: error?.code === "HISTORY_PARTIAL",
-      coverage_verified: false,
+      status: preserveVerifiedArchive ? "complete" : error?.code === "HISTORY_PARTIAL" ? "partial" : "failed",
+      provider_partial: preserveVerifiedArchive ? false : error?.code === "HISTORY_PARTIAL",
+      coverage_verified: preserveVerifiedArchive,
       failure_code: String(error?.code || "HISTORY_PROVIDER_FAILED"),
       failure_message: String(error?.message || "Historical synchronization failed").slice(0, 500),
     });
@@ -368,7 +379,12 @@ Deno.serve(async (req) => {
       provider_code: provider.code,
       interval: "1d",
     }));
-    const completeIds = new Set(existingSync.filter((item) => item.status === "complete").map((item) => item.instrument_id));
+    const completeIds = new Set(existingSync
+      .filter((item) => item.status === "complete"
+        && item.coverage_verified === true
+        && item.provider_partial !== true
+        && String(item.latest_bar_time || "").slice(0, 10) >= latestExpectedTradingDate(to))
+      .map((item) => item.instrument_id));
     const allPending = body.force === true ? instruments : instruments.filter((instrument) => !completeIds.has(instrument.id));
     if (!allPending.length) {
       return Response.json({ status: "skipped", reason: "all_history_already_complete", instruments: instruments.length, completed: completeIds.size });
