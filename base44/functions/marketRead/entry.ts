@@ -5621,10 +5621,13 @@ Deno.serve(async (req) => {
       ]);
       const quote = quotes2.filter(usableQuote).sort((a, b) => new Date(b.quote_time).getTime() - new Date(a.quote_time).getTime())[0] || null;
       const source = quote ? sourceById.get(quote.source_id) : null;
+      const indicators = entityRows(indicators2).sort((a, b) => String(b.source_as_of || b.calculated_at || b.updated_date || "").localeCompare(String(a.source_as_of || a.calculated_at || a.updated_date || "")));
+      const momentumIndicator = indicators.find((item) => item.indicator_key === "momentum_zones") || null;
       return Response.json({
         instrument: { ...instrument, warning_flag: losses2[0]?.level === "none" ? null : losses2[0]?.level },
         quote: quoteView(quote, source),
-        indicators: indicators2,
+        indicators,
+        momentum_indicator: momentumIndicator,
         financials: financials.sort((a, b) => String(b.period_end || b.as_of || "").localeCompare(String(a.period_end || a.as_of || ""))),
         actions: actions.sort((a, b) => String(b.effective_date || b.as_of || "").localeCompare(String(a.effective_date || a.as_of || ""))),
         announcements: announcements.sort((a, b) => String(b.published_at || "").localeCompare(String(a.published_at || ""))),

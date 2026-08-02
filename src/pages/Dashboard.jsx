@@ -37,6 +37,7 @@ export default function Dashboard() {
   const [profileWidth, setProfileWidth] = useState(() => Math.min(760, Math.max(380, Number(localStorage.getItem("kmy_profile_width")) || 500)));
   const resizeRef = useRef(null);
   const selectedSymbol = params.get("company") || "";
+  const requestedTimeframe = params.get("timeframe") || "";
   const urlSector = params.get("sector") || "";
 
   async function loadMarket(silent = false) {
@@ -188,7 +189,7 @@ export default function Dashboard() {
 
       <section className="dashboard-grid" style={/** @type {React.CSSProperties} */ ({ "--profile-width": profileWidth + "px" })}>
         <aside id="company-profile" className="min-w-0 scroll-mt-28">{selectedSymbol
-          ? <CompanyPanel symbol={selectedSymbol} onResetWidth={resetWidth} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={selectCompany} />
+          ? <CompanyPanel symbol={selectedSymbol} requestedTimeframe={requestedTimeframe} onResetWidth={resetWidth} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={selectCompany} />
           : sector
             ? <SectorPanel sector={sector} marketCode={marketCode} onResetWidth={resetWidth} onSelectCompany={selectCompany} />
             : <CompanyPanel symbol="" onResetWidth={resetWidth} onSelectCompany={selectCompany} />}</aside>

@@ -102,7 +102,7 @@ export default function Screener() {
         {!!rows.length && <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {rows.slice(0, 9).map((row) => <SignalEvidence key={row.id || row.symbol} row={row} timeframe={timeframe} language={language} isArabic={isArabic} />)}
         </div>}
-        <MarketTable rows={rows} />
+        <MarketTable rows={rows} detailsTimeframe={timeframe} />
       </div>;
     }}
   </ServicePage>;

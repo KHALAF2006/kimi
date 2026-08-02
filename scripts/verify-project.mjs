@@ -57,6 +57,16 @@ assert.match(ingestion, /QuoteObservation\.bulkCreate/, "accepted provider readi
 assert.match(ingestion, /query1\.finance\.yahoo\.com/, "experimental public source must be explicit and auditable in the backend");
 assert.doesNotMatch(ingestion, /from\s+["']\.\.\/\.\.\/shared\//, "scheduled market ingestion must be self-contained for Base44 function bundling");
 
+const historicalBackfill = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
+assert.match(historicalBackfill, /Base44-Service-Authorization/, "scheduled historical backfill must accept authenticated Base44 service invocations");
+assert.match(historicalBackfill, /body\.mode === "history_batch"[\s\S]*if \(!isServiceInvocation\)/, "historical backfill batches must reject direct user invocation");
+assert.match(historicalBackfill, /if \(!isServiceInvocation\) await requireBackfillOperator/, "manual historical backfill must retain its operator permission gate");
+
+const signalRefresh = await readFile(new URL("../base44/functions/marketSignalRefresh/entry.ts", import.meta.url), "utf8");
+assert.match(signalRefresh, /Base44-Service-Authorization/, "scheduled signal refresh must accept authenticated Base44 service invocations");
+assert.match(signalRefresh, /body\.mode === "projection_batch"[\s\S]*if \(!isServiceInvocation\)/, "signal projection batches must reject direct user invocation");
+assert.match(signalRefresh, /requirePermission\(base44, body\.session_id, "data\.ingestion\.run"\)/, "manual signal refresh must retain its ingestion permission gate");
+
 const marketRead = await readFile(new URL("../base44/functions/marketRead/entry.ts", import.meta.url), "utf8");
 assert.match(marketRead, /official_main_market_catalog_2026_07_21_default\.companies/, "deployed reads must contain the bundled verified catalog");
 assert.match(marketRead, /MAIN_MARKET_SYMBOLS\.has\(item\.symbol\)/, "market reads must exclude non-main-market records");
@@ -67,7 +77,7 @@ assert.doesNotMatch(marketRead, /query1\.finance\.yahoo\.com|YAHOO_CHART/, "mark
 
 const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIngestion/function.jsonc", import.meta.url), "utf8"));
 assert.equal(schedule.name, "marketIngestion");
-const candleChunkSchema = JSON.parse(await readFile(new URL("../base44/entities/candle-chunk.jsonc", import.meta.url), "utf8"));
+const candleChunkSchema = JSON.parse(await readFile(new URL("../base44/entities/CandleChunk.jsonc", import.meta.url), "utf8"));
 assert.equal(candleChunkSchema.properties.session_date.format, "date", "15-minute chunks must be queryable by their market session");
 const companyIntelligenceDaily = JSON.parse(await readFile(new URL("../base44/workflows/CompanyIntelligenceDaily.jsonc", import.meta.url), "utf8"));
 const companyFinancialsTwiceWeekly = JSON.parse(await readFile(new URL("../base44/workflows/CompanyFinancialsTwiceWeekly.jsonc", import.meta.url), "utf8"));
@@ -116,18 +126,12 @@ assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh"
 
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
 const allEntityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc")).sort();
-const entityFiles = allEntityFiles.filter((name) => /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/.test(name));
-assert.equal(entityFiles.length, 46, "all 46 canonical Base44 entity schemas must be present");
-// Base44 materializes server-side entity representations beside the checked-in
-// kebab-case schemas inside its managed /app sandbox. The GitHub checkout must
-// remain canonical-only; the sandbox still validates the 46 source schemas.
-const isManagedBase44Sandbox = process.cwd().replaceAll("\\", "/") === "/app";
-if (!isManagedBase44Sandbox) {
-  assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "legacy duplicate entity schema files must not remain beside the canonical kebab-case files");
-}
+const entityFiles = allEntityFiles.filter((name) => /^[A-Z][A-Za-z0-9]*\.jsonc$/.test(name));
+assert.equal(entityFiles.length, 46, "all 46 identity-preserving Base44 entity schemas must be present");
+assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "duplicate or identity-changing entity schema files must not remain beside the Base44 schemas");
 const entityNames = new Set();
 for (const name of entityFiles) {
-  assert.match(name, /^[a-z0-9]+(?:-[a-z0-9]+)*\.jsonc$/, `entity filename is not kebab-case: ${name}`);
+  assert.match(name, /^[A-Z][A-Za-z0-9]*\.jsonc$/, `entity filename does not preserve the Base44 entity identity: ${name}`);
   const source = await readFile(join(entityDirectory, name), "utf8");
   const schema = JSON.parse(source);
   assert.equal(schema.type, "object", `${name} must have an object schema`);
@@ -143,7 +147,7 @@ const entityNamesLower = new Set([...entityNames].map((name) => name.toLowerCase
 for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "QuoteObservation", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "UsageCounter", "Market", "InstrumentAlias", "ProviderInstrumentMap"]) {
   assert.ok(entityNamesLower.has(required.toLowerCase()), `required entity is missing: ${required}`);
 }
-const customerProfile = JSON.parse(await readFile(new URL("../base44/entities/customer-profile.jsonc", import.meta.url), "utf8"));
+const customerProfile = JSON.parse(await readFile(new URL("../base44/entities/CustomerProfile.jsonc", import.meta.url), "utf8"));
 assert.ok(!customerProfile.required.includes("phone_e164"), "admin migration must not fabricate a phone number");
 assert.ok(!customerProfile.required.includes("country_code"), "admin migration must not fabricate a country");
 
@@ -305,6 +309,12 @@ assert.match(screenerPage, /row\.screener_match\?\.timeframe === timeframe/, "th
 assert.doesNotMatch(screenerPage, /\.filter\(\(row\) => row\.signals\?\.\[timeframe\]/, "the frontend must not discard valid backend screener results when full snapshots are omitted from transport");
 assert.match(screenerPage, /Number\.isFinite\(candleTimestamp\)/, "the screener must not render an invalid candle date");
 assert.match(screenerPage, /آخر 3 شموع محفوظة/, "the screener must tell customers the exact three-candle search window");
+assert.match(screenerPage, /detailsTimeframe=\{timeframe\}/, "strategy results must preserve the selected timeframe when opening a company");
+assert.match(customerMarketTable, /companyDashboardPath\(row\.symbol, detailsTimeframe\)/, "company links must carry an explicit strategy timeframe");
+const companyPanel = await readFile(new URL("../src/components/market/CompanyPanel.jsx", import.meta.url), "utf8");
+assert.match(companyPanel, /onMomentumChange=\{handleMomentumChange\}/, "the investor-zone card must consume the chart calculation for the displayed interval");
+assert.doesNotMatch(companyPanel, /indicators\?\.\[0\]/, "company details must never treat an arbitrary first indicator record as investor zones");
+assert.match(marketReadFunction, /momentum_indicator: momentumIndicator/, "company reads must expose a deterministic momentum snapshot instead of relying on entity order");
 const sessionLink = await readFile(new URL("../src/components/SessionLink.jsx", import.meta.url), "utf8");
 const previewAuthHandoff = await readFile(new URL("../src/lib/preview-auth-handoff.js", import.meta.url), "utf8");
 const appParams = await readFile(new URL("../src/lib/app-params.js", import.meta.url), "utf8");
@@ -354,7 +364,7 @@ assert.match(adminMarketDataFunction, /historicalCandleBackfill/, "historical ar
 const historicalBackfillFunction = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
 assert.match(historicalBackfillFunction, /YAHOO_PUBLIC_HISTORICAL_DAILY/, "historical import must have a no-secret daily archive source");
 assert.match(historicalBackfillFunction, /includeAdjustedClose/, "historical import must request the complete daily chart payload");
-assert.match(historicalBackfillFunction, /if \(apiKey\)/, "a configured paid provider may override the no-secret archive source without changing storage");
+assert.match(historicalBackfillFunction, /function historyProvider\(\) \{[\s\S]*?code: YAHOO_PROVIDER_CODE/, "historical backfill must keep its declared no-secret archive provider deterministic");
 assert.match(historicalBackfillFunction, /history_already_complete/, "completed instrument archives must not be requested again");
 assert.match(historicalBackfillFunction, /canonical_version:\s*options\.provider\.canonicalVersion/, "historical candles must be persisted as canonical yearly chunks");
 const historicalCompanyChart = await readFile(new URL("../src/components/market/CompanyChart.jsx", import.meta.url), "utf8");
@@ -436,7 +446,15 @@ assert.match(legacySchemaBridge, /QuoteObservation:\s*"quote-observation"/, "the
 assert.match(legacySchemaBridge, /official_exists/, "the schema audit must distinguish missing official schemas from empty schemas");
 assert.match(legacySchemaBridge, /count_capped/, "the schema audit must disclose bounded-count results");
 
-const { calculateRsiSeries, calculateMomentumSnapshot } = await import(new URL("../src/lib/market.js", import.meta.url));
+const { calculateRsiSeries, calculateMomentumSnapshot, companyDashboardPath, selectMomentumSnapshot } = await import(new URL("../src/lib/market.js", import.meta.url));
+assert.equal(companyDashboardPath("1010", "1wk"), "/dashboard?company=1010&timeframe=1wk", "strategy links must preserve weekly context");
+assert.equal(companyDashboardPath("1010", "invalid"), "/dashboard?company=1010", "invalid chart intervals must not enter company URLs");
+const selectedMomentum = selectMomentumSnapshot([
+  { indicator_key: "technical_signals", source_as_of: "2026-08-02T10:00:00Z", values: { zones: [] } },
+  { id: "older", indicator_key: "momentum_zones", source_as_of: "2026-07-30T10:00:00Z" },
+  { id: "latest", indicator_key: "momentum_zones", source_as_of: "2026-08-01T10:00:00Z" },
+]);
+assert.equal(selectedMomentum?.id, "latest", "company details must select the latest momentum snapshot by type and timestamp");
 const risingBars = Array.from({ length: 40 }, (_, index) => ({
   time: 1_700_000_000 + index * 86_400,
   open: 100 + index,

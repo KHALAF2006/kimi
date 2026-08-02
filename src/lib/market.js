@@ -6,6 +6,24 @@ export const MOMENTUM_ZONE_DEFINITIONS = [
   { key: "zone5", nameAr: "استثمار سنوي", nameEn: "Annual investment", colorNameAr: "فيروزي", colorNameEn: "Teal", light: "#0d9488", dark: "#2dd4bf", topPercent: 0.58, bottomPercent: 0.65 },
 ];
 
+const CHART_INTERVALS = new Set(["15m", "1h", "2h", "3h", "4h", "1d", "1wk", "1mo"]);
+
+export function companyDashboardPath(symbol, timeframe = "") {
+  const params = new URLSearchParams({ company: String(symbol || "") });
+  if (CHART_INTERVALS.has(String(timeframe))) params.set("timeframe", String(timeframe));
+  return `/dashboard?${params.toString()}`;
+}
+
+export function selectMomentumSnapshot(indicators = []) {
+  return [...(Array.isArray(indicators) ? indicators : [])]
+    .filter((item) => item?.indicator_key === "momentum_zones")
+    .sort((left, right) => {
+      const leftTime = Date.parse(left?.source_as_of || left?.calculated_at || left?.updated_date || "") || 0;
+      const rightTime = Date.parse(right?.source_as_of || right?.calculated_at || right?.updated_date || "") || 0;
+      return rightTime - leftTime;
+    })[0] || null;
+}
+
 export function buildMomentumZones(referencePeak, zone4Active = false, zone5Active = false, theme = "light") {
   return MOMENTUM_ZONE_DEFINITIONS.map((definition, index) => {
     const top = referencePeak * (1 - definition.topPercent);

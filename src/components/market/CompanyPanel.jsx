@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, Info, Loader2, Megaphone, TrendingUp } from "lucide-react";
 import CompanyChart from "@/components/market/CompanyChart";
 import LossFlagBadge from "@/components/market/LossFlagBadge";
-import { formatCompact, formatNumber, normalizeMomentum, quoteDirection } from "@/lib/market";
+import { formatCompact, formatNumber, normalizeMomentum, quoteDirection, selectMomentumSnapshot } from "@/lib/market";
 import { usePreferences } from "@/lib/preferences";
 import { invokeAppFunction } from "@/services/marketService";
 
@@ -14,11 +14,13 @@ function EmptySection({ children }) {
   return <p className="mt-3 text-sm leading-6 text-slate-500">{children}</p>;
 }
 
-export default function CompanyPanel({ symbol, onResetWidth = () => {}, previousCompany = null, nextCompany = null, onSelectCompany = () => {} }) {
+export default function CompanyPanel({ symbol, requestedTimeframe = "", onResetWidth = () => {}, previousCompany = null, nextCompany = null, onSelectCompany = () => {} }) {
   const { language, isArabic, theme } = usePreferences();
   const [state, setState] = useState({ loading: false, data: null, error: "" });
+  const [chartMomentum, setChartMomentum] = useState(null);
 
   useEffect(() => {
+    setChartMomentum(null);
     if (!symbol) { setState({ loading: false, data: null, error: "" }); return; }
     let active = true;
     setState({ loading: true, data: null, error: "" });
@@ -28,7 +30,14 @@ export default function CompanyPanel({ symbol, onResetWidth = () => {}, previous
     return () => { active = false; };
   }, [symbol]);
 
-  const momentum = useMemo(() => normalizeMomentum(state.data?.indicators?.[0], theme), [state.data, theme]);
+  const storedMomentum = useMemo(() => normalizeMomentum(
+    state.data?.momentum_indicator || selectMomentumSnapshot(state.data?.indicators),
+    theme,
+  ), [state.data, theme]);
+  const momentum = chartMomentum?.symbol === symbol ? chartMomentum.value : storedMomentum;
+  const handleMomentumChange = useCallback((value, interval) => {
+    setChartMomentum({ symbol, interval, value });
+  }, [symbol]);
 
   if (!symbol) return <section className="company-panel-empty"><Building2 size={34} /><h2>{isArabic ? "اختر شركة" : "Select a company"}</h2><p>{isArabic ? "اضغط على أي شركة أو على شريط السوق لعرض السعر والشموع والمعلومات والمؤشر هنا." : "Open any company to view its quote, candles, company information and indicator here."}</p></section>;
   if (state.loading) return <section className="company-panel-empty"><Loader2 className="animate-spin" /><p>{isArabic ? "جارٍ تحميل معلومات الشركة…" : "Loading company information…"}</p></section>;
@@ -54,7 +63,7 @@ export default function CompanyPanel({ symbol, onResetWidth = () => {}, previous
       </div>
     </section>
 
-    <CompanyChart symbol={instrument.symbol} momentum={momentum} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} onResetWidth={onResetWidth} />
+    <CompanyChart symbol={instrument.symbol} momentum={storedMomentum} requestedInterval={requestedTimeframe} onMomentumChange={handleMomentumChange} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} onResetWidth={onResetWidth} />
 
     <section className="content-card">
       <div className="section-heading"><TrendingUp size={18} /><div><h3>{isArabic ? "مناطق المستثمر" : "Investor zones"}</h3><p>{isArabic ? "حدود سعرية صارمة محسوبة للفاصل المعروض، بأسمائها وألوانها وأسعارها ووقفها." : "Strict price boundaries for the selected interval, with names, colors, prices and stops."}</p></div></div>

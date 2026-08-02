@@ -2,7 +2,7 @@ import React from "react";
 import { SessionLink } from "@/components/SessionLink";
 import { ExternalLink } from "lucide-react";
 import LossFlagBadge from "@/components/market/LossFlagBadge";
-import { formatCompact, formatNumber, quoteDirection } from "@/lib/market";
+import { companyDashboardPath, formatCompact, formatNumber, quoteDirection } from "@/lib/market";
 import { usePreferences } from "@/lib/preferences";
 
 function quoteStatusLabel(quote, isArabic) {
@@ -12,7 +12,7 @@ function quoteStatusLabel(quote, isArabic) {
   return isArabic ? "آخر بيانات متاحة" : "Latest available data";
 }
 
-export default function MarketTable({ rows = [], selectedSymbol = "", onSelect = null }) {
+export default function MarketTable({ rows = [], selectedSymbol = "", onSelect = null, detailsTimeframe = "" }) {
   const { language, isArabic } = usePreferences();
   const labels = isArabic
     ? ["الرمز", "الشركة", "السعر", "التغير", "نسبة التغير", "الإغلاق السابق", "أعلى / أدنى", "الحجم"]
@@ -39,8 +39,8 @@ export default function MarketTable({ rows = [], selectedSymbol = "", onSelect =
             const quote = row.quote || {};
             const direction = quoteDirection(quote.change_percent);
             return <tr key={row.id || row.symbol} className={selectedSymbol === row.symbol ? "selected-market-row" : ""}>
-              <td><SessionLink to={"/dashboard?company=" + row.symbol} onClick={(event) => select(event, row)} className="market-symbol">{row.symbol}<ExternalLink size={11} /></SessionLink></td>
-              <td><SessionLink to={"/dashboard?company=" + row.symbol} onClick={(event) => select(event, row)} className="block"><b className="text-slate-950 dark:text-white">{isArabic ? row.name_ar : row.name_en}</b><span className="mt-1 block text-xs text-slate-500">{isArabic ? row.sector_ar : row.sector_en}</span>{signalDate(row) && <span className="mt-1 block text-[11px] font-bold text-amber-700 dark:text-amber-300">{isArabic ? "الإشارة: " : "Signal: "}{signalDate(row)}</span>}<div className="mt-1"><LossFlagBadge flag={row.warning_flag || row.loss_classification?.level} compact /></div></SessionLink></td>
+              <td><SessionLink to={companyDashboardPath(row.symbol, detailsTimeframe)} onClick={(event) => select(event, row)} className="market-symbol">{row.symbol}<ExternalLink size={11} /></SessionLink></td>
+              <td><SessionLink to={companyDashboardPath(row.symbol, detailsTimeframe)} onClick={(event) => select(event, row)} className="block"><b className="text-slate-950 dark:text-white">{isArabic ? row.name_ar : row.name_en}</b><span className="mt-1 block text-xs text-slate-500">{isArabic ? row.sector_ar : row.sector_en}</span>{signalDate(row) && <span className="mt-1 block text-[11px] font-bold text-amber-700 dark:text-amber-300">{isArabic ? "الإشارة: " : "Signal: "}{signalDate(row)}</span>}<div className="mt-1"><LossFlagBadge flag={row.warning_flag || row.loss_classification?.level} compact /></div></SessionLink></td>
               <td className="font-black">{formatNumber(quote.last_price, language)}<span className="mt-1 block text-[10px] font-medium text-slate-500">{quoteStatusLabel(quote, isArabic)}</span></td>
               <td className={"market-" + direction}>{Number(quote.change_value || 0) > 0 ? "+" : ""}{formatNumber(quote.change_value, language)}</td>
               <td className={"font-black market-" + direction}>{Number(quote.change_percent || 0) > 0 ? "+" : ""}{formatNumber(quote.change_percent, language)}%</td>
@@ -56,7 +56,7 @@ export default function MarketTable({ rows = [], selectedSymbol = "", onSelect =
       {rows.map((row) => {
         const quote = row.quote || {};
         const direction = quoteDirection(quote.change_percent);
-        return <SessionLink key={row.id || row.symbol} to={"/dashboard?company=" + row.symbol} onClick={(event) => select(event, row)} className={"block p-4 " + (selectedSymbol === row.symbol ? "bg-amber-50 dark:bg-amber-400/10" : "")}>
+        return <SessionLink key={row.id || row.symbol} to={companyDashboardPath(row.symbol, detailsTimeframe)} onClick={(event) => select(event, row)} className={"block p-4 " + (selectedSymbol === row.symbol ? "bg-amber-50 dark:bg-amber-400/10" : "")}>
           <div className="flex items-start justify-between gap-3"><div><b>{row.symbol} · {isArabic ? row.name_ar : row.name_en}</b><p className="mt-1 text-xs text-slate-500">{isArabic ? row.sector_ar : row.sector_en}</p>{signalDate(row) && <p className="mt-1 text-[11px] font-bold text-amber-700 dark:text-amber-300">{isArabic ? "الإشارة: " : "Signal: "}{signalDate(row)}</p>}<div className="mt-2"><LossFlagBadge flag={row.warning_flag || row.loss_classification?.level} compact /></div></div><div className="text-left" dir="ltr"><b className="text-lg">{formatNumber(quote.last_price, language)}</b><p className={"text-sm font-black market-" + direction}>{Number(quote.change_percent || 0) > 0 ? "+" : ""}{formatNumber(quote.change_percent, language)}%</p><p className="mt-1 text-[10px] text-slate-500" dir={isArabic ? "rtl" : "ltr"}>{quoteStatusLabel(quote, isArabic)}</p></div></div>
         </SessionLink>;
       })}

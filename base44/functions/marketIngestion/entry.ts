@@ -6068,9 +6068,12 @@ Deno.serve(async (req) => {
     } catch {
       user = null;
     }
-    if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
-    if (user.role !== "admin") throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
-    const isServiceInvocation = String(body.source || "").startsWith("scheduled_") && body.force !== true;
+    const serviceAuthorization = req.headers.get("Base44-Service-Authorization");
+    const isServiceInvocation = Boolean(serviceAuthorization) && body.force !== true;
+    if (!isServiceInvocation) {
+      if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
+      await requireDataIngestionPermission(base44, body.session_id);
+    }
     const effectiveSource = isServiceInvocation
       ? `scheduled_${String(body.source || "experimental_t15").replace(/^scheduled_/, "")}`
       : String(body.source || "manual");

@@ -155,6 +155,7 @@ async function referenceMarketRead(payload) {
       instrument,
       quote: instrument.quote,
       indicators: momentum ? [momentum] : [],
+      momentum_indicator: momentum,
       financials: company.financials || [],
       actions: company.corporateActions || [],
       shareholders: company.shareholders || [],

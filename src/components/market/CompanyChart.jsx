@@ -29,13 +29,13 @@ const rangeOptions = [
   { value: "max", ar: "تاريخي", en: "History", intervals: ["1d", "1wk", "1mo"] },
 ];
 
-function initialChartInterval() {
+function initialChartInterval(requestedInterval = "") {
+  if (intervalOptions.some((item) => item.value === requestedInterval)) return requestedInterval;
   const stored = localStorage.getItem("kmy_chart_interval") || "1d";
   return intervalOptions.some((item) => item.value === stored) ? stored : "1d";
 }
 
-function initialChartRange() {
-  const interval = initialChartInterval();
+function initialChartRange(interval = initialChartInterval()) {
   const stored = localStorage.getItem("kmy_chart_range") || "1y";
   if (rangeOptions.some((item) => item.value === stored && item.intervals.includes(interval))) return stored;
   return intervalOptions.find((item) => item.value === interval)?.defaultRange || "1y";
@@ -140,7 +140,7 @@ function sameZoneGeometry(current, next) {
   });
 }
 
-export default function CompanyChart({ symbol = "", sector = "", marketCode = "SA_MAIN", momentum: rawMomentum = null, previousCompany = null, nextCompany = null, onSelectCompany = (_symbol) => {}, onResetWidth = () => {} }) {
+export default function CompanyChart({ symbol = "", sector = "", marketCode = "SA_MAIN", momentum: rawMomentum = null, requestedInterval = "", onMomentumChange = (_momentum, _interval) => {}, previousCompany = null, nextCompany = null, onSelectCompany = (_symbol) => {}, onResetWidth = () => {} }) {
   const { language, isArabic, theme } = usePreferences();
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -156,10 +156,10 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const momentumLinesRef = useRef([]);
   const overlayUpdateRef = useRef(() => {});
   const overlayFrameRef = useRef(0);
-  const [interval, setInterval] = useState(initialChartInterval);
-  const [range, setRange] = useState(initialChartRange);
+  const [interval, setInterval] = useState(() => initialChartInterval(requestedInterval));
+  const [range, setRange] = useState(() => initialChartRange(initialChartInterval(requestedInterval)));
   const [candles, setCandles] = useState([]);
-  const [indicatorCandles, setIndicatorCandles] = useState([]);
+  const [indicatorState, setIndicatorState] = useState({ key: "", candles: [] });
   const [historyMeta, setHistoryMeta] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -200,6 +200,8 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const [drawingsVisible, setDrawingsVisible] = useState(true);
   const [drawingVisibilityCommand, setDrawingVisibilityCommand] = useState(null);
   const chartTarget = sector || symbol;
+  const indicatorKey = `${chartTarget}:${interval}`;
+  const indicatorCandles = indicatorState.key === indicatorKey ? indicatorState.candles : [];
   const chartTitle = sector ? (isArabic ? `مؤشر قطاع ${sector}` : `${sector} sector index`) : (isArabic ? "الرسم البياني" : "Chart");
 
   const orderedCandles = useMemo(() => normalizeCandles(candles), [candles]);
@@ -253,6 +255,14 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const onDrawingVisibilityChange = useCallback((visible) => setDrawingsVisible(visible), []);
 
   useEffect(() => {
+    if (!requestedInterval || !intervalOptions.some((item) => item.value === requestedInterval)) return;
+    setInterval(requestedInterval);
+    setRange((current) => rangeOptions.some((item) => item.value === current && item.intervals.includes(requestedInterval))
+      ? current
+      : intervalOptions.find((item) => item.value === requestedInterval)?.defaultRange || "1y");
+  }, [requestedInterval]);
+
+  useEffect(() => {
     if (!chartTarget) return;
     let active = true;
     setLoading(true);
@@ -281,13 +291,18 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     if (!chartTarget) return;
     let active = true;
     const indicatorRange = interval === "15m" ? "1mo" : ["1h", "2h", "3h", "4h"].includes(interval) ? "1y" : "max";
+    setIndicatorState({ key: indicatorKey, candles: [] });
     invokeAppFunction("marketRead", sector
       ? { action: "sector_chart", sector, market_code: marketCode, interval, range: indicatorRange }
       : { action: "chart", symbol, interval, range: indicatorRange })
-      .then((data) => active && setIndicatorCandles(Array.isArray(data.candles) ? data.candles : []))
-      .catch(() => active && setIndicatorCandles([]));
+      .then((data) => active && setIndicatorState({ key: indicatorKey, candles: Array.isArray(data.candles) ? data.candles : [] }))
+      .catch(() => active && setIndicatorState({ key: indicatorKey, candles: [] }));
     return () => { active = false; };
-  }, [chartTarget, sector, symbol, marketCode, interval]);
+  }, [chartTarget, sector, symbol, marketCode, interval, indicatorKey]);
+
+  useEffect(() => {
+    onMomentumChange(calculatedMomentum, interval);
+  }, [calculatedMomentum, interval, onMomentumChange]);
 
   useEffect(() => {
     localStorage.setItem("kmy_show_momentum", String(showMomentum));
