@@ -1,6 +1,6 @@
 import { calculateMomentumZones } from "./momentum.ts";
 
-export const TECHNICAL_SIGNAL_FORMULA_VERSION = "technical-signals-v3";
+export const TECHNICAL_SIGNAL_FORMULA_VERSION = "technical-signals-v4";
 export const TECHNICAL_SIGNAL_WINDOW_SIZE = 3;
 
 type CandleBar = {
@@ -111,10 +111,14 @@ export function detectBullishPinBar(rawBar: Record<string, unknown> | null | und
   const upperWickRatio = upperWick / range;
   const closeLocation = (close - low) / range;
   return {
-    matches: bodyRatio <= 0.35
-      && lowerWick >= Math.max(body * 2, range * 0.5)
-      && upperWickRatio <= 0.2
-      && closeLocation >= 0.65,
+    // Direction follows price rejection: a long lower wick is bullish. The
+    // geometry follows the widely used 3x-wick, small-body pin-bar definition.
+    matches: body > 0
+      && bodyRatio <= 0.3
+      && lowerWick >= body * 3
+      && lowerWickRatio >= 0.6
+      && upperWickRatio <= 0.25
+      && closeLocation >= 0.7,
     body_ratio: rounded(bodyRatio),
     lower_wick_ratio: rounded(lowerWickRatio),
     upper_wick_ratio: rounded(upperWickRatio),
@@ -140,10 +144,13 @@ export function detectBearishPinBar(rawBar: Record<string, unknown> | null | und
   const upperWickRatio = upperWick / range;
   const closeLocation = (close - low) / range;
   return {
-    matches: bodyRatio <= 0.35
-      && upperWick >= Math.max(body * 2, range * 0.5)
-      && lowerWickRatio <= 0.2
-      && closeLocation <= 0.35,
+    // A long upper wick is the mirrored bearish rejection setup.
+    matches: body > 0
+      && bodyRatio <= 0.3
+      && upperWick >= body * 3
+      && upperWickRatio >= 0.6
+      && lowerWickRatio <= 0.25
+      && closeLocation <= 0.3,
     body_ratio: rounded(bodyRatio),
     lower_wick_ratio: rounded(lowerWickRatio),
     upper_wick_ratio: rounded(upperWickRatio),
@@ -211,7 +218,7 @@ function calculateTechnicalSnapshot(bars: CandleBar[]) {
   const pinBar = detectPinBar(last);
   const engulfing = detectEngulfingPattern(previous, last);
   const momentum = calculateMomentumZones(bars);
-  const matchingZone = pinBar.bullish.matches && last && momentum?.zones
+  const matchingZone = pinBar.matches && last && momentum?.zones
     ? momentum.zones.find((zone) => zone.active && last.low <= zone.top && last.high >= zone.bottom && last.close >= zone.bottom) || null
     : null;
 
@@ -223,11 +230,16 @@ function calculateTechnicalSnapshot(bars: CandleBar[]) {
     sma50: currentSma50,
     pin_bar: pinBar,
     pin_bar_signal: pinBar.matches,
+    bullish_pin_bar: pinBar.direction === "bullish",
+    bearish_pin_bar: pinBar.direction === "bearish",
     engulfing,
     engulfing_signal: engulfing.matches,
     bullish_engulfing: engulfing.direction === "bullish",
     bearish_engulfing: engulfing.direction === "bearish",
     zone_pin_bar: Boolean(matchingZone),
+    bullish_zone_pin_bar: Boolean(matchingZone) && pinBar.direction === "bullish",
+    bearish_zone_pin_bar: Boolean(matchingZone) && pinBar.direction === "bearish",
+    zone_pin_bar_direction: matchingZone ? pinBar.direction : null,
     matching_zone: matchingZone ? {
       key: matchingZone.key,
       name_ar: matchingZone.nameAr,

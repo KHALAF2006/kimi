@@ -32,7 +32,7 @@ export function detectBullishPinBar(bar) {
   const body = Math.abs(close - open);
   const lowerWick = Math.min(open, close) - low;
   const upperWick = high - Math.max(open, close);
-  return body / range <= 0.35 && lowerWick >= Math.max(body * 2, range * 0.5) && upperWick / range <= 0.2 && (close - low) / range >= 0.65;
+  return body > 0 && body / range <= 0.3 && lowerWick >= body * 3 && lowerWick / range >= 0.6 && upperWick / range <= 0.25 && (close - low) / range >= 0.7;
 }
 
 export function detectBearishPinBar(bar) {
@@ -43,7 +43,7 @@ export function detectBearishPinBar(bar) {
   const body = Math.abs(close - open);
   const lowerWick = Math.min(open, close) - low;
   const upperWick = high - Math.max(open, close);
-  return body / range <= 0.35 && upperWick >= Math.max(body * 2, range * 0.5) && lowerWick / range <= 0.2 && (close - low) / range <= 0.35;
+  return body > 0 && body / range <= 0.3 && upperWick >= body * 3 && upperWick / range >= 0.6 && lowerWick / range <= 0.25 && (close - low) / range <= 0.3;
 }
 
 export function detectEngulfingPattern(previous, current) {

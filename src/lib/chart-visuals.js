@@ -1,8 +1,8 @@
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const CANDLE_TYPES = new Set(["candles", "hollow", "heikin_ashi"]);
 const REVERSAL_DEFAULTS = {
-  pinBar: { enabled: true, color: "#facc15" },
-  engulfing: { enabled: true, color: "#a855f7" },
+  pinBar: { enabled: true, bullishColor: "#0ea5e9", bearishColor: "#ec4899" },
+  engulfing: { enabled: true, bullishColor: "#16a34a", bearishColor: "#dc2626" },
 };
 
 export const SMA_SLOT_DEFAULTS = {
@@ -47,6 +47,14 @@ function cleanSma(value, fallback) {
   };
 }
 
+function cleanReversal(value, fallback) {
+  return {
+    enabled: value?.enabled !== false,
+    bullishColor: cleanColor(value?.bullishColor, fallback.bullishColor),
+    bearishColor: cleanColor(value?.bearishColor, fallback.bearishColor),
+  };
+}
+
 export function sanitizeChartPreferences(value, theme = "light") {
   const defaults = chartVisualDefaults(theme);
   const source = value && typeof value === "object" ? value : {};
@@ -67,14 +75,8 @@ export function sanitizeChartPreferences(value, theme = "light") {
       slow: cleanSma(source.sma?.slow, defaults.sma.slow),
     },
     reversal: {
-      pinBar: {
-        enabled: source.reversal?.pinBar?.enabled !== false,
-        color: cleanColor(source.reversal?.pinBar?.color, defaults.reversal.pinBar.color),
-      },
-      engulfing: {
-        enabled: source.reversal?.engulfing?.enabled !== false,
-        color: cleanColor(source.reversal?.engulfing?.color, defaults.reversal.engulfing.color),
-      },
+      pinBar: cleanReversal(source.reversal?.pinBar, defaults.reversal.pinBar),
+      engulfing: cleanReversal(source.reversal?.engulfing, defaults.reversal.engulfing),
     },
   };
 }

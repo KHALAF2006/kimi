@@ -209,13 +209,13 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const reversalPatterns = useMemo(() => reversalPatternMap(orderedCandles), [orderedCandles]);
   const displayCandles = useMemo(() => {
     const display = buildDisplayCandles(orderedCandles, chartPreferences, theme);
-    if (!["1d", "1wk"].includes(interval)) return display;
+    if (!["1d", "1wk", "1mo"].includes(interval)) return display;
     return display.map((candle) => {
       const pattern = reversalPatterns.get(candle.time);
       const color = pattern?.engulfingDirection && chartPreferences.reversal.engulfing.enabled
-        ? chartPreferences.reversal.engulfing.color
+        ? chartPreferences.reversal.engulfing[`${pattern.engulfingDirection}Color`]
         : pattern?.pinDirection && chartPreferences.reversal.pinBar.enabled
-          ? chartPreferences.reversal.pinBar.color
+          ? chartPreferences.reversal.pinBar[`${pattern.pinDirection}Color`]
           : null;
       return color ? { ...candle, color, borderColor: color, wickColor: color } : candle;
     });
@@ -730,7 +730,10 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   async function toggleFullscreen() {
     if (!wrapperRef.current) return;
     if (document.fullscreenElement) await document.exitFullscreen();
-    else await wrapperRef.current.requestFullscreen();
+    else {
+      const stableCompanyPanel = wrapperRef.current.closest("#company-profile");
+      await (stableCompanyPanel || wrapperRef.current).requestFullscreen();
+    }
   }
 
   function updateZoneSetting(key, patch) {
@@ -877,12 +880,15 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       <div className="chart-menu-anchor">
         <button type="button" className={"indicator-hub-button reversal-hub-button " + ((chartPreferences.reversal.pinBar.enabled || chartPreferences.reversal.engulfing.enabled) ? "active" : "")} onClick={() => { setCandleTypeMenuOpen(false); setIndicatorMenuOpen(false); setReversalMenuOpen((value) => !value); }} aria-expanded={reversalMenuOpen}><Flame size={17} /><span>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</span><small>{[chartPreferences.reversal.pinBar.enabled, chartPreferences.reversal.engulfing.enabled].filter(Boolean).length}</small></button>
         {reversalMenuOpen && <div role="menu" className="indicator-hub-popover reversal-hub-popover" dir={isArabic ? "rtl" : "ltr"}>
-          <header><div><b>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</b><p>{["1d", "1wk"].includes(interval) ? (isArabic ? "تحسب من شموع OHLC المغلقة الحقيقية." : "Calculated from real closed OHLC candles.") : (isArabic ? "تظهر العلامات على الفاصل اليومي والأسبوعي." : "Pattern coloring is available on daily and weekly intervals.")}</p></div></header>
+          <header><div><b>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</b><p>{["1d", "1wk", "1mo"].includes(interval) ? (isArabic ? "تحسب من شموع الافتتاح والأعلى والأدنى والإغلاق الأصلية، لا من شكل العرض." : "Calculated from canonical OHLC, never from the display style.") : (isArabic ? "تظهر العلامات على الفواصل اليومية والأسبوعية والشهرية المكتملة." : "Pattern coloring is available on completed daily, weekly, and monthly intervals.")}</p></div></header>
           {[["pinBar", isArabic ? "بن بار" : "Pin bar"], ["engulfing", isArabic ? "شمعة بالعة" : "Engulfing candle"]].map(([key, label]) => {
             const value = chartPreferences.reversal[key];
             return <div key={key} className={"reversal-pattern-row " + (value.enabled ? "active" : "")}>
-              <button type="button" onClick={() => updateReversalPattern(key, { enabled: !value.enabled })} aria-pressed={value.enabled}><span className="reversal-color-dot" style={{ backgroundColor: value.color }} /><span>{label}</span>{value.enabled ? <Eye size={15} /> : <EyeOff size={15} />}</button>
-              <label title={isArabic ? `لون ${label}` : `${label} color`}><input type="color" value={value.color} onChange={(event) => updateReversalPattern(key, { color: event.target.value })} /><span className="sr-only">{isArabic ? `لون ${label}` : `${label} color`}</span></label>
+              <button type="button" onClick={() => updateReversalPattern(key, { enabled: !value.enabled })} aria-pressed={value.enabled}><span className="reversal-direction-dots"><i style={{ backgroundColor: value.bullishColor }} /><i style={{ backgroundColor: value.bearishColor }} /></span><span>{label}</span>{value.enabled ? <Eye size={15} /> : <EyeOff size={15} />}</button>
+              <div className="reversal-direction-colors">
+                <label title={isArabic ? `لون ${label} الشرائي` : `${label} bullish color`}><span>{isArabic ? "شرائي" : "Bullish"}</span><input type="color" value={value.bullishColor} onChange={(event) => updateReversalPattern(key, { bullishColor: event.target.value })} /></label>
+                <label title={isArabic ? `لون ${label} البيعي` : `${label} bearish color`}><span>{isArabic ? "بيعي" : "Bearish"}</span><input type="color" value={value.bearishColor} onChange={(event) => updateReversalPattern(key, { bearishColor: event.target.value })} /></label>
+              </div>
             </div>;
           })}
         </div>}

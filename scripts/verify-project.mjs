@@ -292,7 +292,8 @@ assert.match(marketReadFunction, /fallbackIntervals\(interval\)/, "weekly and mo
 assert.match(marketReadFunction, /storedCandlesForInterval\(base44, instrument\.id, interval\)/, "company and sector charts must share the same candle aggregation path");
 assert.match(marketReadFunction, /mergeStoredCandleSeries\(series, interval\)/, "stored historical and fresh intraday candles must be merged instead of returning the first stale interval");
 assert.match(marketReadFunction, /technical_signals/, "market reads must expose persisted technical signals to the screener");
-assert.match(marketReadFunction, /zone_pin_bar/, "the protected screener must filter pin bars inside investor zones");
+assert.match(marketReadFunction, /bullish_zone_pin_bar/, "the protected screener must filter bullish pin bars inside investor zones");
+assert.match(marketReadFunction, /bearish_zone_pin_bar/, "the protected screener must filter bearish pin bars inside investor zones");
 assert.match(marketReadFunction, /signal_window\.slice\(0, 3\)/, "the screener must search the current stored candle and the two candles before it");
 assert.match(marketReadFunction, /screener_match/, "each screener result must expose the exact matching candle as evidence");
 assert.doesNotMatch(marketReadFunction, /if \(bars\.length\) return \{ bars, chunks/, "chart storage must not stop at the first stale interval");
@@ -302,7 +303,7 @@ assert.doesNotMatch(customerMarketTable, /data_state\?\.label/, "the market tabl
 const customerMarketTicker = await readFile(new URL("../src/components/market/MarketTicker.jsx", import.meta.url), "utf8");
 assert.doesNotMatch(customerMarketTicker, /data_state\?\.label/, "the ticker must not replay obsolete labels stored with old quotes");
 const screenerPage = await readFile(new URL("../src/pages/Screener.jsx", import.meta.url), "utf8");
-for (const signal of ["pin_bar_signal", "engulfing_signal", "zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"]) {
+for (const signal of ["bullish_pin_bar", "bearish_pin_bar", "bullish_engulfing", "bearish_engulfing", "bullish_zone_pin_bar", "bearish_zone_pin_bar", "pin_bar_signal", "engulfing_signal", "zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"]) {
   assert.match(screenerPage, new RegExp(signal), `screener signal is missing: ${signal}`);
 }
 assert.match(screenerPage, /row\.screener_match\?\.timeframe === timeframe/, "the screener UI must render the backend-proven matching candle instead of re-filtering the complete signal snapshot");
@@ -312,6 +313,10 @@ assert.match(screenerPage, /آخر 3 شموع محفوظة/, "the screener must 
 assert.match(screenerPage, /detailsTimeframe=\{timeframe\}/, "strategy results must preserve the selected timeframe when opening a company");
 assert.match(customerMarketTable, /companyDashboardPath\(row\.symbol, detailsTimeframe\)/, "company links must carry an explicit strategy timeframe");
 const companyPanel = await readFile(new URL("../src/components/market/CompanyPanel.jsx", import.meta.url), "utf8");
+assert.match(companyChart, /closest\("#company-profile"\)/, "fullscreen must target the stable company panel so company navigation cannot exit fullscreen");
+assert.match(companyChart, /bullishColor/, "reversal candle rendering must use a distinct bullish color");
+assert.match(companyChart, /bearishColor/, "reversal candle rendering must use a distinct bearish color");
+assert.match(companyChart, /\["1d", "1wk", "1mo"\]/, "reversal coloring must cover every stored technical timeframe");
 assert.match(companyPanel, /onMomentumChange=\{handleMomentumChange\}/, "the investor-zone card must consume the chart calculation for the displayed interval");
 assert.doesNotMatch(companyPanel, /indicators\?\.\[0\]/, "company details must never treat an arbitrary first indicator record as investor zones");
 assert.match(marketReadFunction, /momentum_indicator: momentumIndicator/, "company reads must expose a deterministic momentum snapshot instead of relying on entity order");

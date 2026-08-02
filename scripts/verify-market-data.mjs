@@ -57,6 +57,12 @@ import {
   sanitizeChartPreferences,
 } from "../src/lib/chart-visuals.js";
 import {
+  detectBearishPinBar as detectFrontendBearishPinBar,
+  detectBullishPinBar as detectFrontendBullishPinBar,
+  detectEngulfingPattern as detectFrontendEngulfingPattern,
+  reversalPatternMap,
+} from "../src/lib/technical-signals.js";
+import {
   consumePreviewAuthHandoff,
   isBase44PreviewHost,
   previewSafeHref,
@@ -462,6 +468,8 @@ const tadawul1111Recent = [
 const tadawul1111Signals = calculateTechnicalSignals(tadawul1111Recent);
 assert.equal(tadawul1111Signals.pin_bar_signal, false, "1111 latest candle itself is not a pin bar");
 assert.equal(tadawul1111Signals.signal_window[1].pin_bar_signal, true, "1111 must match because its previous daily candle is a bullish pin bar");
+assert.equal(tadawul1111Signals.signal_window[1].bullish_pin_bar, true, "the stored signal must expose the bullish pin-bar direction to the screener");
+assert.equal(tadawul1111Signals.signal_window[1].bearish_pin_bar, false);
 assert.equal(tadawul1111Signals.signal_window[1].pin_bar.direction, "bullish");
 assert.equal(tadawul1111Signals.signal_window[1].candle_time, "2026-07-29T07:00:00.000Z");
 
@@ -472,6 +480,16 @@ assert.equal(detectBearishPinBar({ open: 10.2, high: 12, low: 9.8, close: 10 }).
 assert.equal(detectEngulfingPattern({ open: 11, close: 10 }, { open: 9.9, close: 11.2 }).direction, "bullish");
 assert.equal(detectEngulfingPattern({ open: 10, close: 11 }, { open: 11.1, close: 9.9 }).direction, "bearish");
 assert.equal(detectEngulfingPattern({ open: 10, close: 11 }, { open: 10.5, close: 11.2 }).matches, false, "partial body overlap is not engulfing");
+assert.equal(detectBullishPinBar({ open: 10, high: 10.2, low: 8, close: 10.1 }).matches, true, "a bullish pin bar needs a lower wick at least three times its body");
+assert.equal(detectBullishPinBar({ open: 10, high: 10.2, low: 9.75, close: 10.1 }).matches, false, "a short lower wick must not be classified as a pin bar");
+assert.equal(detectBullishPinBar({ open: 10, high: 10, low: 8, close: 10 }).matches, false, "a zero-body doji must not be silently relabeled as a pin bar");
+assert.equal(detectFrontendBullishPinBar({ open: 10, high: 10.2, low: 8, close: 10.1 }), true, "the chart and backend must use the same bullish geometry");
+assert.equal(detectFrontendBearishPinBar({ open: 10.1, high: 12, low: 10, close: 10 }), true, "the chart and backend must use the same bearish geometry");
+assert.equal(detectFrontendEngulfingPattern({ open: 11, close: 10 }, { open: 9.9, close: 11.2 }), "bullish");
+assert.deepEqual(reversalPatternMap([
+  { time: 1, open: 11, high: 11.2, low: 9.8, close: 10 },
+  { time: 2, open: 9.9, high: 11.3, low: 9.7, close: 11.2 },
+]).get(2), { pinDirection: null, engulfingDirection: "bullish" }, "the chart map must retain the pattern direction");
 
 const sessionIntradayBars = [
   { time: "2026-07-29T07:00:00.000Z", open: 10, high: 11, low: 9, close: 10.5, volume: 100 },
@@ -534,6 +552,12 @@ const hollowBars = buildDisplayCandles(standardVisualBars, hollowPreferences);
 assert.equal(hollowBars[0].color, "#ffffff", "a rising hollow candle body must use the chart background");
 assert.equal(hollowBars[2].color, hollowPreferences.downColor, "a falling filled candle must use the prior-close trend color");
 assert.equal(buildDisplayCandles(standardVisualBars, { candleType: "candles" }).length, standardVisualBars.length);
+const directionalReversalPreferences = sanitizeChartPreferences({ reversal: {
+  pinBar: { enabled: true, bullishColor: "#112233", bearishColor: "#445566" },
+  engulfing: { enabled: true, color: "#a855f7" },
+} });
+assert.deepEqual(directionalReversalPreferences.reversal.pinBar, { enabled: true, bullishColor: "#112233", bearishColor: "#445566" });
+assert.notEqual(directionalReversalPreferences.reversal.engulfing.bullishColor, directionalReversalPreferences.reversal.engulfing.bearishColor, "legacy single-color preferences must migrate to unambiguous directional defaults");
 
 let requestedPublicUrl = "";
 const incrementalFetch = await fetchPublicDelayedCharts({

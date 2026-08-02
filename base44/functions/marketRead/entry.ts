@@ -5683,7 +5683,7 @@ Deno.serve(async (req) => {
     }).filter((item) => !query || `${item.symbol} ${item.name_ar} ${item.name_en} ${item.sector_ar} ${item.sector_en}`.toLocaleLowerCase("ar").includes(query)).filter((item) => !sector || item.sector_ar === sector || item.sector_en === sector);
     if (body.mode === "screener") {
       const timeframe = ["1d", "1wk", "1mo"].includes(String(body.timeframe)) ? String(body.timeframe) : "1d";
-      const signal = ["pin_bar_signal", "engulfing_signal", "bullish_engulfing", "bearish_engulfing", "zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"].includes(String(body.signal))
+      const signal = ["pin_bar_signal", "bullish_pin_bar", "bearish_pin_bar", "engulfing_signal", "bullish_engulfing", "bearish_engulfing", "zone_pin_bar", "bullish_zone_pin_bar", "bearish_zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"].includes(String(body.signal))
         ? String(body.signal)
         : "";
       rows = rows.flatMap((item) => {

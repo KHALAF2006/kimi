@@ -20,6 +20,13 @@ function chartSma(value, fallback) {
     lineWidth: Math.max(1, Math.min(5, Math.round(Number(value?.lineWidth) || fallback.lineWidth)))
   };
 }
+function chartReversal(value, fallback) {
+  return {
+    enabled: value?.enabled !== false,
+    bullishColor: chartColor(value?.bullishColor, fallback.bullishColor),
+    bearishColor: chartColor(value?.bearishColor, fallback.bearishColor)
+  };
+}
 function cleanChartPreferences(value) {
   const source = value && typeof value === "object" ? value : {};
   const candleTypes = new Set(["candles", "hollow", "heikin_ashi"]);
@@ -41,14 +48,8 @@ function cleanChartPreferences(value) {
       slow: chartSma(source.sma?.slow, slow)
     },
     reversal: {
-      pinBar: {
-        enabled: source.reversal?.pinBar?.enabled !== false,
-        color: chartColor(source.reversal?.pinBar?.color, "#facc15")
-      },
-      engulfing: {
-        enabled: source.reversal?.engulfing?.enabled !== false,
-        color: chartColor(source.reversal?.engulfing?.color, "#a855f7")
-      }
+      pinBar: chartReversal(source.reversal?.pinBar, { bullishColor: "#0ea5e9", bearishColor: "#ec4899" }),
+      engulfing: chartReversal(source.reversal?.engulfing, { bullishColor: "#16a34a", bearishColor: "#dc2626" })
     }
   };
 }

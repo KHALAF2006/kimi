@@ -7,9 +7,15 @@ import { usePreferences } from "@/lib/preferences";
 
 const signalOptions = [
   { value: "", ar: "كل الإشارات", en: "All signals", icon: Activity },
-  { value: "pin_bar_signal", ar: "شمعة بن بار", en: "Pin bar", icon: CandlestickChart },
-  { value: "engulfing_signal", ar: "شمعة بالعة", en: "Engulfing candle", icon: CandlestickChart },
-  { value: "zone_pin_bar", ar: "بن بار داخل منطقة استثمار", en: "Pin bar in an investor zone", icon: CandlestickChart },
+  { value: "bullish_pin_bar", ar: "بن بار شرائية", en: "Bullish pin bar", icon: CandlestickChart, direction: "bullish" },
+  { value: "bearish_pin_bar", ar: "بن بار بيعية", en: "Bearish pin bar", icon: CandlestickChart, direction: "bearish" },
+  { value: "bullish_engulfing", ar: "شمعة بالعة شرائية", en: "Bullish engulfing", icon: CandlestickChart, direction: "bullish" },
+  { value: "bearish_engulfing", ar: "شمعة بالعة بيعية", en: "Bearish engulfing", icon: CandlestickChart, direction: "bearish" },
+  { value: "bullish_zone_pin_bar", ar: "بن بار شرائية داخل منطقة", en: "Bullish zone pin bar", icon: CandlestickChart, direction: "bullish" },
+  { value: "bearish_zone_pin_bar", ar: "بن بار بيعية داخل منطقة", en: "Bearish zone pin bar", icon: CandlestickChart, direction: "bearish" },
+  { value: "pin_bar_signal", ar: "كل شموع بن بار", en: "All pin bars", icon: CandlestickChart },
+  { value: "engulfing_signal", ar: "كل الشموع البالعة", en: "All engulfing candles", icon: CandlestickChart },
+  { value: "zone_pin_bar", ar: "كل بن بار داخل منطقة", en: "All zone pin bars", icon: CandlestickChart },
   { value: "price_cross_sma20", ar: "اختراق السعر لمتوسط 20", en: "Price crossed SMA 20", icon: TrendingUp },
   { value: "price_cross_sma50", ar: "اختراق السعر لمتوسط 50", en: "Price crossed SMA 50", icon: TrendingUp },
   { value: "sma20_cross_sma50", ar: "تقاطع متوسط 20 فوق 50", en: "SMA 20 crossed above SMA 50", icon: TrendingUp },
@@ -30,8 +36,8 @@ function SignalEvidence({ row, timeframe, language, isArabic }) {
     <span>SMA 20: {formatNumber(values.sma20, language)}</span>
     <span>SMA 50: {formatNumber(values.sma50, language)}</span>
     {values.matching_zone && <span>{isArabic ? values.matching_zone.name_ar : values.matching_zone.name_en}</span>}
-    {values.pin_bar?.matches && <span>{isArabic ? `بن بار ${values.pin_bar.direction === "bullish" ? "صاعد" : "هابط"}` : `${values.pin_bar.direction} pin bar`}</span>}
-    {values.engulfing?.matches && <span>{isArabic ? `ابتلاع ${values.engulfing.direction === "bullish" ? "صاعد" : "هابط"}` : `${values.engulfing.direction} engulfing`}</span>}
+    {values.pin_bar?.matches && <span className={values.pin_bar.direction === "bullish" ? "signal-bullish" : "signal-bearish"}>{isArabic ? `بن بار ${values.pin_bar.direction === "bullish" ? "شرائية" : "بيعية"}` : `${values.pin_bar.direction} pin bar`}</span>}
+    {values.engulfing?.matches && <span className={values.engulfing.direction === "bullish" ? "signal-bullish" : "signal-bearish"}>{isArabic ? `شمعة بالعة ${values.engulfing.direction === "bullish" ? "شرائية" : "بيعية"}` : `${values.engulfing.direction} engulfing`}</span>}
     <span>{isArabic ? "تاريخ الإشارة" : "Signal date"}: {Number.isFinite(candleTimestamp) ? new Date(candleTimestamp).toLocaleDateString(isArabic ? "ar-SA" : "en-US") : "—"}</span>
     <span>{values.is_final === false ? (isArabic ? "الفترة قيد التكوين" : "Forming period") : (isArabic ? "فترة مكتملة" : "Completed period")}</span>
   </div>;
@@ -76,13 +82,13 @@ export default function Screener() {
               onClick={() => setTimeframe(option.value)}
             >{isArabic ? option.ar : option.en}</button>)}
           </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5" role="group" aria-label={isArabic ? "نوع الإشارة" : "Signal type"}>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4" role="group" aria-label={isArabic ? "نوع الإشارة" : "Signal type"}>
             {signalOptions.map((option) => {
               const Icon = option.icon;
               return <button
                 key={option.value || "all"}
                 type="button"
-                className={"screener-signal-button " + (signal === option.value ? "screener-signal-button-active" : "")}
+                className={`screener-signal-button ${option.direction ? `signal-${option.direction}` : ""} ${signal === option.value ? "screener-signal-button-active" : ""}`}
                 aria-pressed={signal === option.value}
                 onClick={() => setSignal(option.value)}
               ><Icon size={16} /><span>{isArabic ? option.ar : option.en}</span></button>;
