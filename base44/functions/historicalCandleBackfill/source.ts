@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { replyError, requirePermission, requireUser } from "../../shared/security.ts";
+import { replyError, requireAdminUser } from "../../shared/security.ts";
 import { groupHistoricalBarsByYear, mergeStoredCandleSeries, normalizeAdjustedHistoricalBars, normalizeYahooHistoricalBars } from "../../shared/market-data.ts";
 
 const MARKET_CODE = "SA_MAIN";
@@ -11,14 +11,6 @@ const DEFAULT_FROM = "1985-01-01";
 const BATCH_SIZE = 10;
 const BATCH_CONCURRENCY = 3;
 
-async function requireBackfillOperator(base44: any, sessionId?: string) {
-  if (sessionId) return await requirePermission(base44, sessionId, "data.ingestion.run");
-  const user = await requireUser(base44);
-  if (user.role !== "admin") {
-    throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
-  }
-  return { user };
-}
 const PROVIDER_CONCURRENCY = 2;
 const MAX_INSTRUMENTS_PER_RUN = 90;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -348,16 +340,13 @@ Deno.serve(async (req) => {
     base44 = createClientFromRequest(req);
     const requestBody = await req.json();
     const body = { ...requestBody, ...(requestBody.args || {}) };
-    const isServiceInvocation = Boolean(req.headers.get("Base44-Service-Authorization"));
+    await requireAdminUser(base44);
     const provider = historyProvider();
     const from = validateDate(body.from, DEFAULT_FROM);
     const to = validateDate(body.to, dateOnly());
     if (from > to) throw Object.assign(new Error("Historical start date must not follow the end date"), { status: 400, code: "INVALID_HISTORY_RANGE" });
 
     if (body.mode === "history_batch") {
-      if (!isServiceInvocation) {
-        throw Object.assign(new Error("Service invocation required"), { status: 403, code: "SERVICE_INVOCATION_REQUIRED" });
-      }
       const instrumentIds = Array.isArray(body.instrument_ids)
         ? [...new Set(body.instrument_ids.map(String).filter(Boolean))].slice(0, BATCH_SIZE)
         : [];
@@ -372,7 +361,6 @@ Deno.serve(async (req) => {
       }));
     }
 
-    if (!isServiceInvocation) await requireBackfillOperator(base44, body.session_id);
     if (body.mode === "status") return Response.json(await archiveStatus(base44, body.symbols));
     const source = await ensureSource(base44, provider);
     const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
@@ -418,7 +406,7 @@ Deno.serve(async (req) => {
     const batchFailures: Array<Record<string, any>> = [];
     for (let offset = 0; offset < batches.length; offset += BATCH_CONCURRENCY) {
       const group = batches.slice(offset, offset + BATCH_CONCURRENCY);
-      const settled = await Promise.allSettled(group.map((instrumentIds) => base44.functions.invoke("historicalCandleBackfill", {
+      const settled = await Promise.allSettled(group.map((instrumentIds) => base44.asServiceRole.functions.invoke("historicalCandleBackfill", {
         mode: "history_batch",
         instrument_ids: instrumentIds,
         source_id: source.id,

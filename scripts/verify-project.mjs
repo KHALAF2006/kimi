@@ -39,9 +39,9 @@ assert.match(ingestion, /var MAIN_MARKET_SYMBOLS = new Set/, "deployed ingestion
 assert.match(ingestion, /name_ar:\s*row\.nameAr/);
 assert.match(ingestion, /name_en:\s*row\.nameEn/);
 assert.match(ingestion, /upsertMany\(base44,\s*["']Instrument["']/);
-assert.match(ingestion, /Base44-Service-Authorization/, "scheduled ingestion must require Base44 service authorization");
-assert.match(ingestion, /const isServiceInvocation = Boolean\(serviceAuthorization\) && body\.force !== true/, "workflow service authorization must take precedence over the creator user identity");
-assert.match(ingestion, /if \(!isServiceInvocation\)/, "manual ingestion must remain behind the owner session and permission checks");
+assert.match(ingestion, /if \(!user\).*Unauthorized/, "market ingestion must reject unauthenticated callers");
+assert.match(ingestion, /user\.role !== "admin"/, "market ingestion must require a verified admin identity");
+assert.doesNotMatch(ingestion, /Base44-Service-Authorization/, "market ingestion must not trust a client-supplied service header");
 assert.match(ingestion, /MAIN_MARKET_SYMBOLS\.has\(row\.symbol\)/, "ingestion must exclude records outside the verified main-market catalog");
 assert.match(ingestion, /KMY_MARKET_DATA_URL/, "licensed ingestion must require a provider endpoint secret");
 assert.match(ingestion, /fetchPublicDelayedCharts/, "experimental ingestion must support public delayed 15-minute charts without a paid key");
@@ -58,14 +58,14 @@ assert.match(ingestion, /query1\.finance\.yahoo\.com/, "experimental public sour
 assert.doesNotMatch(ingestion, /from\s+["']\.\.\/\.\.\/shared\//, "scheduled market ingestion must be self-contained for Base44 function bundling");
 
 const historicalBackfill = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
-assert.match(historicalBackfill, /Base44-Service-Authorization/, "scheduled historical backfill must accept authenticated Base44 service invocations");
-assert.match(historicalBackfill, /body\.mode === "history_batch"[\s\S]*if \(!isServiceInvocation\)/, "historical backfill batches must reject direct user invocation");
-assert.match(historicalBackfill, /if \(!isServiceInvocation\) await requireBackfillOperator/, "manual historical backfill must retain its operator permission gate");
+assert.match(historicalBackfill, /requireAdminUser\(base44\)/, "historical backfill must require a verified admin identity");
+assert.match(historicalBackfill, /asServiceRole\.functions\.invoke\("historicalCandleBackfill"/, "historical child batches must receive a verified service-role identity");
+assert.doesNotMatch(historicalBackfill, /Base44-Service-Authorization/, "historical backfill must not trust a client-supplied service header");
 
 const signalRefresh = await readFile(new URL("../base44/functions/marketSignalRefresh/entry.ts", import.meta.url), "utf8");
-assert.match(signalRefresh, /Base44-Service-Authorization/, "scheduled signal refresh must accept authenticated Base44 service invocations");
-assert.match(signalRefresh, /body\.mode === "projection_batch"[\s\S]*if \(!isServiceInvocation\)/, "signal projection batches must reject direct user invocation");
-assert.match(signalRefresh, /requirePermission\(base44, body\.session_id, "data\.ingestion\.run"\)/, "manual signal refresh must retain its ingestion permission gate");
+assert.match(signalRefresh, /requireAdminUser\(base44\)/, "signal refresh must require a verified admin identity");
+assert.match(signalRefresh, /asServiceRole\.functions\.invoke\("marketSignalRefresh"/, "signal child batches must receive a verified service-role identity");
+assert.doesNotMatch(signalRefresh, /Base44-Service-Authorization/, "signal refresh must not trust a client-supplied service header");
 
 const marketRead = await readFile(new URL("../base44/functions/marketRead/entry.ts", import.meta.url), "utf8");
 assert.match(marketRead, /official_main_market_catalog_2026_07_21_default\.companies/, "deployed reads must contain the bundled verified catalog");

@@ -1,6 +1,6 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 import { canonicalizeQuarterHourBars } from "../../shared/market-data.ts";
-import { replyError, requirePermission } from "../../shared/security.ts";
+import { replyError, requireAdminUser } from "../../shared/security.ts";
 import {
   TECHNICAL_SIGNAL_FORMULA_VERSION,
   TECHNICAL_SIGNAL_WINDOW_SIZE,
@@ -316,26 +316,13 @@ Deno.serve(async (req) => {
     base44 = createClientFromRequest(req);
     const requestBody = await req.json();
     const body = { ...requestBody, ...(requestBody.args || {}) };
-    const isServiceInvocation = Boolean(req.headers.get("Base44-Service-Authorization"));
+    await requireAdminUser(base44);
     if (body.mode === "projection_batch") {
-      if (!isServiceInvocation) {
-        throw Object.assign(new Error("Service invocation required"), { status: 403, code: "SERVICE_INVOCATION_REQUIRED" });
-      }
       const instrumentIds = Array.isArray(body.instrument_ids)
         ? body.instrument_ids.map(String).filter(Boolean).slice(0, PROJECTION_BATCH_SIZE)
         : [];
       if (!instrumentIds.length) throw Object.assign(new Error("instrument_ids are required"), { status: 400 });
       return Response.json(await projectInstrumentBatch(base44, instrumentIds, String(body.session_date || riyadhDate())));
-    }
-    let user: Record<string, any> | null = null;
-    try {
-      user = await base44.auth.me();
-    } catch {
-      user = null;
-    }
-    if (!isServiceInvocation) {
-      if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401, code: "AUTH_REQUIRED" });
-      await requirePermission(base44, body.session_id, "data.ingestion.run");
     }
     const sessionDate = String(body.session_date || riyadhDate());
     const slotKey = `technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
@@ -399,7 +386,7 @@ Deno.serve(async (req) => {
     for (let offset = 0; offset < batches.length; offset += PROJECTION_CONCURRENCY) {
       const group = batches.slice(offset, offset + PROJECTION_CONCURRENCY);
       const settled = await Promise.allSettled(group.map((instrumentIds, groupIndex) =>
-        base44.functions.invoke("marketSignalRefresh", {
+        base44.asServiceRole.functions.invoke("marketSignalRefresh", {
           mode: "projection_batch",
           session_date: sessionDate,
           run_id: run.id,

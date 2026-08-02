@@ -113,24 +113,6 @@ var PERMISSION_CATALOG = [
   { code: "settings.manage", group_code: "administration", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0625\u0639\u062F\u0627\u062F\u0627\u062A \u0627\u0644\u0646\u0638\u0627\u0645", name_en: "Manage system settings", sensitive: true, owner_only: true }
 ].map((permission) => ({ ...permission, active: true }));
 var PERMISSION_CODES = new Set(PERMISSION_CATALOG.map((permission) => permission.code));
-var LEGACY_ROLE_PERMISSIONS = {
-  support: ["dashboard.owner.read", "customers.masked.read"],
-  admin: [
-    "dashboard.owner.read",
-    "customers.masked.read",
-    "customers.full.read",
-    "customers.status.manage",
-    "customers.sessions.revoke",
-    "subscriptions.read",
-    "subscriptions.manage",
-    "data.operations.read",
-    "data.ingestion.run",
-    "data.quality.manage",
-    "alerts.operations.read",
-    "alerts.operations.manage",
-    "audit.read"
-  ]
-};
 
 // base44/shared/security.ts
 async function requireUser(base44) {
@@ -138,26 +120,12 @@ async function requireUser(base44) {
   if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
   return user;
 }
-async function profileFor(base44, user) {
-  const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  return rows[0] || null;
-}
-function hasTrustedOwnerMarker(user, profile) {
-  return user?.role === "admin" && profile?.acquisition_source === "platform_owner_bootstrap" && Array.isArray(profile?.tags) && profile.tags.includes("owner");
-}
-function resolvedRole(user, profile) {
-  return hasTrustedOwnerMarker(user, profile) ? "owner" : profile?.role || user?.role;
-}
-async function requireActiveSession(base44, profile, sessionId) {
-  if (!profile || !sessionId) throw Object.assign(new Error("Active device session required"), { status: 403 });
-  let session = null;
-  try {
-    session = await base44.asServiceRole.entities.ActiveDeviceSession.get(sessionId);
-  } catch {
-    session = null;
+async function requireAdminUser(base44) {
+  const user = await requireUser(base44);
+  if (user.role !== "admin") {
+    throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
   }
-  if (!session || session.customer_id !== profile.id || session.revoked_at || new Date(session.expires_at) <= /* @__PURE__ */ new Date()) throw Object.assign(new Error("Active device session required"), { status: 403 });
-  return session;
+  return user;
 }
 function replyError(error) {
   const status = Number(error?.status) || 500;
@@ -166,104 +134,6 @@ function replyError(error) {
     error: status >= 500 ? "Backend operation failed" : error?.message || "Request failed",
     code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
   }, { status });
-}
-async function audit(base44, userId, action, entityType, entityId, result, reason = "", before = {}, after = {}) {
-  return await base44.asServiceRole.entities.AuditLog.create({
-    actor_user_id: userId,
-    action,
-    entity_type: entityType,
-    entity_id: entityId || "system",
-    reason,
-    before: before && typeof before === "object" ? before : {},
-    after: after && typeof after === "object" ? after : {},
-    result,
-    ip_hash: "server-managed"
-  });
-}
-async function ensurePersonalAccount(base44, profile, userId) {
-  if (!profile || profile.account_status !== "active") throw Object.assign(new Error("Active account required"), { status: 403, code: "ACCOUNT_INACTIVE" });
-  let account = null;
-  if (profile.personal_account_id) account = await base44.asServiceRole.entities.Account.get(profile.personal_account_id);
-  if (!account) {
-    const matches = await base44.asServiceRole.entities.Account.filter({ owner_customer_id: profile.id, account_type: "personal" });
-    account = matches[0] || null;
-  }
-  if (!account) {
-    account = await base44.asServiceRole.entities.Account.create({
-      account_number: `KMY-A-${String(profile.customer_number || profile.id).replace(/[^A-Za-z0-9-]/g, "").slice(-24)}`,
-      account_type: "personal",
-      name: profile.full_name,
-      owner_customer_id: profile.id,
-      status: "active",
-      revision: 1
-    });
-    await base44.asServiceRole.entities.CustomerProfile.update(profile.id, { personal_account_id: account.id });
-    await audit(base44, userId, "account.personal_created", "Account", account.id, "success", "automatic personal account");
-  }
-  if (account.status !== "active") throw Object.assign(new Error("Active account required"), { status: 403, code: "ACCOUNT_INACTIVE" });
-  const memberships = await base44.asServiceRole.entities.AccountMember.filter({ account_id: account.id, customer_id: profile.id });
-  let membership = memberships.find((item) => item.status === "active") || null;
-  if (!membership) {
-    membership = await base44.asServiceRole.entities.AccountMember.create({
-      account_id: account.id,
-      customer_id: profile.id,
-      member_type: account.owner_customer_id === profile.id ? "owner" : "member",
-      status: "active",
-      revision: 1
-    });
-  }
-  return { account, membership };
-}
-async function assignedPermissions(base44, membership) {
-  const assignments = await base44.asServiceRole.entities.MemberRoleAssignment.filter({ member_id: membership.id, status: "active" });
-  const codes = /* @__PURE__ */ new Set();
-  const roles = [];
-  for (const assignment of assignments) {
-    const role = await base44.asServiceRole.entities.RoleDefinition.get(assignment.role_id);
-    if (!role?.active) continue;
-    roles.push({ id: role.id, code: role.code, name_ar: role.name_ar, name_en: role.name_en });
-    const grants = await base44.asServiceRole.entities.RolePermission.filter({ role_id: role.id });
-    grants.forEach((grant) => codes.add(grant.permission_code));
-  }
-  return { codes, roles };
-}
-async function subscriptionContext(base44, profile, account) {
-  const accountSubscriptions = await base44.asServiceRole.entities.Subscription.filter({ account_id: account.id, status: "active" });
-  const customerSubscriptions = accountSubscriptions.length ? [] : await base44.asServiceRole.entities.Subscription.filter({ customer_id: profile.id, status: "active" });
-  const now = Date.now();
-  const subscription = [...accountSubscriptions, ...customerSubscriptions].find((item) => !item.ends_at || new Date(item.ends_at).getTime() > now) || null;
-  if (!subscription) return { subscription: null, plan: null, entitlements: [] };
-  const plan = await base44.asServiceRole.entities.SubscriptionPlan.get(subscription.plan_id);
-  const entitlements = await base44.asServiceRole.entities.PlanEntitlement.filter({ plan_id: subscription.plan_id, enabled: true });
-  return { subscription, plan, entitlements };
-}
-async function authorizationContext(base44, sessionId) {
-  const user = await requireUser(base44);
-  const profile = await profileFor(base44, user);
-  if (!profile) throw Object.assign(new Error("Profile not found"), { status: 404, code: "PROFILE_NOT_FOUND" });
-  await requireActiveSession(base44, profile, sessionId);
-  const role = resolvedRole(user, profile);
-  const { account, membership } = await ensurePersonalAccount(base44, profile, user.id);
-  const assigned = await assignedPermissions(base44, membership);
-  const permissions = role === "owner" ? new Set(PERMISSION_CATALOG.map((permission) => permission.code)) : /* @__PURE__ */ new Set([...LEGACY_ROLE_PERMISSIONS[role] || [], ...assigned.codes]);
-  const subscription = await subscriptionContext(base44, profile, account);
-  return {
-    user,
-    profile,
-    role,
-    account,
-    membership,
-    roles: assigned.roles,
-    permissions,
-    ...subscription
-  };
-}
-async function requirePermission(base44, sessionId, permissionCode) {
-  const context = await authorizationContext(base44, sessionId);
-  if (!context.permissions.has(permissionCode)) {
-    throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
-  }
-  return context;
 }
 
 // base44/shared/momentum.ts
@@ -846,24 +716,11 @@ Deno.serve(async (req) => {
     base44 = createClientFromRequest(req);
     const requestBody = await req.json();
     const body = { ...requestBody, ...requestBody.args || {} };
-    const isServiceInvocation = Boolean(req.headers.get("Base44-Service-Authorization"));
+    await requireAdminUser(base44);
     if (body.mode === "projection_batch") {
-      if (!isServiceInvocation) {
-        throw Object.assign(new Error("Service invocation required"), { status: 403, code: "SERVICE_INVOCATION_REQUIRED" });
-      }
       const instrumentIds = Array.isArray(body.instrument_ids) ? body.instrument_ids.map(String).filter(Boolean).slice(0, PROJECTION_BATCH_SIZE) : [];
       if (!instrumentIds.length) throw Object.assign(new Error("instrument_ids are required"), { status: 400 });
       return Response.json(await projectInstrumentBatch(base44, instrumentIds, String(body.session_date || riyadhDate2())));
-    }
-    let user = null;
-    try {
-      user = await base44.auth.me();
-    } catch {
-      user = null;
-    }
-    if (!isServiceInvocation) {
-      if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401, code: "AUTH_REQUIRED" });
-      await requirePermission(base44, body.session_id, "data.ingestion.run");
     }
     const sessionDate = String(body.session_date || riyadhDate2());
     const slotKey = `technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
@@ -923,7 +780,7 @@ Deno.serve(async (req) => {
     for (let offset = 0; offset < batches.length; offset += PROJECTION_CONCURRENCY) {
       const group = batches.slice(offset, offset + PROJECTION_CONCURRENCY);
       const settled = await Promise.allSettled(group.map(
-        (instrumentIds, groupIndex) => base44.functions.invoke("marketSignalRefresh", {
+        (instrumentIds, groupIndex) => base44.asServiceRole.functions.invoke("marketSignalRefresh", {
           mode: "projection_batch",
           session_date: sessionDate,
           run_id: run.id,
