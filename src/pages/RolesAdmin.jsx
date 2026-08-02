@@ -13,7 +13,7 @@ function errorMessage(error) {
 function PermissionCard({ permission, index, onAdd = null }) {
   return <Draggable draggableId={permission.code} index={index}>
     {(provided) => <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} className="rounded-xl border border-slate-200 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-900">
-      <div className="flex items-start gap-2"><ShieldCheck size={16} className="mt-0.5 text-amber-500" /><div className="min-w-0 flex-1"><b>{permission.name_ar}</b><code className="mt-1 block truncate text-[10px] text-slate-400">{permission.code}</code></div>{onAdd && <button type="button" onClick={() => onAdd(permission.code)} className="icon-button" title="إضافة الصلاحية"><Plus size={14} /></button>}</div>
+      <div className="flex items-start gap-2"><ShieldCheck size={16} className="mt-0.5 text-sky-500" /><div className="min-w-0 flex-1"><b>{permission.name_ar}</b><code className="mt-1 block truncate text-[10px] text-slate-400">{permission.code}</code></div>{onAdd && <button type="button" onClick={() => onAdd(permission.code)} className="icon-button" title="إضافة الصلاحية"><Plus size={14} /></button>}</div>
     </div>}
   </Draggable>;
 }
@@ -105,7 +105,7 @@ export default function RolesAdmin() {
     <div className="mx-auto grid max-w-[1800px] gap-5 px-4 pb-10 lg:grid-cols-[280px_1fr]">
       <aside className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-[#0d192a]">
         <div className="flex items-center justify-between"><b>الأدوار</b><button type="button" className="icon-button" onClick={load} title="تحديث"><RefreshCcw size={15} /></button></div>
-        {state.data?.roles?.map((role) => <button type="button" key={role.id} onClick={() => selectRole(role)} className={`w-full rounded-xl border p-3 text-start ${role.id === selectedRoleId ? "border-amber-400 bg-amber-400/10" : "border-slate-200 dark:border-slate-700"}`}><b className="block">{role.name_ar}</b><small className="text-slate-400">{role.permissions?.length || 0} صلاحية {role.reserved ? "· رسمي" : "· مخصص"}</small></button>)}
+        {state.data?.roles?.map((role) => <button type="button" key={role.id} onClick={() => selectRole(role)} className={`w-full rounded-xl border p-3 text-start ${role.id === selectedRoleId ? "border-sky-400 bg-sky-400/10" : "border-slate-200 dark:border-slate-700"}`}><b className="block">{role.name_ar}</b><small className="text-slate-400">{role.permissions?.length || 0} صلاحية {role.reserved ? "· رسمي" : "· مخصص"}</small></button>)}
         <button type="button" disabled={state.busy} onClick={() => run({ action: "bootstrap", reason: reason || "تهيئة دليل الصلاحيات الرسمي" }, "هُيئت الأدوار والصلاحيات الرسمية.")} className="secondary-button w-full">تهيئة الأدوار الرسمية</button>
       </aside>
 
@@ -116,7 +116,7 @@ export default function RolesAdmin() {
           <DragDropContext onDragEnd={onDragEnd}>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <Droppable droppableId="available">{(provided) => <div ref={provided.innerRef} {...provided.droppableProps} className="min-h-52 space-y-2 rounded-2xl border border-dashed border-slate-300 p-3 dark:border-slate-700"><b className="block text-sm">الصلاحيات المتاحة</b>{available.map((permission, index) => <PermissionCard key={permission.code} permission={permission} index={index} onAdd={selectedRole.reserved ? null : addPermission} />)}{provided.placeholder}</div>}</Droppable>
-              <Droppable droppableId="granted">{(provided) => <div ref={provided.innerRef} {...provided.droppableProps} className="min-h-52 space-y-2 rounded-2xl border border-amber-300 bg-amber-50/40 p-3 dark:border-amber-500/30 dark:bg-amber-950/10"><b className="block text-sm">صلاحيات الدور</b>{granted.map((permission, index) => <PermissionCard key={permission.code} permission={permission} index={index} />)}{provided.placeholder}</div>}</Droppable>
+              <Droppable droppableId="granted">{(provided) => <div ref={provided.innerRef} {...provided.droppableProps} className="min-h-52 space-y-2 rounded-2xl border border-sky-300 bg-sky-50/40 p-3 dark:border-sky-500/30 dark:bg-sky-950/10"><b className="block text-sm">صلاحيات الدور</b>{granted.map((permission, index) => <PermissionCard key={permission.code} permission={permission} index={index} />)}{provided.placeholder}</div>}</Droppable>
             </div>
           </DragDropContext>
           {!selectedRole.reserved && <div className="mt-4 flex flex-wrap gap-3"><input className="form-input min-w-64 flex-1" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="سبب التعديل إلزامي" /><button type="button" className="primary-button" disabled={state.busy || reason.trim().length < 3} onClick={() => run({ action: "set_permissions", role_id: selectedRole.id, expected_revision: selectedRole.revision, permission_codes: permissionCodes, reason }, "حُفظت صلاحيات الدور وسُجل الفرق.")}><Save size={15} />حفظ الصلاحيات</button></div>}

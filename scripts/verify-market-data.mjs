@@ -491,6 +491,30 @@ assert.deepEqual(reversalPatternMap([
   { time: 2, open: 9.9, high: 11.3, low: 9.7, close: 11.2 },
 ]).get(2), { pinDirection: null, engulfingDirection: "bullish" }, "the chart map must retain the pattern direction");
 
+const repeatedReversals = [
+  { time: 1, open: 11, high: 11.2, low: 9.8, close: 10 }, { time: 2, open: 9.9, high: 11.3, low: 9.7, close: 11.2 },
+  { time: 3, open: 12, high: 12.2, low: 10.8, close: 11 }, { time: 4, open: 10.9, high: 12.3, low: 10.7, close: 12.1 },
+  { time: 5, open: 13, high: 13.2, low: 11.8, close: 12 }, { time: 6, open: 11.9, high: 13.3, low: 11.7, close: 13.1 },
+  { time: 7, open: 14, high: 14.2, low: 12.8, close: 13 }, { time: 8, open: 12.9, high: 14.3, low: 12.7, close: 14.1 },
+  { time: 9, open: 10, high: 10.2, low: 9.8, close: 10 },
+  { time: 10, open: 10, high: 10.2, low: 8, close: 10.1 }, { time: 11, open: 10, high: 10.2, low: 8, close: 10.1 },
+  { time: 12, open: 10, high: 10.2, low: 8, close: 10.1 }, { time: 13, open: 10, high: 10.2, low: 8, close: 10.1 },
+  { time: 14, open: 10, high: 10.2, low: 9.8, close: 10 },
+  { time: 15, open: 10.1, high: 12, low: 9.9, close: 10 }, { time: 16, open: 10.1, high: 12, low: 9.9, close: 10 },
+  { time: 17, open: 10.1, high: 12, low: 9.9, close: 10 }, { time: 18, open: 10.1, high: 12, low: 9.9, close: 10 },
+  { time: 19, open: 10, high: 10.2, low: 9.8, close: 10 },
+  { time: 20, open: 10, high: 11.2, low: 9.8, close: 11 }, { time: 21, open: 11.1, high: 11.3, low: 9.7, close: 9.9 },
+  { time: 22, open: 11, high: 12.2, low: 10.8, close: 12 }, { time: 23, open: 12.1, high: 12.3, low: 10.7, close: 10.9 },
+  { time: 24, open: 12, high: 13.2, low: 11.8, close: 13 }, { time: 25, open: 13.1, high: 13.3, low: 11.7, close: 11.9 },
+  { time: 26, open: 13, high: 14.2, low: 12.8, close: 14 }, { time: 27, open: 14.1, high: 14.3, low: 12.7, close: 12.9 },
+];
+const limitedReversals = reversalPatternMap(repeatedReversals, { limitPerType: 3 });
+const limitedValues = [...limitedReversals.values()];
+for (const [field, direction] of [["pinDirection", "bullish"], ["pinDirection", "bearish"], ["engulfingDirection", "bullish"], ["engulfingDirection", "bearish"]]) {
+  assert.equal(limitedValues.filter((item) => item[field] === direction).length, 3, `the chart must retain exactly the latest three ${direction} ${field} matches`);
+}
+for (const hiddenTime of [2, 10, 15, 21]) assert.equal(limitedReversals.has(hiddenTime), false, "the fourth-oldest match in each reversal category must be hidden");
+
 const sessionIntradayBars = [
   { time: "2026-07-29T07:00:00.000Z", open: 10, high: 11, low: 9, close: 10.5, volume: 100 },
   { time: "2026-07-29T08:45:00.000Z", open: 10.5, high: 12, low: 10, close: 11.5, volume: 120 },

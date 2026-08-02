@@ -67,7 +67,7 @@ export default function Screener() {
           <div className="relative">
             <Search className="absolute end-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 pe-12 text-sm outline-none focus:border-amber-500 dark:border-slate-700 dark:bg-slate-950"
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 pe-12 text-sm outline-none focus:border-sky-500 dark:border-slate-700 dark:bg-slate-950"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={isArabic ? "ابحث بالرمز أو الشركة أو القطاع" : "Search symbol, company, or sector"}

@@ -206,10 +206,9 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
 
   const orderedCandles = useMemo(() => normalizeCandles(candles), [candles]);
   const resolvedVisuals = useMemo(() => resolvedChartColors(chartPreferences, theme), [chartPreferences, theme]);
-  const reversalPatterns = useMemo(() => reversalPatternMap(orderedCandles), [orderedCandles]);
+  const reversalPatterns = useMemo(() => reversalPatternMap(orderedCandles, { limitPerType: 3 }), [orderedCandles]);
   const displayCandles = useMemo(() => {
     const display = buildDisplayCandles(orderedCandles, chartPreferences, theme);
-    if (!["1d", "1wk", "1mo"].includes(interval)) return display;
     return display.map((candle) => {
       const pattern = reversalPatterns.get(candle.time);
       const color = pattern?.engulfingDirection && chartPreferences.reversal.engulfing.enabled
@@ -219,7 +218,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
           : null;
       return color ? { ...candle, color, borderColor: color, wickColor: color } : candle;
     });
-  }, [orderedCandles, chartPreferences, theme, interval, reversalPatterns]);
+  }, [orderedCandles, chartPreferences, theme, reversalPatterns]);
   const showSma20 = chartPreferences.sma.fast.enabled;
   const showSma50 = chartPreferences.sma.slow.enabled;
   const setShowSma20 = useCallback((next) => setChartPreferences((current) => sanitizeChartPreferences({
@@ -383,7 +382,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
         textColor: visual.textColor,
         fontFamily: "Tajawal",
         attributionLogo: false,
-        panes: { separatorColor: dark ? "#243247" : "#dbe3ee", separatorHoverColor: "#f59e0b", enableResize: true },
+        panes: { separatorColor: dark ? "#243247" : "#dbe3ee", separatorHoverColor: "#0ea5e9", enableResize: true },
       },
       grid: {
         vertLines: { color: visual.gridColor, visible: visual.gridVisible },
@@ -392,7 +391,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       rightPriceScale: { borderVisible: true, borderColor: dark ? "#475569" : "#94a3b8", ticksVisible: true, minimumWidth: 74, scaleMargins: { top: 0.08, bottom: 0.08 } },
       timeScale: {
         borderVisible: true,
-        borderColor: dark ? "#f59e0b" : "#d97706",
+        borderColor: dark ? "#38bdf8" : "#0284c7",
         ticksVisible: true,
         timeVisible: ["15m", "1h", "2h", "3h", "4h"].includes(interval),
         secondsVisible: false,

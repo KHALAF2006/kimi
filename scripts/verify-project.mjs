@@ -192,8 +192,16 @@ const protectedRoute = await readFile(new URL("../src/components/ProtectedRoute.
 assert.match(protectedRoute, /!isReferencePreview\(\)\s*&&\s*!localStorage\.getItem\(['"]kmy_session_id['"]\)/, "protected market routes must require the verified KMY device session");
 
 const loginPage = await readFile(new URL("../src/pages/Login.jsx", import.meta.url), "utf8");
+const registerPage = await readFile(new URL("../src/pages/Register.jsx", import.meta.url), "utf8");
+const authLayout = await readFile(new URL("../src/components/AuthLayout.jsx", import.meta.url), "utf8");
+const siteStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
 assert.match(loginPage, /isAuthenticated\?t\.sendCode:t\.next/, "an already authenticated Base44 user must continue through KMY email OTP");
 assert.match(loginPage, /base44\.functions\.invoke\(['"]authLogin['"],\{action:['"]start['"]\}\)/, "login must start the server-side OTP challenge");
+for (const [name, source] of [["login", loginPage], ["registration", registerPage], ["authentication layout", authLayout]]) {
+  assert.doesNotMatch(source, /amber|orange|245,158,11/, `${name} must use the site-wide sky identity rather than the retired orange identity`);
+}
+assert.match(siteStyles, /\.chart-history-status[^\n]+amber/, "amber must remain available only for explicit warning semantics");
+assert.doesNotMatch(siteStyles.replace(/\.chart-history-status[^\n]+/g, ""), /amber|orange/, "interactive site identity styles must not retain the retired orange palette");
 
 const companyChart = await readFile(new URL("../src/components/market/CompanyChart.jsx", import.meta.url), "utf8");
 assert.match(companyChart, /showVolume/);
@@ -316,7 +324,11 @@ const companyPanel = await readFile(new URL("../src/components/market/CompanyPan
 assert.match(companyChart, /closest\("#company-profile"\)/, "fullscreen must target the stable company panel so company navigation cannot exit fullscreen");
 assert.match(companyChart, /bullishColor/, "reversal candle rendering must use a distinct bullish color");
 assert.match(companyChart, /bearishColor/, "reversal candle rendering must use a distinct bearish color");
-assert.match(companyChart, /\["1d", "1wk", "1mo"\]/, "reversal coloring must cover every stored technical timeframe");
+assert.match(companyChart, /reversalPatternMap\(orderedCandles, \{ limitPerType: 3 \}\)/, "the chart must show only the latest three candles per reversal type and direction");
+assert.doesNotMatch(companyChart, /if \(!\["1d", "1wk", "1mo"\]\.includes\(interval\)\) return display/, "reversal coloring must not be restricted to daily, weekly and monthly intervals");
+assert.match(companyPanel, /setState\(\(current\) => \(\{ \.\.\.current, loading: true, error: "" \}\)\)/, "company navigation must retain the mounted panel while the next company loads");
+assert.match(companyPanel, /<CompanyChart symbol=\{symbol\}/, "company details and chart requests must start in parallel for smooth navigation");
+assert.doesNotMatch(companyPanel, /if \(state\.loading\) return/, "company navigation must not unmount the chart when cached content exists");
 assert.match(companyPanel, /onMomentumChange=\{handleMomentumChange\}/, "the investor-zone card must consume the chart calculation for the displayed interval");
 assert.doesNotMatch(companyPanel, /indicators\?\.\[0\]/, "company details must never treat an arbitrary first indicator record as investor zones");
 assert.match(marketReadFunction, /momentum_indicator: momentumIndicator/, "company reads must expose a deterministic momentum snapshot instead of relying on entity order");

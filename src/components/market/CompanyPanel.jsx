@@ -16,36 +16,37 @@ function EmptySection({ children }) {
 
 export default function CompanyPanel({ symbol, requestedTimeframe = "", onResetWidth = () => {}, previousCompany = null, nextCompany = null, onSelectCompany = () => {} }) {
   const { language, isArabic, theme } = usePreferences();
-  const [state, setState] = useState({ loading: false, data: null, error: "" });
+  const [state, setState] = useState({ loading: false, data: null, dataSymbol: "", error: "" });
   const [chartMomentum, setChartMomentum] = useState(null);
 
   useEffect(() => {
     setChartMomentum(null);
-    if (!symbol) { setState({ loading: false, data: null, error: "" }); return; }
+    if (!symbol) { setState({ loading: false, data: null, dataSymbol: "", error: "" }); return; }
     let active = true;
-    setState({ loading: true, data: null, error: "" });
+    setState((current) => ({ ...current, loading: true, error: "" }));
     invokeAppFunction("marketRead", { symbol })
-      .then((data) => active && setState({ loading: false, data, error: "" }))
-      .catch((error) => active && setState({ loading: false, data: null, error: error?.response?.data?.error || error?.message || "company_fetch_failed" }));
+      .then((data) => active && setState({ loading: false, data, dataSymbol: symbol, error: "" }))
+      .catch((error) => active && setState((current) => ({ ...current, loading: false, error: error?.response?.data?.error || error?.message || "company_fetch_failed" })));
     return () => { active = false; };
   }, [symbol]);
 
-  const storedMomentum = useMemo(() => normalizeMomentum(
+  const storedMomentum = useMemo(() => state.dataSymbol === symbol ? normalizeMomentum(
     state.data?.momentum_indicator || selectMomentumSnapshot(state.data?.indicators),
     theme,
-  ), [state.data, theme]);
+  ) : null, [state.data, state.dataSymbol, symbol, theme]);
   const momentum = chartMomentum?.symbol === symbol ? chartMomentum.value : storedMomentum;
   const handleMomentumChange = useCallback((value, interval) => {
     setChartMomentum({ symbol, interval, value });
   }, [symbol]);
 
   if (!symbol) return <section className="company-panel-empty"><Building2 size={34} /><h2>{isArabic ? "اختر شركة" : "Select a company"}</h2><p>{isArabic ? "اضغط على أي شركة أو على شريط السوق لعرض السعر والشموع والمعلومات والمؤشر هنا." : "Open any company to view its quote, candles, company information and indicator here."}</p></section>;
-  if (state.loading) return <section className="company-panel-empty"><Loader2 className="animate-spin" /><p>{isArabic ? "جارٍ تحميل معلومات الشركة…" : "Loading company information…"}</p></section>;
-  if (state.error || !state.data?.instrument) return <section className="company-panel-empty text-red-600"><Info /><h2>{isArabic ? "تعذر تحميل الشركة" : "Company unavailable"}</h2><p>{isArabic ? "لم نضع بيانات بديلة. أعد المحاولة بعد عودة خدمة البيانات." : "No substitute data was shown. Retry when the data service returns."}</p></section>;
+  if (state.loading && !state.data?.instrument) return <section className="company-panel-empty"><Loader2 className="animate-spin" /><p>{isArabic ? "جارٍ تحميل معلومات الشركة…" : "Loading company information…"}</p></section>;
+  if ((state.error && state.dataSymbol !== symbol) || !state.data?.instrument) return <section className="company-panel-empty text-red-600"><Info /><h2>{isArabic ? "تعذر تحميل الشركة" : "Company unavailable"}</h2><p>{isArabic ? "لم نضع بيانات بديلة. أعد المحاولة بعد عودة خدمة البيانات." : "No substitute data was shown. Retry when the data service returns."}</p></section>;
 
   const { instrument, quote = {}, financials = [], actions = [], announcements = [], shareholders = [], loss_classification: loss } = state.data;
   const direction = quoteDirection(quote.change_percent);
-  return <div className="space-y-4">
+  return <div className="relative space-y-4" aria-busy={state.loading}>
+    {state.loading && <div className="company-refresh-status" role="status"><Loader2 size={14} className="animate-spin" />{isArabic ? `جارٍ فتح ${symbol}…` : `Opening ${symbol}…`}</div>}
     <section className="company-hero-card">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div><span className="eyebrow"><Building2 size={14} />{isArabic ? "ملف الشركة" : "Company profile"}</span><h2 className="mt-3 text-2xl font-black">{instrument.symbol}</h2><p className="mt-1 text-lg font-bold">{isArabic ? instrument.name_ar : instrument.name_en}</p><p className="mt-1 text-sm text-slate-500">{isArabic ? instrument.sector_ar : instrument.sector_en}</p><div className="mt-3"><LossFlagBadge flag={instrument.warning_flag || loss?.level} /></div></div>
@@ -63,7 +64,7 @@ export default function CompanyPanel({ symbol, requestedTimeframe = "", onResetW
       </div>
     </section>
 
-    <CompanyChart symbol={instrument.symbol} momentum={storedMomentum} requestedInterval={requestedTimeframe} onMomentumChange={handleMomentumChange} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} onResetWidth={onResetWidth} />
+    <CompanyChart symbol={symbol} momentum={storedMomentum} requestedInterval={requestedTimeframe} onMomentumChange={handleMomentumChange} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} onResetWidth={onResetWidth} />
 
     <section className="content-card">
       <div className="section-heading"><TrendingUp size={18} /><div><h3>{isArabic ? "مناطق المستثمر" : "Investor zones"}</h3><p>{isArabic ? "حدود سعرية صارمة محسوبة للفاصل المعروض، بأسمائها وألوانها وأسعارها ووقفها." : "Strict price boundaries for the selected interval, with names, colors, prices and stops."}</p></div></div>

@@ -56,13 +56,39 @@ export function detectEngulfingPattern(previous, current) {
   return null;
 }
 
-export function reversalPatternMap(candles = []) {
-  const result = new Map();
+export function reversalPatternMap(candles = [], { limitPerType = Number.POSITIVE_INFINITY } = {}) {
+  const detected = [];
   for (let index = 0; index < candles.length; index += 1) {
     const candle = candles[index];
     const pinDirection = detectBullishPinBar(candle) ? "bullish" : detectBearishPinBar(candle) ? "bearish" : null;
     const engulfingDirection = detectEngulfingPattern(candles[index - 1], candle);
-    if (pinDirection || engulfingDirection) result.set(candle.time, { pinDirection, engulfingDirection });
+    if (pinDirection || engulfingDirection) detected.push({ time: candle.time, pinDirection, engulfingDirection });
+  }
+
+  const normalizedLimit = Number.isFinite(Number(limitPerType))
+    ? Math.max(0, Math.floor(Number(limitPerType)))
+    : Number.POSITIVE_INFINITY;
+  if (!Number.isFinite(normalizedLimit)) {
+    return new Map(detected.map(({ time, pinDirection, engulfingDirection }) => [time, { pinDirection, engulfingDirection }]));
+  }
+
+  const visibleByType = new Map([
+    ["pin:bullish", new Set()],
+    ["pin:bearish", new Set()],
+    ["engulfing:bullish", new Set()],
+    ["engulfing:bearish", new Set()],
+  ]);
+  for (const key of visibleByType.keys()) {
+    const [pattern, direction] = key.split(":");
+    const matches = detected.filter((item) => item[`${pattern}Direction`] === direction);
+    visibleByType.set(key, new Set((normalizedLimit === 0 ? [] : matches.slice(-normalizedLimit)).map((item) => item.time)));
+  }
+
+  const result = new Map();
+  for (const item of detected) {
+    const pinDirection = item.pinDirection && visibleByType.get(`pin:${item.pinDirection}`).has(item.time) ? item.pinDirection : null;
+    const engulfingDirection = item.engulfingDirection && visibleByType.get(`engulfing:${item.engulfingDirection}`).has(item.time) ? item.engulfingDirection : null;
+    if (pinDirection || engulfingDirection) result.set(item.time, { pinDirection, engulfingDirection });
   }
   return result;
 }
