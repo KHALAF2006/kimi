@@ -1,10 +1,10 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, replyError, requirePermission } from "../../shared/security.ts";
+import { audit, readJsonBody, replyError, requirePermission } from "../../shared/security.ts";
 
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     const { user } = await requirePermission(base44, body.session_id, "alerts.operations.manage");
     if (!body.rule_id || !body.destination_id || !body.quote_time) return Response.json({ error: "rule_id, destination_id and quote_time required" }, { status: 400 });
     const rule = await base44.asServiceRole.entities.AlertRule.get(String(body.rule_id));

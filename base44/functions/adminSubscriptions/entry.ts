@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, authorizationContext, ensurePersonalAccount, replyError } from "../../shared/security.ts";
+import { audit, authorizationContext, ensurePersonalAccount, readJsonBody, replyError } from "../../shared/security.ts";
 import { ENTITLEMENT_CODES } from "../../shared/permissions.ts";
 
 const TRANSITIONS = {
@@ -46,7 +46,7 @@ function addMonths(date, count) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     const context = await authorizationContext(base44, body.session_id);
     requireContextPermission(context, "subscriptions.read");
 

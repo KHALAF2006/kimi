@@ -1,11 +1,11 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, ensurePersonalAccount, profileFor, replyError, requireUser } from "../../shared/security.ts";
+import { audit, ensurePersonalAccount, profileFor, readJsonBody, replyError, requireUser } from "../../shared/security.ts";
 
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const user = await requireUser(base44);
-    const body = await req.json();
+    const body = await readJsonBody(req, 32 * 1024);
     const phone = String(body.phone_e164 || "");
     const country = String(body.country_code || "");
     if (!["SA", "AE", "KW", "QA", "BH", "OM"].includes(country)) return Response.json({ error: "GCC country required" }, { status: 400 });

@@ -83,20 +83,16 @@ assert.equal(isBase44PreviewHost(previewHost), true);
 assert.equal(isBase44PreviewHost("neat-smart-ops-flow.base44.app"), false);
 assert.equal(safePreviewServerUrl(`https://${previewHost}/functions`, previewHost), `https://${previewHost}`);
 assert.equal(safePreviewServerUrl("https://malicious.example/functions", previewHost), "", "preview tokens must never be sent to an untrusted server_url");
-const sourcePreviewStorage = memoryStorage([
-  ["base44_access_token", "test-access-token"],
-  ["kmy_session_id", "test-session-id"],
-  ["kmy_session_expires_at", "2026-08-30T00:00:00.000Z"],
-]);
 const previewContextSearch = `?functions_version=preview-functions-v3&server_url=${encodeURIComponent(`https://${previewHost}`)}&base44_data_env=preview-data&_b44_commit=commit-123`;
-const handedOffHref = previewSafeHref("/screener?timeframe=1wk", { hostname: previewHost, search: previewContextSearch, storage: sourcePreviewStorage });
+const handedOffHref = previewSafeHref("/screener?timeframe=1wk", { hostname: previewHost, search: previewContextSearch });
 const handedOffUrl = new URL(`https://${previewHost}${handedOffHref}`);
 assert.equal(handedOffUrl.searchParams.get("functions_version"), "preview-functions-v3");
 assert.equal(handedOffUrl.searchParams.get("server_url"), `https://${previewHost}`);
 assert.equal(handedOffUrl.searchParams.get("base44_data_env"), "preview-data");
 assert.equal(handedOffUrl.searchParams.get("_b44_commit"), "commit-123");
-assert.ok(handedOffUrl.hash.startsWith("#kmy_preview_auth="), "preview links must carry a one-time tab handoff in the URL fragment");
-assert.equal(previewSafeHref("/screener", { hostname: "neat-smart-ops-flow.base44.app", storage: sourcePreviewStorage }), "/screener", "production links must never carry preview credentials");
+assert.equal(handedOffUrl.hash, "", "preview links must never carry credentials in the URL fragment");
+assert.equal(handedOffHref.includes("test-access-token"), false);
+assert.equal(previewSafeHref("/screener", { hostname: "neat-smart-ops-flow.base44.app" }), "/screener", "production links must never carry preview context or credentials");
 const targetPreviewStorage = memoryStorage();
 let cleanedPreviewUrl = "";
 const restored = consumePreviewAuthHandoff({
@@ -104,15 +100,15 @@ const restored = consumePreviewAuthHandoff({
     hostname: previewHost,
     pathname: "/screener",
     search: handedOffUrl.search,
-    hash: handedOffUrl.hash,
+    hash: "#kmy_preview_auth=legacy-credential-payload",
   },
   history: { replaceState: (_state, _title, url) => { cleanedPreviewUrl = url; } },
   storage: targetPreviewStorage,
 });
-assert.equal(restored, true);
-assert.equal(targetPreviewStorage.getItem("base44_access_token"), "test-access-token");
-assert.equal(targetPreviewStorage.getItem("kmy_session_id"), "test-session-id");
-assert.equal(cleanedPreviewUrl, `/screener${handedOffUrl.search}`, "the credential fragment must be removed while preserving the exact Base44 preview context");
+assert.equal(restored, false);
+assert.equal(targetPreviewStorage.getItem("base44_access_token"), null);
+assert.equal(targetPreviewStorage.getItem("kmy_session_id"), null);
+assert.equal(cleanedPreviewUrl, `/screener${handedOffUrl.search}`, "legacy credential fragments must be removed without restoring them");
 let malformedCleanUrl = "";
 assert.doesNotThrow(() => {
   const malformedRestored = consumePreviewAuthHandoff({

@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, authorizationContext, replyError, requirePermission } from "../../shared/security.ts";
+import { audit, authorizationContext, readJsonBody, replyError, requirePermission } from "../../shared/security.ts";
 
 const ACCOUNT_STATUSES = new Set(["pending_verification", "active", "suspended", "banned", "closed"]);
 
@@ -47,7 +47,7 @@ function customerView(customer, full) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     const context = await authorizationContext(base44, body.session_id);
     const canReadFull = context.permissions.has("customers.full.read");
     if (!context.permissions.has("customers.masked.read") && !canReadFull) bad("Forbidden", "PERMISSION_DENIED", 403);

@@ -2,7 +2,7 @@
 
 // base44/functions/marketRead/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { authorizationContext, replyError } from "../../shared/security.ts";
+import { authorizationContext, readJsonBody, replyError } from "../../shared/security.ts";
 import {
   COVERAGE_FAILED_PERCENT,
   COVERAGE_HEALTHY_PERCENT,
@@ -5717,7 +5717,7 @@ Deno.serve(async (req) => {
   let requestDetails = {};
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     requestDetails = {
       action: body?.action || "snapshot",
       symbol: body?.symbol || null,

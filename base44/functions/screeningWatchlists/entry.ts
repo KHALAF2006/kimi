@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, authorizationContext, replyError } from "../../shared/security.ts";
+import { audit, authorizationContext, readJsonBody, replyError } from "../../shared/security.ts";
 function cleanName(value) {
   const name = String(value || "").trim();
   if (name.length < 2 || name.length > 80) throw Object.assign(new Error("Name must be 2-80 characters"), { status: 400 });
@@ -13,7 +13,7 @@ async function ownedWatchlist(base44, profile, watchlistId) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     const { user, profile } = await authorizationContext(base44, body.session_id);
     if (body.action === "list") {
       const watchlists = await base44.asServiceRole.entities.Watchlist.filter({ customer_id: profile.id });

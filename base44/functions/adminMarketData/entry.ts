@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, replyError, requirePermission } from "../../shared/security.ts";
+import { audit, readJsonBody, replyError, requirePermission } from "../../shared/security.ts";
 import { EXPECTED_INSTRUMENT_COUNT, SAUDI_DELAY_SECONDS } from "../../shared/market-data.ts";
 
 const MARKET_CODE = "SA_MAIN";
@@ -97,7 +97,7 @@ async function health(base44) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     const action = String(body.action || "health");
     await requirePermission(base44, body.session_id, "data.operations.read");
 

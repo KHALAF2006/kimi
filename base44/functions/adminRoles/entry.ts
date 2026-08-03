@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, replyError, requirePermission } from "../../shared/security.ts";
+import { audit, readJsonBody, replyError, requirePermission } from "../../shared/security.ts";
 import { PERMISSION_CATALOG, PERMISSION_CODES, RESERVED_ROLE_TEMPLATES } from "../../shared/permissions.ts";
 
 function bad(message, code = "INVALID_ROLE_REQUEST", status = 400) {
@@ -59,7 +59,7 @@ async function roleView(base44, role) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     const context = await requirePermission(base44, body.session_id, "roles.manage");
     if (context.role !== "owner") bad("Only the platform owner can manage administrative roles", "OWNER_REQUIRED", 403);
 

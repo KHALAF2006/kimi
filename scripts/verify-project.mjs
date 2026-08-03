@@ -40,8 +40,9 @@ assert.match(ingestion, /var MAIN_MARKET_SYMBOLS = new Set/, "deployed ingestion
 assert.match(ingestion, /name_ar:\s*row\.nameAr/);
 assert.match(ingestion, /name_en:\s*row\.nameEn/);
 assert.match(ingestion, /upsertMany\(base44,\s*["']Instrument["']/);
-assert.match(ingestion, /if \(!user\).*Unauthorized/, "market ingestion must reject unauthenticated callers");
-assert.match(ingestion, /user\.role !== "admin"/, "market ingestion must require a verified admin identity");
+assert.match(ingestion, /requireTrustedOwner\(base44\)/, "scheduled market ingestion must require the centralized trusted-owner policy");
+assert.match(ingestion, /requireDataIngestionPermission\(base44, body\.session_id\)/, "manual market ingestion must require an opaque session and the dedicated server permission");
+assert.match(ingestion, /identityContext/, "manual market ingestion must resolve identity and entitlements on the server");
 assert.doesNotMatch(ingestion, /Base44-Service-Authorization/, "market ingestion must not trust a client-supplied service header");
 assert.match(ingestion, /MAIN_MARKET_SYMBOLS\.has\(row\.symbol\)/, "ingestion must exclude records outside the verified main-market catalog");
 assert.match(ingestion, /KMY_MARKET_DATA_URL/, "licensed ingestion must require a provider endpoint secret");
@@ -56,7 +57,7 @@ assert.match(ingestion, /persistIncrementalCandleChunks/, "current-session candl
 assert.doesNotMatch(ingestion, /upsertMany\(base44,\s*["']CandleChunk["']/, "incremental candle writes must not list every historical chunk before each cycle");
 assert.match(ingestion, /QuoteObservation\.bulkCreate/, "accepted provider readings must be stored before promotion");
 assert.match(ingestion, /query1\.finance\.yahoo\.com/, "experimental public source must be explicit and auditable in the backend");
-assert.doesNotMatch(ingestion, /from\s+["']\.\.\/\.\.\/shared\//, "scheduled market ingestion must be self-contained for Base44 function bundling");
+assert.match(ingestion, /from\s+["']\.\.\/\.\.\/shared\/security\.ts["']/, "scheduled market ingestion must use the centralized security boundary");
 
 const historicalBackfill = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
 assert.match(historicalBackfill, /requireAdminUser\(base44\)/, "historical backfill must require a verified admin identity");
@@ -371,16 +372,18 @@ assert.match(companyChart, /zone\.displayNameAr/, "chart labels must follow the 
 const sessionLink = await readFile(new URL("../src/components/SessionLink.jsx", import.meta.url), "utf8");
 const previewAuthHandoff = await readFile(new URL("../src/lib/preview-auth-handoff.js", import.meta.url), "utf8");
 const appParams = await readFile(new URL("../src/lib/app-params.js", import.meta.url), "utf8");
-assert.match(sessionLink, /previewSafeHref/, "internal links must support authenticated Base44 preview tabs");
-assert.match(previewAuthHandoff, /preview--|preview-sandbox--/, "the session handoff must be limited to Base44 preview hosts");
+assert.match(sessionLink, /previewSafeHref/, "internal links must preserve the Base44 preview runtime context");
+assert.match(previewAuthHandoff, /preview--|preview-sandbox--/, "preview context forwarding must be limited to Base44 preview hosts");
 assert.match(previewAuthHandoff, /functions_version/, "new preview tabs must invoke the same Base44 backend version as the source preview");
 assert.match(previewAuthHandoff, /server_url/, "new preview tabs must retain the same Base44 preview backend");
 assert.match(previewAuthHandoff, /base44_data_env/, "new preview tabs must retain the same Base44 data environment");
 assert.match(previewAuthHandoff, /url\.hostname === String\(hostname\)\.toLowerCase\(\)/, "preview server overrides must be restricted to the current Base44 preview origin");
 const previewAwareBase44Client = await readFile(new URL("../src/api/base44Client.js", import.meta.url), "utf8");
 assert.match(previewAwareBase44Client, /serverUrl,/, "the Base44 SDK must receive the validated preview backend URL");
-assert.match(previewAuthHandoff, /browserHistory\.replaceState/, "the preview handoff fragment must be removed before the page continues");
+assert.match(previewAuthHandoff, /browserHistory\.replaceState/, "legacy preview credential fragments must be removed before the page continues");
+assert.doesNotMatch(previewAuthHandoff, /payload\?\.access_token|payload\?\.session_id/, "preview navigation must never restore credentials from a URL payload");
 assert.match(appParams, /persist:\s*false[\s\S]*useStored:\s*false/, "the one-shot clear_access_token flag must never be replayed from browser storage");
+assert.match(appParams, /allowUrlValue:\s*isBase44PreviewHost\(window\.location\.hostname\)/, "published pages must ignore access_token values supplied through the URL");
 const internalLinkFiles = [
   "../src/components/AuthLayout.jsx",
   "../src/components/KmyLayout.jsx",
@@ -475,10 +478,44 @@ const sharedSecurity = await readFile(new URL("../base44/shared/security.ts", im
 assert.match(sharedSecurity, /profile\?\.acquisition_source === "platform_owner_bootstrap"/, "owner access must be rooted in the server-managed platform owner marker");
 assert.match(sharedSecurity, /profile\.tags\.includes\("owner"\)/, "owner access must require the server-managed owner tag");
 assert.doesNotMatch(sharedSecurity, /if \(profile\.role !== "admin"/, "administrative login must never downgrade the owner to admin");
-assert.match(sharedSecurity, /try\s*\{\s*session = await base44\.asServiceRole\.entities\.ActiveDeviceSession\.get\(sessionId\);\s*\}\s*catch\s*\{\s*session = null;/, "unknown session identifiers must be normalized to the same authorization denial");
+assert.match(sharedSecurity, /ActiveDeviceSession\.get\(token\.sessionId\)/, "device sessions must resolve only a versioned opaque bearer token");
+assert.match(sharedSecurity, /fixedTimeEqual\(presentedHash, session\.session_hash\)/, "the session secret must be verified against its stored hash");
+assert.doesNotMatch(sharedSecurity, /ActiveDeviceSession\.get\(sessionId\)/, "a raw entity identifier must never be accepted as a device session credential");
+assert.match(sharedSecurity, /readJsonBody/, "backend functions must share bounded JSON request parsing");
+const { createSessionToken, readJsonBody, requireActiveSession, sha256 } = await import(new URL("../base44/shared/security.ts", import.meta.url));
+const sessionRecordId = "session_record_1234567890";
+const sessionSecret = "12345678-1234-1234-1234-123456789012abcdef0123456789abcdef0123456789";
+const activeSession = {
+  id: sessionRecordId,
+  customer_id: "customer-1",
+  session_hash: await sha256(sessionSecret),
+  revoked_at: null,
+  expires_at: new Date(Date.now() + 60_000).toISOString(),
+  last_seen_at: new Date().toISOString(),
+};
+const sessionBase44 = {
+  asServiceRole: {
+    entities: {
+      ActiveDeviceSession: {
+        get: async (id) => id === sessionRecordId ? activeSession : null,
+        update: async () => activeSession,
+      },
+    },
+  },
+};
+const opaqueSessionToken = createSessionToken(sessionRecordId, sessionSecret);
+assert.equal((await requireActiveSession(sessionBase44, { id: "customer-1" }, opaqueSessionToken)).id, sessionRecordId, "a valid opaque session bearer must be accepted");
+await assert.rejects(() => requireActiveSession(sessionBase44, { id: "customer-1" }, sessionRecordId), /Active device session required/, "a raw entity ID must be rejected");
+await assert.rejects(() => requireActiveSession(sessionBase44, { id: "customer-1" }, createSessionToken(sessionRecordId, `${sessionSecret}0`)), /Active device session required/, "a session token with the wrong secret must be rejected");
+assert.deepEqual(await readJsonBody(new Request("https://example.test/function", { method: "POST", body: JSON.stringify({ action: "status" }) })), { action: "status" });
+await assert.rejects(() => readJsonBody(new Request("https://example.test/function", { method: "GET" })), /Method not allowed/);
+await assert.rejects(() => readJsonBody(new Request("https://example.test/function", { method: "POST", body: "[1,2,3]" })), /JSON object required/);
+await assert.rejects(() => readJsonBody(new Request("https://example.test/function", { method: "POST", headers: { "content-length": "300000" }, body: "{}" })), /too large/);
 const authLoginFunction = await readFile(new URL("../base44/functions/authLogin/entry.ts", import.meta.url), "utf8");
 assert.match(authLoginFunction, /ensureAdministrativeProfile/, "the deployed authLogin function must use the centralized trusted-owner reconciliation");
 assert.match(authLoginFunction, /shared\/security\.ts/, "the deployed authLogin function must not duplicate security policy");
+assert.match(authLoginFunction, /createSessionToken\(session\.id, sessionSecret\)/, "login must return an opaque session bearer rather than an entity ID");
+assert.match(authLoginFunction, /body\.action === "logout"[\s\S]*requireActiveSession[\s\S]*revoked_at/, "logout must revoke the verified server-side device session");
 assert.match(loginPage, /base44\.auth\.setToken\(login\.access_token,true\)/, "Base44 authentication must persist across same-origin tabs");
 assert.match(loginPage, /kmy_device_id/, "all tabs on one browser device must share a stable device identity");
 for (const fileName of ["adminCustomers", "adminSubscriptions", "adminRoles", "identityContext", "operationsQuality", "adminMarketData"]) {
@@ -502,13 +539,37 @@ assert.match(marketIngestionFunction, /row\.instrument_id\s*\|\|\s*row\.symbol\s
 assert.match(marketIngestionFunction, /bulkUpdateUnique\(base44\.asServiceRole\.entities\.DataQualityIssue,\s*updates\)/, "quality issue updates must send every entity ID at most once");
 assert.match(marketIngestionFunction, /bulkUpdateUnique\(base44\.asServiceRole\.entities\.QuoteLatest,\s*updates\)/, "stale quote updates must send every entity ID at most once");
 const legacySchemaBridge = await readFile(new URL("../base44/functions/legacySchemaBridge/entry.ts", import.meta.url), "utf8");
-assert.match(legacySchemaBridge, /profile\?\.acquisition_source === "platform_owner_bootstrap"/, "the additive legacy bridge must be restricted to the trusted platform owner");
-assert.match(legacySchemaBridge, /user\.id !== PLATFORM_OWNER_USER_ID/, "the production bridge must require the immutable Base44 owner identity");
+assert.match(legacySchemaBridge, /requireTrustedOwner/, "the additive legacy bridge must be restricted to the centralized trusted owner policy");
+assert.doesNotMatch(legacySchemaBridge, /PLATFORM_OWNER_USER_ID/, "owner authorization must not depend on a hard-coded user identifier");
 assert.doesNotMatch(legacySchemaBridge, /\.delete\(|deleteMany|updateMany/, "the legacy bridge must never delete or bulk-update production records");
 assert.match(legacySchemaBridge, /Math\.min\(100,/, "legacy migration batches must be bounded");
 assert.match(legacySchemaBridge, /QuoteObservation:\s*"quote-observation"/, "the schema audit must cover every canonical/legacy entity pair");
 assert.match(legacySchemaBridge, /official_exists/, "the schema audit must distinguish missing official schemas from empty schemas");
 assert.match(legacySchemaBridge, /count_capped/, "the schema audit must disclose bounded-count results");
+
+const boundedBodyFunctions = [
+  "adminCustomers", "adminMarketData", "adminRoles", "adminSubscriptions", "alertEvaluation",
+  "authLogin", "authRegistration", "chartDrawings", "companyIntelligence", "customerSelfService",
+  "historicalCandleBackfill", "identityContext", "indicatorEngine", "legacySchemaBridge", "marketIngestion",
+  "marketRead", "marketSignalRefresh", "operationsQuality", "screeningWatchlists", "telegramDelivery", "whatsappDelivery",
+];
+for (const functionName of boundedBodyFunctions) {
+  const functionSource = await readFile(new URL(`../base44/functions/${functionName}/entry.ts`, import.meta.url), "utf8");
+  assert.match(functionSource, /readJsonBody/, `${functionName} must reject non-POST, malformed, and oversized JSON bodies`);
+}
+const indexHtml = await readFile(new URL("../index.html", import.meta.url), "utf8");
+assert.match(indexHtml, /Content-Security-Policy/, "the frontend must ship a restrictive CSP even when the hosting layer omits the header");
+assert.match(indexHtml, /object-src 'none'/, "the CSP must disable plugin object execution");
+assert.doesNotMatch(indexHtml, /script-src[^;]*'unsafe-inline'/, "the frontend CSP must not allow arbitrary inline script execution");
+const viteSecurityConfig = await readFile(new URL("../vite.config.js", import.meta.url), "utf8");
+assert.match(viteSecurityConfig, /cspInlineScriptHashes/, "the build must hash Base44's injected inline script instead of weakening script-src");
+assert.match(viteSecurityConfig, /createHash\('sha256'\)/, "inline-script CSP allowances must be content-bound SHA-256 hashes");
+const packageManifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+assert.equal(packageManifest.dependencies["react-router-dom"], "7.18.1");
+assert.equal(packageManifest.devDependencies.postcss, "8.5.23");
+assert.match(packageManifest.devDependencies["brace-expansion"], /\/v1\.1\.18\.tar\.gz$/, "the patched brace-expansion release must use a deployable HTTPS artifact");
+assert.equal(packageManifest.overrides["brace-expansion"], "$brace-expansion");
+assert.equal(packageManifest.overrides["socket.io-parser"], "4.2.7");
 
 const { calculateRsiSeries, calculateMomentumSnapshot, companyDashboardPath, normalizeMomentum, selectMomentumSnapshot } = await import(new URL("../src/lib/market.js", import.meta.url));
 const { chartPreferencePayload, sanitizeChartPreferences } = await import(new URL("../src/lib/chart-visuals.js", import.meta.url));

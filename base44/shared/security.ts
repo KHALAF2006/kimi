@@ -1,5 +1,59 @@
 import { LEGACY_ROLE_PERMISSIONS, PERMISSION_CATALOG } from "./permissions.ts";
 
+const MAX_JSON_BODY_BYTES = 256 * 1024;
+const SESSION_TOKEN_PREFIX = "kmy1";
+
+export async function sha256(value) {
+  const bytes = new TextEncoder().encode(String(value));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (item) => item.toString(16).padStart(2, "0")).join("");
+}
+
+function fixedTimeEqual(left, right) {
+  const a = String(left || "");
+  const b = String(right || "");
+  if (a.length !== b.length) return false;
+  let difference = 0;
+  for (let index = 0; index < a.length; index += 1) difference |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  return difference === 0;
+}
+
+export function createSessionToken(sessionId, secret) {
+  return `${SESSION_TOKEN_PREFIX}.${sessionId}.${secret}`;
+}
+
+function parseSessionToken(value) {
+  const parts = String(value || "").split(".");
+  if (parts.length !== 3 || parts[0] !== SESSION_TOKEN_PREFIX || !parts[1] || !parts[2]) return null;
+  if (!/^[A-Za-z0-9_-]{16,160}$/.test(parts[1]) || !/^[A-Fa-f0-9-]{32,160}$/.test(parts[2])) return null;
+  return { sessionId: parts[1], secret: parts[2] };
+}
+
+export async function readJsonBody(req, maxBytes = MAX_JSON_BODY_BYTES) {
+  if (String(req?.method || "").toUpperCase() !== "POST") {
+    throw Object.assign(new Error("Method not allowed"), { status: 405, code: "METHOD_NOT_ALLOWED" });
+  }
+  const declaredLength = Number(req.headers?.get?.("content-length") || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw Object.assign(new Error("Request body is too large"), { status: 413, code: "REQUEST_TOO_LARGE" });
+  }
+  const raw = await req.text();
+  if (new TextEncoder().encode(raw).byteLength > maxBytes) {
+    throw Object.assign(new Error("Request body is too large"), { status: 413, code: "REQUEST_TOO_LARGE" });
+  }
+  if (!raw.trim()) return {};
+  let body;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    throw Object.assign(new Error("Invalid JSON request"), { status: 400, code: "INVALID_JSON" });
+  }
+  if (!body || Array.isArray(body) || typeof body !== "object") {
+    throw Object.assign(new Error("JSON object required"), { status: 400, code: "INVALID_JSON_OBJECT" });
+  }
+  return body;
+}
+
 export async function requireUser(base44) {
   const user = await base44.auth.me();
   if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
@@ -12,6 +66,15 @@ export async function requireAdminUser(base44) {
     throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
   }
   return user;
+}
+
+export async function requireTrustedOwner(base44) {
+  const user = await requireAdminUser(base44);
+  const profile = await profileFor(base44, user);
+  if (!hasTrustedOwnerMarker(user, profile)) {
+    throw Object.assign(new Error("Forbidden"), { status: 403, code: "OWNER_REQUIRED" });
+  }
+  return { user, profile, role: "owner" };
 }
 
 export async function profileFor(base44, user) {
@@ -90,13 +153,27 @@ export async function requireRole(base44, roles) {
 
 export async function requireActiveSession(base44, profile, sessionId) {
   if (!profile || !sessionId) throw Object.assign(new Error("Active device session required"), { status: 403 });
+  const token = parseSessionToken(sessionId);
+  if (!token) throw Object.assign(new Error("Active device session required"), { status: 403 });
   let session = null;
   try {
-    session = await base44.asServiceRole.entities.ActiveDeviceSession.get(sessionId);
+    session = await base44.asServiceRole.entities.ActiveDeviceSession.get(token.sessionId);
   } catch {
     session = null;
   }
-  if (!session || session.customer_id !== profile.id || session.revoked_at || new Date(session.expires_at) <= new Date()) throw Object.assign(new Error("Active device session required"), { status: 403 });
+  const presentedHash = session ? await sha256(token.secret) : "";
+  if (!session
+    || session.customer_id !== profile.id
+    || session.revoked_at
+    || new Date(session.expires_at) <= new Date()
+    || !fixedTimeEqual(presentedHash, session.session_hash)) {
+    throw Object.assign(new Error("Active device session required"), { status: 403 });
+  }
+  const now = Date.now();
+  const lastSeen = new Date(session.last_seen_at || 0).getTime();
+  if (!Number.isFinite(lastSeen) || now - lastSeen >= 5 * 60 * 1000) {
+    await base44.asServiceRole.entities.ActiveDeviceSession.update(session.id, { last_seen_at: new Date(now).toISOString() });
+  }
   return session;
 }
 
@@ -119,7 +196,7 @@ export async function audit(base44, userId, action, entityType, entityId, result
     before: before && typeof before === "object" ? before : {},
     after: after && typeof after === "object" ? after : {},
     result,
-    ip_hash: "server-managed",
+    ip_hash: "not_collected",
   });
 }
 

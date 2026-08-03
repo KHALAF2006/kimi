@@ -1,10 +1,10 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, replyError, requirePermission } from "../../shared/security.ts";
+import { audit, readJsonBody, replyError, requirePermission } from "../../shared/security.ts";
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   let event = null;
   try {
-    const body = await req.json();
+    const body = await readJsonBody(req);
     const { user } = await requirePermission(base44, body.session_id, "alerts.operations.manage");
     event = await base44.asServiceRole.entities.DeliveryEvent.get(String(body.event_id || ""));
     if (!event || event.channel !== "whatsapp") return Response.json({ error: "WhatsApp delivery event not found" }, { status: 404 });

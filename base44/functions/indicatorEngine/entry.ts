@@ -1,10 +1,10 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { replyError, requirePermission } from "../../shared/security.ts";
+import { readJsonBody, replyError, requirePermission } from "../../shared/security.ts";
 import { MOMENTUM_FORMULA_VERSION, calculateMomentumZones } from "../../shared/momentum.ts";
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
+    const body = await readJsonBody(req, 1024 * 1024);
     await requirePermission(base44, body.session_id, "data.operations.read");
     if (!Array.isArray(body.bars) || body.bars.length < 2) {
       return Response.json({ status: "insufficient_history", required: 2 }, { status: 422 });

@@ -1,6 +1,6 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 import { canonicalizeQuarterHourBars } from "../../shared/market-data.ts";
-import { replyError, requireAdminUser } from "../../shared/security.ts";
+import { readJsonBody, replyError, requirePermission, requireTrustedOwner } from "../../shared/security.ts";
 import {
   TECHNICAL_SIGNAL_FORMULA_VERSION,
   TECHNICAL_SIGNAL_WINDOW_SIZE,
@@ -332,9 +332,10 @@ Deno.serve(async (req) => {
   let run: Record<string, any> | null = null;
   try {
     base44 = createClientFromRequest(req);
-    const requestBody = await req.json();
+    const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...(requestBody.args || {}) };
-    await requireAdminUser(base44);
+    if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
+    else await requireTrustedOwner(base44);
     if (body.mode === "projection_batch") {
       const instrumentIds = Array.isArray(body.instrument_ids)
         ? body.instrument_ids.map(String).filter(Boolean).slice(0, PROJECTION_BATCH_SIZE)
@@ -410,6 +411,7 @@ Deno.serve(async (req) => {
           run_id: run.id,
           batch_index: offset + groupIndex,
           instrument_ids: instrumentIds,
+          session_id: body.session_id || undefined,
         })
       ));
       settled.forEach((result, groupIndex) => {

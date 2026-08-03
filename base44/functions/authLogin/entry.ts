@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, ensureAdministrativeProfile, replyError, requireUser } from "../../shared/security.ts";
+import { audit, createSessionToken, ensureAdministrativeProfile, readJsonBody, replyError, requireActiveSession, requireUser, sha256 } from "../../shared/security.ts";
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_COOLDOWN_MS = 60 * 1000;
@@ -37,15 +37,21 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const user = await requireUser(base44);
-    const body = await req.json();
+    const body = await readJsonBody(req, 16 * 1024);
     const profile = await ensureAdministrativeProfile(base44, user);
     if (!profile) return Response.json({ error: "Complete registration before signing in", code: "PROFILE_SETUP_REQUIRED" }, { status: 428 });
+    if (body.action === "logout") {
+      const session = await requireActiveSession(base44, profile, body.session_id);
+      const revokedAt = new Date().toISOString();
+      await base44.asServiceRole.entities.ActiveDeviceSession.update(session.id, { revoked_at: revokedAt });
+      await audit(base44, user.id, "session.revoked", "ActiveDeviceSession", session.id, "success", "user_logout");
+      return Response.json({ status: "signed_out", revoked_at: revokedAt });
+    }
     if (profile.account_status !== "active") return Response.json({ error: "Account is not active", code: "ACCOUNT_NOT_ACTIVE" }, { status: 403 });
-    const hash = async (v) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(v)))).map((x) => x.toString(16).padStart(2, "0")).join("");
     if (body.action === "start") {
       await enforceOtpStartLimit(base44, user, profile);
       const otp = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1e6).padStart(6, "0");
-      const challenge2 = await base44.asServiceRole.entities.LoginChallenge.create({ customer_id: profile.id, purpose: "login", email_otp_hash: await hash(otp), attempts: 0, max_attempts: 5, expires_at: new Date(Date.now() + OTP_TTL_MS).toISOString() });
+      const challenge2 = await base44.asServiceRole.entities.LoginChallenge.create({ customer_id: profile.id, purpose: "login", email_otp_hash: await sha256(otp), attempts: 0, max_attempts: 5, expires_at: new Date(Date.now() + OTP_TTL_MS).toISOString() });
       await base44.asServiceRole.integrations.Core.SendEmail({ to: user.email, subject: "\u0631\u0645\u0632 \u062F\u062E\u0648\u0644 \u0643\u064A\u0645\u064A", body: `\u0631\u0645\u0632 \u0627\u0644\u062A\u062D\u0642\u0642 \u0627\u0644\u062E\u0627\u0635 \u0628\u0643 \u0647\u0648: ${otp}
 \u064A\u0646\u062A\u0647\u064A \u062E\u0644\u0627\u0644 10 \u062F\u0642\u0627\u0626\u0642.` });
       await audit(base44, user.id, "login.otp_sent", "LoginChallenge", challenge2.id, "success");
@@ -54,7 +60,7 @@ Deno.serve(async (req) => {
     if (body.action !== "verify") return Response.json({ error: "Unsupported action" }, { status: 400 });
     const challenge = await base44.asServiceRole.entities.LoginChallenge.get(body.challenge_id);
     if (!challenge || challenge.customer_id !== profile.id || challenge.purpose !== "login" || challenge.completed_at || new Date(challenge.expires_at) <= /* @__PURE__ */ new Date() || challenge.attempts >= Number(challenge.max_attempts || 5)) return Response.json({ error: "Challenge expired" }, { status: 400 });
-    if (await hash(String(body.otp || "")) !== challenge.email_otp_hash) {
+    if (await sha256(String(body.otp || "")) !== challenge.email_otp_hash) {
       await base44.asServiceRole.entities.LoginChallenge.update(challenge.id, { attempts: challenge.attempts + 1 });
       await audit(base44, user.id, "login.otp_rejected", "LoginChallenge", challenge.id, "denied");
       return Response.json({ error: "Invalid code" }, { status: 400 });
@@ -63,10 +69,11 @@ Deno.serve(async (req) => {
     await base44.asServiceRole.entities.LoginChallenge.update(challenge.id, { completed_at: now });
     await base44.asServiceRole.entities.ActiveDeviceSession.updateMany({ customer_id: profile.id, revoked_at: null }, { $set: { revoked_at: now } });
     const remember = Boolean(body.remember_me), expires = new Date(Date.now() + (remember ? 30 : 1) * 864e5).toISOString();
-    const session = await base44.asServiceRole.entities.ActiveDeviceSession.create({ customer_id: profile.id, session_hash: await hash(`${user.id}:${crypto.randomUUID()}`), device_hash: await hash(String(body.device_id || "browser")), remember_me: remember, expires_at: expires, last_seen_at: now });
+    const sessionSecret = `${crypto.randomUUID()}${crypto.randomUUID().replaceAll("-", "")}`;
+    const session = await base44.asServiceRole.entities.ActiveDeviceSession.create({ customer_id: profile.id, session_hash: await sha256(sessionSecret), device_hash: await sha256(String(body.device_id || "browser")), remember_me: remember, expires_at: expires, last_seen_at: now });
     await base44.asServiceRole.entities.CustomerProfile.update(profile.id, { last_login_at: now, last_seen_at: now });
     await audit(base44, user.id, "session.created", "ActiveDeviceSession", session.id, "success");
-    return Response.json({ session_id: session.id, expires_at: expires });
+    return Response.json({ session_id: createSessionToken(session.id, sessionSecret), expires_at: expires });
   } catch (error) {
     return replyError(error);
   }

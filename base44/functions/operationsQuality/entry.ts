@@ -1,10 +1,10 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { replyError, requirePermission } from "../../shared/security.ts";
+import { readJsonBody, replyError, requirePermission } from "../../shared/security.ts";
 
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     await requirePermission(base44, body.session_id, "data.operations.read");
     const [sources, issues, runs, deliveryEvents] = await Promise.all([
       base44.asServiceRole.entities.DataSource.list("name", 100),

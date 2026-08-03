@@ -1,6 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-
-const PLATFORM_OWNER_USER_ID = "6a600ea3afc36e37cea9e385";
+import { readJsonBody, requireTrustedOwner } from "../../shared/security.ts";
 
 const CHILD_ENTITIES = {
   QuoteLatest: { source: "quote-latest", fingerprint: (row) => row.instrument_id },
@@ -83,12 +82,7 @@ async function bulkCreate(handler, rows) {
 }
 
 async function trustedOwner(base44) {
-  const user = await base44.auth.me();
-  if (!user || user.role !== "admin" || user.id !== PLATFORM_OWNER_USER_ID) {
-    throw Object.assign(new Error("Forbidden"), { status: 403 });
-  }
-  const profiles = await base44.asServiceRole.entities["customer-profile"].filter({ auth_user_id: user.id });
-  const profile = profiles[0] || null;
+  const { user, profile } = await requireTrustedOwner(base44);
   return { user, profile };
 }
 
@@ -229,7 +223,7 @@ function replyError(error) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json().catch(() => ({}));
+    const body = await readJsonBody(req);
     const owner = await trustedOwner(base44);
     const action = String(body.action || "status");
 

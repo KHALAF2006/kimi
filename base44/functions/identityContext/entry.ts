@@ -1,10 +1,10 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { authorizationContext, replyError } from "../../shared/security.ts";
+import { authorizationContext, readJsonBody, replyError } from "../../shared/security.ts";
 
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
+    const body = await readJsonBody(req, 16 * 1024);
     const context = await authorizationContext(base44, body.session_id);
     return Response.json({
       identity: {

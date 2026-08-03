@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { replyError, requireAdminUser } from "../../shared/security.ts";
+import { readJsonBody, replyError, requireTrustedOwner } from "../../shared/security.ts";
 
 const MODES = new Set(["daily", "financials", "bootstrap"]);
 const OFFICIAL_HOST = /(^|\.)saudiexchange\.sa$/i;
@@ -42,7 +42,7 @@ async function sha256(value) {
 }
 
 async function authorize(base44, mode) {
-  const user = await requireAdminUser(base44);
+  const { user } = await requireTrustedOwner(base44);
   return { actor: user.id, mode };
 }
 
@@ -97,7 +97,7 @@ async function upsertMany(base44, entity, input, keys) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const requestBody = await req.json();
+    const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...(requestBody.args || {}) };
     const mode = String(body.mode || "daily");
     if (!MODES.has(mode)) fail("Unsupported company intelligence mode");

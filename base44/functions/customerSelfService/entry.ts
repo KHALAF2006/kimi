@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, authorizationContext, replyError } from "../../shared/security.ts";
+import { audit, authorizationContext, readJsonBody, replyError } from "../../shared/security.ts";
 function text(value, field, min = 1, max = 80) {
   const result = String(value || "").trim();
   if (result.length < min || result.length > max) throw Object.assign(new Error(`${field} must be ${min}-${max} characters`), { status: 400 });
@@ -62,7 +62,7 @@ async function owned(base44, entity, id, profile) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     const { user, profile } = await authorizationContext(base44, body.session_id);
     if (body.action === "read") {
       const sessions = await base44.asServiceRole.entities.ActiveDeviceSession.filter({ customer_id: profile.id });

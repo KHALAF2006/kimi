@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, profileFor, replyError, requireActiveSession, requireUser } from "../../shared/security.ts";
+import { audit, profileFor, readJsonBody, replyError, requireActiveSession, requireUser } from "../../shared/security.ts";
 
 // base44/functions/chartDrawings/entry.ts
 var TYPES = /* @__PURE__ */ new Set(["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure", "price_range", "date_range", "date_and_price_range"]);
@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
     const user = await requireUser(base44);
     const profile = await profileFor(base44, user);
     if (!profile) throw Object.assign(new Error("Profile not found"), { status: 404 });
-    const body = await req.json();
+    const body = await readJsonBody(req);
     await requireActiveSession(base44, profile, body.session_id);
     if (body.action === "list") {
       const symbol = String(body.symbol || "").trim();

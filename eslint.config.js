@@ -24,11 +24,6 @@ export default [
         },
       },
     },
-    settings: {
-      react: {
-        version: "detect",
-      },
-    },
     plugins: {
       react: pluginReact,
       "react-hooks": pluginReactHooks,
@@ -48,13 +43,18 @@ export default [
           argsIgnorePattern: "^_",
         },
       ],
+      "react-hooks/rules-of-hooks": "error",
       "react/prop-types": "off",
       "react/react-in-jsx-scope": "off",
       "react/no-unknown-property": [
         "error",
         { ignore: ["cmdk-input-wrapper", "toast-close"] },
       ],
-      "react-hooks/rules-of-hooks": "error",
+    },
+    settings: {
+      react: {
+        version: "detect",
+      },
     },
   },
 ];

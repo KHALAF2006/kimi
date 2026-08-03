@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { replyError, requireAdminUser } from "../../shared/security.ts";
+import { readJsonBody, replyError, requirePermission, requireTrustedOwner } from "../../shared/security.ts";
 import { groupHistoricalBarsByYear, mergeStoredCandleSeries, normalizeAdjustedHistoricalBars, normalizeYahooHistoricalBars } from "../../shared/market-data.ts";
 
 const MARKET_CODE = "SA_MAIN";
@@ -364,9 +364,10 @@ Deno.serve(async (req) => {
   let run: Record<string, any> | null = null;
   try {
     base44 = createClientFromRequest(req);
-    const requestBody = await req.json();
+    const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...(requestBody.args || {}) };
-    await requireAdminUser(base44);
+    if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
+    else await requireTrustedOwner(base44);
     await ensureTasiInstrument(base44);
     const provider = historyProvider();
     const from = validateDate(body.from, DEFAULT_FROM);
@@ -385,6 +386,7 @@ Deno.serve(async (req) => {
         sourceId: String(body.source_id),
         runId: String(body.run_id),
         force: body.force === true,
+        session_id: body.session_id || undefined,
       }));
     }
 

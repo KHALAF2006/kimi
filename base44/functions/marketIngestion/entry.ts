@@ -1,5 +1,6 @@
 // base44/functions/marketIngestion/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
+import { readJsonBody, requireTrustedOwner } from "../../shared/security.ts";
 
 // base44/shared/market-data.ts
 var SAUDI_MAIN_MARKET = "SA_MAIN";
@@ -6076,17 +6077,14 @@ Deno.serve(async (req) => {
   let stage = "request";
   try {
     base44 = createClientFromRequest(req);
-    const requestBody = await req.json();
+    const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...requestBody.args || {} };
-    let user = null;
-    try {
-      user = await base44.auth.me();
-    } catch {
-      user = null;
-    }
-    if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
-    if (user.role !== "admin") throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
-    const isServiceInvocation = String(body.source || "").startsWith("scheduled_") && body.force !== true;
+    const scheduledSources = new Set(["experimental_t15", "close_price", "session_final"]);
+    const isServiceInvocation = !body.session_id && scheduledSources.has(String(body.source || "")) && body.force !== true;
+    const identity = isServiceInvocation
+      ? await requireTrustedOwner(base44)
+      : await requireDataIngestionPermission(base44, body.session_id);
+    const user = identity.user || identity.identity;
     const effectiveSource = isServiceInvocation
       ? `scheduled_${String(body.source || "experimental_t15").replace(/^scheduled_/, "")}`
       : String(body.source || "manual");

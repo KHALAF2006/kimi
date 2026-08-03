@@ -1,4 +1,4 @@
-import { consumePreviewAuthHandoff, safePreviewServerUrl } from '@/lib/preview-auth-handoff';
+import { consumePreviewAuthHandoff, isBase44PreviewHost, safePreviewServerUrl } from '@/lib/preview-auth-handoff';
 
 const isNode = typeof window === 'undefined';
 const memoryStorage = new Map();
@@ -21,6 +21,7 @@ const getAppParamValue = (paramName, {
 	removeFromUrl = false,
 	persist = true,
 	useStored = true,
+	allowUrlValue = true,
 } = {}) => {
 	if (isNode) {
 		return defaultValue;
@@ -34,7 +35,7 @@ const getAppParamValue = (paramName, {
 			}${window.location.hash}`;
 		window.history.replaceState({}, document.title, newUrl);
 	}
-	if (searchParam) {
+	if (searchParam && allowUrlValue) {
 		if (persist) {
 			storage.setItem(storageKey, searchParam);
 		}
@@ -73,7 +74,10 @@ const getAppParams = () => {
 	});
 	return {
 		appId: getAppParamValue("app_id", { defaultValue: import.meta.env.VITE_BASE44_APP_ID }),
-		token: getAppParamValue("access_token", { removeFromUrl: true }),
+		token: getAppParamValue("access_token", {
+			removeFromUrl: true,
+			allowUrlValue: isBase44PreviewHost(window.location.hostname),
+		}),
 		fromUrl: getAppParamValue("from_url", { defaultValue: window.location.href }),
 		// Preview URLs may pin a backend version, but that pin must never leak
 		// into the published app through localStorage.

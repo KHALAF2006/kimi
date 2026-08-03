@@ -27,7 +27,7 @@ export default function KmyLayout() {
         <div className="ms-auto flex items-center gap-1">
           <button className="icon-button language-switch" onClick={toggleLanguage} title={isArabic ? "English" : "العربية"} aria-label={isArabic ? "Switch to English" : "التبديل إلى العربية"}>{isArabic ? "E" : "ع"}</button>
           <button className="icon-button" onClick={toggleTheme} title={isArabic ? "تغيير المظهر" : "Change theme"}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button>
-          <button aria-label={isArabic ? "تسجيل الخروج" : "Sign out"} onClick={() => { localStorage.removeItem("kmy_session_id"); localStorage.removeItem("kmy_session_expires_at"); window.dispatchEvent(new Event("kmy-auth-changed")); base44.auth.logout("/"); }} className="icon-button"><LogOut size={17} /></button>
+          <button aria-label={isArabic ? "تسجيل الخروج" : "Sign out"} onClick={async () => { const sessionId = localStorage.getItem("kmy_session_id"); try { if (sessionId) await base44.functions.invoke("authLogin", { action: "logout", session_id: sessionId }); } finally { localStorage.removeItem("kmy_session_id"); localStorage.removeItem("kmy_session_expires_at"); window.dispatchEvent(new Event("kmy-auth-changed")); await base44.auth.logout("/"); } }} className="icon-button"><LogOut size={17} /></button>
         </div>
       </div>
     </header>
