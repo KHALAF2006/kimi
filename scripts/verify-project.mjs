@@ -566,6 +566,7 @@ assert.doesNotMatch(indexHtml, /script-src[^;]*'unsafe-inline'/, "the frontend C
 const viteSecurityConfig = await readFile(new URL("../vite.config.js", import.meta.url), "utf8");
 assert.match(viteSecurityConfig, /cspInlineScriptHashes/, "the build must hash Base44's injected inline script instead of weakening script-src");
 assert.match(viteSecurityConfig, /createHash\('sha256'\)/, "inline-script CSP allowances must be content-bound SHA-256 hashes");
+assert.match(viteSecurityConfig, /analyticsTracker:\s*false/, "the deploy must not inject Base44's post-processed inline tracker under a strict CSP");
 const packageManifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 assert.equal(packageManifest.dependencies["react-router-dom"], "7.18.1");
 assert.equal(packageManifest.devDependencies.postcss, "8.5.23");

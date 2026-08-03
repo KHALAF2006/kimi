@@ -44,7 +44,10 @@ export default defineConfig({
       legacySDKImports: process.env.BASE44_LEGACY_SDK_IMPORTS === 'true',
       hmrNotifier: true,
       navigationNotifier: true,
-      analyticsTracker: true,
+      // Base44 rewrites inline tracker markup after deployment, invalidating
+      // content-bound CSP hashes. Keep product behavior and a strict CSP by
+      // disabling this non-essential inline tracker.
+      analyticsTracker: false,
       visualEditAgent: true
     }),
     react(),
