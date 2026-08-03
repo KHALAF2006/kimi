@@ -114,6 +114,27 @@ async function referenceMarketRead(payload) {
       ],
     };
   }
+  if (payload.action === "instrument_search") {
+    const companies = await referenceFetch("/api/companies?limit=500");
+    const equities = companies.map((company) => ({ ...instrumentFromReference(company), instrument_code: company.symbol, instrument_type: "equity" }));
+    const sectors = [...new Map(companies.map((company) => [company.sectorAr, company])).values()].map((company) => ({
+      id: `sector:SA_MAIN:${company.sectorEn}`,
+      symbol: `SECTOR:${String(company.sectorEn || company.sectorAr).toUpperCase().replace(/[^A-Z0-9\u0600-\u06ff]+/g, "_").replace(/^_+|_+$/g, "")}`,
+      instrument_code: `SECTOR:${String(company.sectorEn || company.sectorAr).toUpperCase().replace(/[^A-Z0-9\u0600-\u06ff]+/g, "_").replace(/^_+|_+$/g, "")}`,
+      instrument_type: "sector_index",
+      market_code: "SA_MAIN",
+      name_ar: `مؤشر قطاع ${company.sectorAr}`,
+      name_en: `${company.sectorEn} Sector Index`,
+      sector_ar: company.sectorAr,
+      sector_en: company.sectorEn,
+    }));
+    const tasi = { id: "market-index:SA_MAIN:TASI", symbol: "TASI", instrument_code: "TASI", instrument_type: "market_index", market_code: "SA_MAIN", name_ar: "مؤشر السوق الرئيسية (تاسي)", name_en: "Tadawul All Share Index (TASI)", sector_ar: "مؤشرات السوق", sector_en: "Market Indices" };
+    const query = String(payload.query || "").trim().toLocaleLowerCase("ar");
+    const rows = [...equities, ...sectors, tasi]
+      .filter((row) => `${row.symbol} ${row.name_ar} ${row.name_en} ${row.sector_ar} ${row.sector_en}`.toLocaleLowerCase("ar").includes(query))
+      .sort((left, right) => Number(String(left.symbol).toLocaleLowerCase("ar") !== query) - Number(String(right.symbol).toLocaleLowerCase("ar") !== query) || String(left.symbol).localeCompare(String(right.symbol), "en"));
+    return { instruments: rows.slice(0, Math.min(Number(payload.limit || 12), 25)) };
+  }
   if (payload.action === "sector" || payload.action === "sector_chart") {
     const companies = await referenceFetch("/api/companies?limit=500");
     const members = companies.filter((company) => company.sectorAr === payload.sector || company.sectorEn === payload.sector);

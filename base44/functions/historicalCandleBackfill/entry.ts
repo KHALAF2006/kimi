@@ -347,6 +347,21 @@ var BATCH_CONCURRENCY = 3;
 var PROVIDER_CONCURRENCY = 2;
 var MAX_INSTRUMENTS_PER_RUN = 90;
 var REQUEST_TIMEOUT_MS = 2e4;
+var TASI_INSTRUMENT = {
+  symbol: "TASI",
+  market_code: MARKET_CODE,
+  instrument_code: "TASI",
+  instrument_type: "market_index",
+  composite_key: `${MARKET_CODE}:TASI`,
+  name_ar: "\u0645\u0624\u0634\u0631 \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629 (\u062A\u0627\u0633\u064A)",
+  name_en: "Tadawul All Share Index (TASI)",
+  sector_ar: "\u0645\u0624\u0634\u0631\u0627\u062A \u0627\u0644\u0633\u0648\u0642",
+  sector_en: "Market Indices",
+  market: "Saudi Main Market",
+  currency: "SAR",
+  status: "active",
+  official_url: "https://www.saudiexchange.sa/wps/portal/saudiexchange/rules-guidance/indices?locale=ar"
+};
 function rows(value) {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.data)) return value.data;
@@ -365,6 +380,13 @@ function latestExpectedTradingDate(value) {
   const date = /* @__PURE__ */ new Date(`${value}T12:00:00.000Z`);
   while ([5, 6].includes(date.getUTCDay())) date.setUTCDate(date.getUTCDate() - 1);
   return date.toISOString().slice(0, 10);
+}
+async function ensureTasiInstrument(base44) {
+  const existing = rows(await base44.asServiceRole.entities.Instrument.filter({
+    market_code: MARKET_CODE,
+    instrument_code: TASI_INSTRUMENT.instrument_code
+  }))[0] || null;
+  return existing ? await base44.asServiceRole.entities.Instrument.update(existing.id, TASI_INSTRUMENT) : await base44.asServiceRole.entities.Instrument.create(TASI_INSTRUMENT);
 }
 async function archiveStatus(base44, requestedSymbols) {
   const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((instrument) => instrument.market_code === MARKET_CODE && instrument.status !== "delisted");
@@ -427,7 +449,8 @@ async function upsertUnique(base44, entityName, values, existing, keyFor) {
 async function fetchYahooHistorical(symbol, from, to, baseUrl) {
   const start = Math.floor((/* @__PURE__ */ new Date(`${from}T00:00:00.000Z`)).getTime() / 1e3);
   const end = Math.floor(((/* @__PURE__ */ new Date(`${to}T00:00:00.000Z`)).getTime() + 24 * 60 * 60 * 1e3) / 1e3);
-  const url = new URL(`${baseUrl.replace(/\/$/, "")}/v8/finance/chart/${encodeURIComponent(`${symbol}.SR`)}`);
+  const providerSymbol = symbol === "TASI" ? "^TASI.SR" : `${symbol}.SR`;
+  const url = new URL(`${baseUrl.replace(/\/$/, "")}/v8/finance/chart/${encodeURIComponent(providerSymbol)}`);
   url.searchParams.set("period1", String(start));
   url.searchParams.set("period2", String(end));
   url.searchParams.set("interval", "1d");
@@ -617,6 +640,7 @@ Deno.serve(async (req) => {
     const requestBody = await req.json();
     const body = { ...requestBody, ...requestBody.args || {} };
     await requireAdminUser(base44);
+    await ensureTasiInstrument(base44);
     const provider = historyProvider();
     const from = validateDate(body.from, DEFAULT_FROM);
     const to = validateDate(body.to, dateOnly());
@@ -642,7 +666,9 @@ Deno.serve(async (req) => {
       interval: "1d"
     }));
     const completeIds = new Set(existingSync.filter((item) => item.status === "complete" && item.coverage_verified === true && item.provider_partial !== true && String(item.latest_bar_time || "").slice(0, 10) >= latestExpectedTradingDate(to)).map((item) => item.instrument_id));
-    const allPending = body.force === true ? instruments : instruments.filter((instrument) => !completeIds.has(instrument.id));
+    const requestedSymbols = Array.isArray(body.symbols) ? new Set(body.symbols.map((value) => String(value || "").trim().toUpperCase()).filter(Boolean)) : null;
+    const eligible = requestedSymbols?.size ? instruments.filter((instrument) => requestedSymbols.has(String(instrument.symbol).toUpperCase())) : instruments;
+    const allPending = body.force === true ? eligible : eligible.filter((instrument) => !completeIds.has(instrument.id));
     if (!allPending.length) {
       return Response.json({ status: "skipped", reason: "all_history_already_complete", instruments: instruments.length, completed: completeIds.size });
     }

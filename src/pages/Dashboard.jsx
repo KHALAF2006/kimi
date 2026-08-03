@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Activity, BarChart3, Building2, Database, GripVertical, Layers3, RefreshCw, Search, TrendingDown, TrendingUp } from "lucide-react";
+import { Activity, BarChart3, Building2, Database, GripVertical, Layers3, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
 import CompanyPanel from "@/components/market/CompanyPanel";
+import InstrumentSearchInput from "@/components/market/InstrumentSearchInput";
+import MarketIndexPanel from "@/components/market/MarketIndexPanel";
 import SectorPanel from "@/components/market/SectorPanel";
 import MarketTable from "@/components/market/MarketTable";
 import MarketTicker from "@/components/market/MarketTicker";
@@ -25,7 +27,7 @@ function SummaryCard({ icon: Icon, label, value, tone, active, onClick }) {
 export default function Dashboard() {
   const { language, isArabic, text } = usePreferences();
   const [params, setParams] = useSearchParams();
-  const [state, setState] = useState({ loading: true, rows: [], total: 0, sources: [], markets: [], market: null, snapshot: null, error: "", notice: "" });
+  const [state, setState] = useState({ loading: true, rows: [], total: 0, sources: [], markets: [], market: null, snapshot: null, sectorSummaries: [], error: "", notice: "" });
   const [marketCode, setMarketCode] = useState(() => localStorage.getItem("kmy_market_code") || "SA_MAIN");
   const [query, setQuery] = useState("");
   const [sector, setSector] = useState(() => params.get("sector") || "");
@@ -37,6 +39,7 @@ export default function Dashboard() {
   const [profileWidth, setProfileWidth] = useState(() => Math.min(760, Math.max(380, Number(localStorage.getItem("kmy_profile_width")) || 500)));
   const resizeRef = useRef(null);
   const selectedSymbol = params.get("company") || "";
+  const selectedIndexCode = params.get("index") || "";
   const requestedTimeframe = params.get("timeframe") || "";
   const urlSector = params.get("sector") || "";
 
@@ -48,7 +51,7 @@ export default function Dashboard() {
         state.markets.length ? Promise.resolve({ markets: state.markets }) : invokeAppFunction("marketRead", { action: "markets" }),
       ]);
       const markets = marketData.markets || state.markets;
-      setState({ loading: false, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, snapshot: data.snapshot || null, error: "", notice: data.notice || "" });
+      setState({ loading: false, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, snapshot: data.snapshot || null, sectorSummaries: data.sector_summaries || [], error: "", notice: data.notice || "" });
     } catch (error) {
       setState((value) => ({ ...value, loading: false, error: error?.response?.data?.error || error?.message || "market_fetch_failed" }));
     }
@@ -65,9 +68,10 @@ export default function Dashboard() {
 
   const sectorGroups = useMemo(() => {
     const sectors = new Map();
+    const summaries = new Map(state.sectorSummaries.map((item) => [item.sector_ar, item]));
     state.rows.forEach((row) => {
       if (!row.sector_ar) return;
-      const value = sectors.get(row.sector_ar) || { ar: row.sector_ar, en: row.sector_en, count: 0 };
+      const value = sectors.get(row.sector_ar) || { ar: row.sector_ar, en: row.sector_en, count: 0, summary: summaries.get(row.sector_ar) || null };
       value.count += 1;
       sectors.set(row.sector_ar, value);
     });
@@ -82,7 +86,7 @@ export default function Dashboard() {
     const remaining = [...sectors.values()].filter((item) => !used.has(item.ar)).sort((a, b) => a.ar.localeCompare(b.ar, "ar"));
     if (remaining.length) groups.push({ ar: "قطاعات أخرى", en: "Other sectors", sectors: [], items: remaining });
     return groups;
-  }, [state.rows]);
+  }, [state.rows, state.sectorSummaries]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -119,8 +123,11 @@ export default function Dashboard() {
   const nextCompany = selectedIndex >= 0 && selectedIndex < orderedCompanies.length - 1 ? orderedCompanies[selectedIndex + 1] : null;
 
   function selectCompany(symbol) {
+    setSector("");
     setParams((current) => {
       current.set("company", symbol);
+      current.delete("sector");
+      current.delete("index");
       return current;
     }, { replace: true });
     window.requestAnimationFrame(() => document.getElementById("company-profile")?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -130,11 +137,32 @@ export default function Dashboard() {
     setSector(nextSector);
     setParams((current) => {
       current.delete("company");
+      current.delete("index");
       if (nextSector) current.set("sector", nextSector);
       else current.delete("sector");
       return current;
     }, { replace: true });
     if (nextSector) window.requestAnimationFrame(() => document.getElementById("company-profile")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+
+  function selectMarketIndex(indexCode) {
+    setSector("");
+    setParams((current) => {
+      current.delete("company");
+      current.delete("sector");
+      if (indexCode) current.set("index", indexCode);
+      else current.delete("index");
+      return current;
+    }, { replace: true });
+    if (indexCode) window.requestAnimationFrame(() => document.getElementById("company-profile")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+
+  function selectInstrument(instrument) {
+    if (!instrument) return;
+    setQuery(instrument.symbol);
+    if (instrument.instrument_type === "sector_index") selectSector(instrument.sector_ar || instrument.sector_en);
+    else if (instrument.instrument_type === "market_index") selectMarketIndex(instrument.instrument_code || instrument.symbol);
+    else selectCompany(instrument.symbol);
   }
 
   function applyDirection(direction) {
@@ -185,11 +213,21 @@ export default function Dashboard() {
         <div className="summary-card"><span className="summary-icon summary-neutral"><Database size={18} /></span><div><p>{isArabic ? "القيمة" : "Value"}</p><b>{formatCompact(summary.value, language)}</b></div></div>
       </section>
 
-      {state.error && <div className="error-banner">{isArabic ? "تعذر تحديث السوق الآن. لم نعرض بيانات وهمية بدلًا منه." : "Market refresh failed. No mock data was substituted."}</div>}
+      {state.error && <div className="error-banner" role="status">{isArabic
+        ? selectedIndexCode
+          ? "تعذر تحديث ملخص مؤشر السوق؛ سيبقى آخر شارت محفوظ ظاهرًا إن كان متاحًا."
+          : sector
+            ? "تعذر تحديث قائمة شركات القطاع؛ سيبقى آخر شارت محفوظ ظاهرًا إن كان متاحًا."
+            : selectedSymbol
+              ? "تعذر تحديث ملخص الشركة؛ سيبقى آخر شارت محفوظ ظاهرًا إن كان متاحًا."
+              : "تعذر تحديث ملخص السوق. أعد المحاولة، وستبقى آخر بيانات محفوظة ظاهرة إن كانت متاحة."
+        : "The latest summary could not be refreshed. Previously stored data remains visible when available."}</div>}
 
       <section className="dashboard-grid" style={/** @type {React.CSSProperties} */ ({ "--profile-width": profileWidth + "px" })}>
         <aside id="company-profile" className="min-w-0 scroll-mt-28">{selectedSymbol
           ? <CompanyPanel symbol={selectedSymbol} requestedTimeframe={requestedTimeframe} onResetWidth={resetWidth} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={selectCompany} />
+          : selectedIndexCode
+            ? <MarketIndexPanel indexCode={selectedIndexCode} marketCode={marketCode} onResetWidth={resetWidth} />
           : sector
             ? <SectorPanel sector={sector} marketCode={marketCode} onResetWidth={resetWidth} onSelectCompany={selectCompany} />
             : <CompanyPanel symbol="" onResetWidth={resetWidth} onSelectCompany={selectCompany} />}</aside>
@@ -198,10 +236,10 @@ export default function Dashboard() {
         <div className="min-w-0 space-y-4">
           <section className="content-card p-4">
             <div className="grid gap-4">
-              <label className="search-field"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isArabic ? "ابحث برمز الشركة أو اسمها…" : "Search by symbol or company…"} /></label>
+              <InstrumentSearchInput value={query} onChange={setQuery} onSelect={selectInstrument} isArabic={isArabic} label={isArabic ? "ابحث بالرمز أو اسم السهم أو القطاع أو تاسي…" : "Search stocks, sectors, or TASI…"} />
               <div className="sector-groups">
                 <button className={"filter-chip sector-all-chip " + (!sector ? "filter-chip-active" : "")} onClick={() => selectSector("")}>{isArabic ? "جميع القطاعات" : "All sectors"}</button>
-                {sectorGroups.map((group) => <div key={group.ar} className="sector-group"><b>{isArabic ? group.ar : group.en}</b><div>{group.items.map((item) => <button key={item.ar} className={"filter-chip " + (sector === item.ar ? "filter-chip-active" : "")} onClick={() => selectSector(item.ar)}>{isArabic ? item.ar : item.en}<span>{item.count}</span></button>)}</div></div>)}
+                {sectorGroups.map((group) => <div key={group.ar} className="sector-group"><b>{isArabic ? group.ar : group.en}</b><div>{group.items.map((item) => <button key={item.ar} className={`filter-chip sector-heat-${item.summary?.movement_status || "neutral"} ${sector === item.ar ? "filter-chip-active" : ""}`} onClick={() => selectSector(item.ar)} aria-label={`${isArabic ? item.ar : item.en}، ${item.count} ${isArabic ? "شركة" : "companies"}${Number.isFinite(Number(item.summary?.change_percent)) ? `، ${Number(item.summary.change_percent) > 0 ? "+" : ""}${Number(item.summary.change_percent).toFixed(2)}%` : ""}`}>{isArabic ? item.ar : item.en}<span>{item.count}</span>{Number.isFinite(Number(item.summary?.change_percent)) && <em dir="ltr">{Number(item.summary.change_percent) > 0 ? "+" : ""}{Number(item.summary.change_percent).toFixed(2)}%</em>}</button>)}</div></div>)}
               </div>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">

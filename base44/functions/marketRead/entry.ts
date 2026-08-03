@@ -5161,6 +5161,7 @@ var official_main_market_catalog_2026_07_21_default = {
 var ALLOWED_INTERVALS = /* @__PURE__ */ new Set(["15m", "1h", "2h", "3h", "4h", "1d", "1wk", "1mo"]);
 var ALLOWED_RANGES = /* @__PURE__ */ new Set(["5d", "1mo", "3mo", "1y", "2y", "5y", "10y", "max"]);
 var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
+var TASI_SYMBOL = "TASI";
 var MARKET_CATALOG = [
   { market_code: "SA_MAIN", country_code: "SA", name_ar: "\u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629", name_en: "Saudi Main Market", currency: "SAR", timezone: "Asia/Riyadh", quote_mode: "delayed", delay_seconds: 900, license_status: "pending", active: true },
   { market_code: "AE_ADX", country_code: "AE", name_ar: "\u0633\u0648\u0642 \u0623\u0628\u0648\u0638\u0628\u064A", name_en: "Abu Dhabi Securities Exchange", currency: "AED", timezone: "Asia/Dubai", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
@@ -5175,6 +5176,37 @@ function entityRows(value) {
   if (Array.isArray(value?.data)) return value.data.filter(Boolean);
   if (Array.isArray(value?.items)) return value.items.filter(Boolean);
   return [];
+}
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u064B-\u065F\u0670]/g, "")
+    .replace(/[\u0622\u0623\u0625]/g, "\u0627")
+    .replace(/\u0649/g, "\u064a")
+    .replace(/\u0629/g, "\u0647")
+    .toLocaleLowerCase("ar")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+function sectorTicker(nameEn, nameAr) {
+  const base = normalizeSearchText(nameEn || nameAr)
+    .replace(/[^a-z0-9\u0600-\u06ff]+/gi, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
+  return `SECTOR:${base || "INDEX"}`;
+}
+function searchCandidateScore(candidate, query) {
+  const symbol = normalizeSearchText(candidate.symbol);
+  const code = normalizeSearchText(candidate.instrument_code);
+  const names = [candidate.name_ar, candidate.name_en, candidate.sector_ar, candidate.sector_en].map(normalizeSearchText).filter(Boolean);
+  const aliases = (candidate.search_aliases || []).map(normalizeSearchText).filter(Boolean);
+  if (symbol === query || code === query) return 0;
+  if (symbol.startsWith(query) || code.startsWith(query)) return 10 + Math.min(symbol.length, code.length) / 100;
+  if (aliases.some((alias) => alias === query)) return 20;
+  if (names.some((name) => name.startsWith(query)) || aliases.some((alias) => alias.startsWith(query))) return 30;
+  if (symbol.includes(query) || code.includes(query)) return 40;
+  if (names.some((name) => name.includes(query)) || aliases.some((alias) => alias.includes(query))) return 50;
+  return Number.POSITIVE_INFINITY;
 }
 function usableQuote(value) {
   const last = Number(value?.last_price);
@@ -5239,7 +5271,7 @@ async function instrumentFor(base44, body) {
   }
   const symbol = String(body.symbol || "").trim();
   if (symbol) {
-    if (!/^\d{4}$/.test(symbol)) throw Object.assign(new Error("Invalid Saudi market symbol"), { status: 400 });
+    if (!/^\d{4}$/.test(symbol) && symbol !== TASI_SYMBOL) throw Object.assign(new Error("Invalid Saudi market instrument symbol"), { status: 400 });
     const rows = await base44.asServiceRole.entities.Instrument.filter({ symbol });
     if (!rows[0]) throw Object.assign(new Error("Instrument not found"), { status: 404 });
     return rows[0];
@@ -5311,6 +5343,31 @@ async function storedCandlesForInterval(base44, instrumentId, interval) {
     storedInterval: merged.storedIntervals.join("+") || null,
     storedIntervals: merged.storedIntervals
   };
+}
+async function storedCandlesForInstruments(base44, instrumentIds, interval) {
+  const requestedIds = new Set(instrumentIds);
+  const chunksByInstrument = new Map(instrumentIds.map((id) => [id, []]));
+  for (const storedInterval of fallbackIntervals(interval)) {
+    const chunks = entityRows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: { $in: instrumentIds }, interval: storedInterval }, "-end_time", 5e3))
+      .filter((chunk) => requestedIds.has(chunk.instrument_id) && chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+    for (const chunk of chunks) chunksByInstrument.get(chunk.instrument_id)?.push(chunk);
+  }
+  return new Map(instrumentIds.map((instrumentId) => {
+    const chunks = (chunksByInstrument.get(instrumentId) || []).sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
+    const series = fallbackIntervals(interval).map((storedInterval) => {
+      const matching = chunks.filter((chunk) => chunk.interval === storedInterval);
+      return matching.length ? { interval: storedInterval, bars: normalizedStoredBars(matching) } : null;
+    }).filter(Boolean);
+    const merged = mergeStoredCandleSeries(series, interval);
+    return [instrumentId, {
+      bars: merged.bars,
+      chunks,
+      latestChunk: chunks.at(-1) || null,
+      latestSourceTime: merged.latestSourceTime,
+      storedInterval: merged.storedIntervals.join("+") || null,
+      storedIntervals: merged.storedIntervals
+    }];
+  }));
 }
 async function chartResponse(base44, body, sources) {
   const instrument = await instrumentFor(base44, body);
@@ -5485,6 +5542,70 @@ function sectorWeights(instruments, quoteByInstrument) {
   const total = caps.reduce((sum, value) => sum + value, 0);
   return new Map(instruments.map((instrument, index) => [instrument.id, total > 0 ? caps[index] / total : 1 / instruments.length]));
 }
+async function sectorSummaries(base44, instruments, quoteByInstrument) {
+  const equities = instruments.filter((instrument) => (instrument.instrument_type || "equity") === "equity");
+  const equityIds = new Set(equities.map((instrument) => instrument.id));
+  const recentDailyChunks = entityRows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: { $in: equities.map((instrument) => instrument.id) }, interval: "1d" }, "-end_time", 1e3))
+    .filter((chunk) => equityIds.has(chunk.instrument_id) && chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+  const chunksByInstrument = new Map();
+  for (const chunk of recentDailyChunks) {
+    if (!chunksByInstrument.has(chunk.instrument_id)) chunksByInstrument.set(chunk.instrument_id, []);
+    chunksByInstrument.get(chunk.instrument_id).push(chunk);
+  }
+  const barsByInstrument = new Map(equities.map((instrument) => [instrument.id, normalizedStoredBars(chunksByInstrument.get(instrument.id) || [])]));
+  const groups = new Map();
+  for (const instrument of equities) {
+    const key = instrument.sector_ar || instrument.sector_en;
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(instrument);
+  }
+  return [...groups.values()].map((members) => {
+    const weights = sectorWeights(members, quoteByInstrument);
+    const weighted = (valueFor) => {
+      let sum = 0;
+      let coverage = 0;
+      for (const instrument of members) {
+        const value = Number(valueFor(instrument));
+        const weight = Number(weights.get(instrument.id) || 0);
+        if (!Number.isFinite(value) || !weight) continue;
+        sum += value * weight;
+        coverage += weight;
+      }
+      return coverage > 0 ? sum / coverage : null;
+    };
+    const currentChange = weighted((instrument) => quoteByInstrument.get(instrument.id)?.change_percent);
+    const priorChange = weighted((instrument) => {
+      const bars = barsByInstrument.get(instrument.id) || [];
+      if (bars.length < 3) return null;
+      const previous = Number(bars.at(-2)?.close);
+      const beforePrevious = Number(bars.at(-3)?.close);
+      return previous > 0 && beforePrevious > 0 ? (previous - beforePrevious) / beforePrevious * 100 : null;
+    });
+    const movementStatus = Number(currentChange) <= -1.5 && Number(priorChange) <= -1.5
+      ? "strong_down"
+      : Number(currentChange) >= 1.5
+        ? "strong_up"
+        : Number(currentChange) > 0.05
+          ? "up"
+          : Number(currentChange) < -0.05
+            ? "soft_down"
+            : "neutral";
+    return {
+      symbol: sectorTicker(members[0].sector_en, members[0].sector_ar),
+      market_code: members[0].market_code || "SA_MAIN",
+      instrument_type: "sector_index",
+      name_ar: `\u0645\u0624\u0634\u0631 \u0642\u0637\u0627\u0639 ${members[0].sector_ar}`,
+      name_en: `${members[0].sector_en} Sector Index`,
+      sector_ar: members[0].sector_ar,
+      sector_en: members[0].sector_en,
+      constituent_count: members.length,
+      change_percent: currentChange == null ? null : Number(currentChange.toFixed(4)),
+      prior_change_percent: priorChange == null ? null : Number(priorChange.toFixed(4)),
+      movement_status: movementStatus
+    };
+  }).sort((a, b) => String(a.sector_ar).localeCompare(String(b.sector_ar), "ar"));
+}
 async function sectorResponse(base44, body, sourceById) {
   const { requestedMarket, sector, instruments } = await sectorInstruments(base44, body);
   const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
@@ -5505,6 +5626,9 @@ async function sectorResponse(base44, body, sourceById) {
   return {
     sector: {
       key: `${requestedMarket}:${sector}`,
+      symbol: sectorTicker(instruments[0].sector_en, instruments[0].sector_ar),
+      instrument_code: sectorTicker(instruments[0].sector_en, instruments[0].sector_ar),
+      instrument_type: "sector_index",
       market_code: requestedMarket,
       name_ar: instruments[0].sector_ar,
       name_en: instruments[0].sector_en,
@@ -5534,10 +5658,11 @@ async function sectorChartResponse(base44, body) {
   const quoteByInstrument = new Map();
   for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
   const weights = sectorWeights(instruments, quoteByInstrument);
-  const candlesByInstrument = await Promise.all(instruments.map(async (instrument) => ({
+  const storedByInstrument = await storedCandlesForInstruments(base44, instruments.map((instrument) => instrument.id), interval);
+  const candlesByInstrument = instruments.map((instrument) => ({
     instrument,
-    stored: await storedCandlesForInterval(base44, instrument.id, interval)
-  })));
+    stored: storedByInstrument.get(instrument.id) || { bars: [] }
+  }));
   const latestTime = Math.max(...candlesByInstrument.flatMap(({ stored }) => stored.bars.map((bar) => new Date(bar.time).getTime())).filter(Number.isFinite));
   if (!Number.isFinite(latestTime)) throw Object.assign(new Error("Stored sector chart data is not available"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : latestTime - RANGE_MILLISECONDS[range];
@@ -5613,30 +5738,101 @@ Deno.serve(async (req) => {
     if (body.action === "sector_chart") return Response.json(await sectorChartResponse(base44, body));
     if (body.action === "chart") return Response.json(await chartResponse(base44, body, sources));
     if (body.action === "instrument_search") {
-      const query = String(body.query || "").trim().toLocaleLowerCase("ar");
+      const query = normalizeSearchText(body.query);
       if (query.length < 1 || query.length > 120) throw Object.assign(new Error("Search query must be 1-120 characters"), { status: 400 });
       const limit = Math.min(Math.max(Number(body.limit || 12), 1), 25);
       const requestedMarket = String(body.market_code || "SA_MAIN");
-      const instruments = entityRows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
-        .filter((item) => item.market_code === requestedMarket && item.status !== "delisted")
-        .filter((item) => `${item.symbol} ${item.name_ar || ""} ${item.name_en || ""} ${item.sector_ar || ""} ${item.sector_en || ""}`.toLocaleLowerCase("ar").includes(query))
-        .slice(0, limit);
+      const [storedInstruments, aliases, quotes] = await Promise.all([
+        base44.asServiceRole.entities.Instrument.list("symbol", 500),
+        optionalRows(() => base44.asServiceRole.entities.InstrumentAlias.filter({ market_code: requestedMarket, active: true }, "alias", 5e3), "instrument aliases"),
+        base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500)
+      ]);
+      const instruments = entityRows(storedInstruments)
+        .filter((item) => item.market_code === requestedMarket && item.status !== "delisted");
+      const aliasesByInstrument = new Map();
+      for (const alias of entityRows(aliases)) {
+        if (!aliasesByInstrument.has(alias.instrument_id)) aliasesByInstrument.set(alias.instrument_id, []);
+        aliasesByInstrument.get(alias.instrument_id).push(alias.alias, alias.normalized_alias);
+      }
+      const candidates = instruments.map((instrument) => ({
+        ...instrument,
+        instrument_type: instrument.instrument_type || "equity",
+        search_aliases: aliasesByInstrument.get(instrument.id) || []
+      }));
+      const sectors = new Map();
+      for (const instrument of instruments.filter((item) => (item.instrument_type || "equity") === "equity")) {
+        const key = instrument.sector_ar || instrument.sector_en;
+        if (!key) continue;
+        if (!sectors.has(key)) sectors.set(key, { instruments: [], sample: instrument });
+        sectors.get(key).instruments.push(instrument);
+      }
+      for (const { instruments: members, sample } of sectors.values()) {
+        const symbol = sectorTicker(sample.sector_en, sample.sector_ar);
+        candidates.push({
+          id: `sector:${requestedMarket}:${symbol}`,
+          symbol,
+          instrument_code: symbol,
+          instrument_type: "sector_index",
+          market_code: requestedMarket,
+          name_ar: `\u0645\u0624\u0634\u0631 \u0642\u0637\u0627\u0639 ${sample.sector_ar}`,
+          name_en: `${sample.sector_en} Sector Index`,
+          sector_ar: sample.sector_ar,
+          sector_en: sample.sector_en,
+          status: "active",
+          constituent_count: members.length,
+          search_aliases: [sample.sector_ar, sample.sector_en, `\u0642\u0637\u0627\u0639 ${sample.sector_ar}`, `\u0645\u0624\u0634\u0631 ${sample.sector_ar}`]
+        });
+      }
+      if (requestedMarket === "SA_MAIN" && !candidates.some((item) => item.symbol === TASI_SYMBOL)) {
+        candidates.push({
+          id: "market-index:SA_MAIN:TASI",
+          symbol: TASI_SYMBOL,
+          instrument_code: TASI_SYMBOL,
+          instrument_type: "market_index",
+          market_code: requestedMarket,
+          name_ar: "\u0645\u0624\u0634\u0631 \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0631\u0626\u064a\u0633\u064a\u0629 (\u062a\u0627\u0633\u064a)",
+          name_en: "Tadawul All Share Index (TASI)",
+          sector_ar: "\u0645\u0624\u0634\u0631\u0627\u062a \u0627\u0644\u0633\u0648\u0642",
+          sector_en: "Market Indices",
+          status: "active",
+          search_aliases: ["\u062a\u0627\u0633\u064a", "\u0627\u0644\u0645\u0624\u0634\u0631 \u0627\u0644\u0639\u0627\u0645", "Saudi market index"]
+        });
+      }
+      const ranked = candidates.map((candidate) => ({ candidate, score: searchCandidateScore(candidate, query) }))
+        .filter((item) => Number.isFinite(item.score))
+        .sort((left, right) => left.score - right.score || String(left.candidate.symbol).localeCompare(String(right.candidate.symbol), "en"))
+        .slice(0, limit)
+        .map((item) => item.candidate);
       const ids = new Set(instruments.map((item) => item.id));
-      const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
       const quoteByInstrument = new Map();
-      for (const quote of quotes) if (ids.has(quote.instrument_id) && usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
+      for (const quote of entityRows(quotes)) if (ids.has(quote.instrument_id) && usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
       return Response.json({
-        instruments: instruments.map((instrument) => ({
+        instruments: ranked.map((instrument) => {
+          let quote = quoteByInstrument.get(instrument.id) || null;
+          if (instrument.instrument_type === "sector_index") {
+            const members = sectors.get(instrument.sector_ar)?.instruments || [];
+            const weights = sectorWeights(members, quoteByInstrument);
+            const available = members.map((member) => ({ quote: quoteByInstrument.get(member.id), weight: weights.get(member.id) || 0 })).filter((item) => item.quote);
+            const coverage = available.reduce((sum, item) => sum + item.weight, 0);
+            const change = coverage > 0 ? available.reduce((sum, item) => sum + Number(item.quote.change_percent || 0) * item.weight, 0) / coverage : null;
+            quote = change == null ? null : { last_price: 1000 * (1 + change / 100), previous_close: 1000, change_percent: change };
+          }
+          const { search_aliases: _searchAliases, ...result } = instrument;
+          return {
+          ...result,
           id: instrument.id,
           symbol: instrument.symbol,
+          instrument_code: instrument.instrument_code || instrument.symbol,
+          instrument_type: instrument.instrument_type || "equity",
           market_code: instrument.market_code || requestedMarket,
           name_ar: instrument.name_ar,
           name_en: instrument.name_en,
           sector_ar: instrument.sector_ar,
           sector_en: instrument.sector_en,
           status: instrument.status,
-          quote: quoteView(quoteByInstrument.get(instrument.id) || null, sourceById.get(quoteByInstrument.get(instrument.id)?.source_id)),
-        })),
+          quote: instrument.instrument_type === "sector_index" ? quote : quoteView(quote, sourceById.get(quote?.source_id)),
+        };
+        }),
       });
     }
     if (body.symbol || body.instrument_id) {
@@ -5650,7 +5846,35 @@ Deno.serve(async (req) => {
         base44.asServiceRole.entities.MajorShareholder.filter({ instrument_id: instrument.id }),
         base44.asServiceRole.entities.LossClassification.filter({ instrument_id: instrument.id })
       ]);
-      const quote = quotes2.filter(usableQuote).sort((a, b) => new Date(b.quote_time).getTime() - new Date(a.quote_time).getTime())[0] || null;
+      let quote = quotes2.filter(usableQuote).sort((a, b) => new Date(b.quote_time).getTime() - new Date(a.quote_time).getTime())[0] || null;
+      if (!quote && instrument.instrument_type === "market_index") {
+        const stored = await storedCandlesForInterval(base44, instrument.id, "1d");
+        const current = stored.bars.at(-1) || null;
+        const previous = stored.bars.at(-2) || null;
+        if (current && previous && Number(previous.close) > 0) {
+          const changeValue = Number(current.close) - Number(previous.close);
+          quote = {
+            instrument_id: instrument.id,
+            symbol: instrument.symbol,
+            last_price: Number(current.close),
+            previous_close: Number(previous.close),
+            change_value: changeValue,
+            change_percent: changeValue / Number(previous.close) * 100,
+            open: Number(current.open),
+            high: Number(current.high),
+            low: Number(current.low),
+            volume: Number(current.volume || 0),
+            quote_time: current.time,
+            provider_as_of: current.time,
+            received_time: stored.latestChunk?.received_time || stored.latestChunk?.updated_date || current.time,
+            delay_seconds: 0,
+            quality_status: stored.latestChunk?.quality_status || "accepted",
+            freshness_status: "stale",
+            license_status: "approved",
+            is_final: true
+          };
+        }
+      }
       const source = quote ? sourceById.get(quote.source_id) : null;
       const indicators = entityRows(indicators2).sort((a, b) => String(b.source_as_of || b.calculated_at || b.updated_date || "").localeCompare(String(a.source_as_of || a.calculated_at || a.updated_date || "")));
       const requestedTimeframe = ALLOWED_INTERVALS.has(String(body.timeframe || "1d")) ? String(body.timeframe || "1d") : "1d";
@@ -5685,6 +5909,7 @@ Deno.serve(async (req) => {
     }
     const quoteByInstrument = /* @__PURE__ */ new Map();
     for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
+    const sectorSummaryRows = await optionalRows(() => sectorSummaries(base44, instruments, quoteByInstrument), "sector summaries");
     const indicatorsByInstrument = new Map();
     for (const item of indicators) {
       if (!indicatorsByInstrument.has(item.instrument_id)) indicatorsByInstrument.set(item.instrument_id, []);
@@ -5745,6 +5970,7 @@ Deno.serve(async (req) => {
       total: requestedMarket === "SA_MAIN" ? MAIN_MARKET_SYMBOLS.size : rows.length,
       sources: sources.map((source) => ({ source_type: source.source_type, license_status: source.license_status, last_verified_at: source.last_verified_at })),
       market: MARKET_CATALOG.find((market) => market.market_code === requestedMarket) || null,
+      sector_summaries: sectorSummaryRows,
       snapshot,
       session_phase: snapshot.session_phase,
       as_of: snapshot.as_of,

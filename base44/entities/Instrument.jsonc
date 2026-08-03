@@ -12,6 +12,15 @@
     "instrument_code": {
       "type": "string"
     },
+    "instrument_type": {
+      "type": "string",
+      "enum": [
+        "equity",
+        "sector_index",
+        "market_index"
+      ],
+      "default": "equity"
+    },
     "composite_key": {
       "type": "string"
     },

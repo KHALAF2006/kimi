@@ -14,6 +14,21 @@ const BATCH_CONCURRENCY = 3;
 const PROVIDER_CONCURRENCY = 2;
 const MAX_INSTRUMENTS_PER_RUN = 90;
 const REQUEST_TIMEOUT_MS = 20_000;
+const TASI_INSTRUMENT = {
+  symbol: "TASI",
+  market_code: MARKET_CODE,
+  instrument_code: "TASI",
+  instrument_type: "market_index",
+  composite_key: `${MARKET_CODE}:TASI`,
+  name_ar: "مؤشر السوق الرئيسية (تاسي)",
+  name_en: "Tadawul All Share Index (TASI)",
+  sector_ar: "مؤشرات السوق",
+  sector_en: "Market Indices",
+  market: "Saudi Main Market",
+  currency: "SAR",
+  status: "active",
+  official_url: "https://www.saudiexchange.sa/wps/portal/saudiexchange/rules-guidance/indices?locale=ar",
+};
 
 function rows(value: unknown): Array<Record<string, any>> {
   if (Array.isArray(value)) return value;
@@ -35,6 +50,16 @@ function latestExpectedTradingDate(value: string) {
   const date = new Date(`${value}T12:00:00.000Z`);
   while ([5, 6].includes(date.getUTCDay())) date.setUTCDate(date.getUTCDate() - 1);
   return date.toISOString().slice(0, 10);
+}
+
+async function ensureTasiInstrument(base44: any) {
+  const existing = rows(await base44.asServiceRole.entities.Instrument.filter({
+    market_code: MARKET_CODE,
+    instrument_code: TASI_INSTRUMENT.instrument_code,
+  }))[0] || null;
+  return existing
+    ? await base44.asServiceRole.entities.Instrument.update(existing.id, TASI_INSTRUMENT)
+    : await base44.asServiceRole.entities.Instrument.create(TASI_INSTRUMENT);
 }
 
 async function archiveStatus(base44: any, requestedSymbols: unknown) {
@@ -136,7 +161,8 @@ async function fetchSahmkHistorical(symbol: string, from: string, to: string, ap
 async function fetchYahooHistorical(symbol: string, from: string, to: string, baseUrl: string) {
   const start = Math.floor(new Date(`${from}T00:00:00.000Z`).getTime() / 1000);
   const end = Math.floor((new Date(`${to}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000) / 1000);
-  const url = new URL(`${baseUrl.replace(/\/$/, "")}/v8/finance/chart/${encodeURIComponent(`${symbol}.SR`)}`);
+  const providerSymbol = symbol === "TASI" ? "^TASI.SR" : `${symbol}.SR`;
+  const url = new URL(`${baseUrl.replace(/\/$/, "")}/v8/finance/chart/${encodeURIComponent(providerSymbol)}`);
   url.searchParams.set("period1", String(start));
   url.searchParams.set("period2", String(end));
   url.searchParams.set("interval", "1d");
@@ -341,6 +367,7 @@ Deno.serve(async (req) => {
     const requestBody = await req.json();
     const body = { ...requestBody, ...(requestBody.args || {}) };
     await requireAdminUser(base44);
+    await ensureTasiInstrument(base44);
     const provider = historyProvider();
     const from = validateDate(body.from, DEFAULT_FROM);
     const to = validateDate(body.to, dateOnly());
@@ -377,7 +404,13 @@ Deno.serve(async (req) => {
         && item.provider_partial !== true
         && String(item.latest_bar_time || "").slice(0, 10) >= latestExpectedTradingDate(to))
       .map((item) => item.instrument_id));
-    const allPending = body.force === true ? instruments : instruments.filter((instrument) => !completeIds.has(instrument.id));
+    const requestedSymbols = Array.isArray(body.symbols)
+      ? new Set(body.symbols.map((value: unknown) => String(value || "").trim().toUpperCase()).filter(Boolean))
+      : null;
+    const eligible = requestedSymbols?.size
+      ? instruments.filter((instrument) => requestedSymbols.has(String(instrument.symbol).toUpperCase()))
+      : instruments;
+    const allPending = body.force === true ? eligible : eligible.filter((instrument) => !completeIds.has(instrument.id));
     if (!allPending.length) {
       return Response.json({ status: "skipped", reason: "all_history_already_complete", instruments: instruments.length, completed: completeIds.size });
     }

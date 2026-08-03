@@ -314,8 +314,16 @@ const marketReadFunction = await readFile(new URL("../base44/functions/marketRea
 assert.match(marketReadFunction, /body\.action === "sector"/, "sector details must be served from the protected market backend");
 assert.match(marketReadFunction, /body\.action === "sector_chart"/, "sector chart candles must be built by the protected market backend");
 assert.match(marketReadFunction, /sectorWeights/, "sector index construction must use an explicit weighting function");
+assert.match(marketReadFunction, /storedCandlesForInstruments/, "sector charts must bulk-read stored candles instead of issuing one database query per constituent");
+assert.match(marketReadFunction, /instrument_type:\s*"sector_index"/, "sector search results must carry a first-class instrument identity");
+assert.match(marketReadFunction, /TASI_SYMBOL/, "the protected market directory must include the Saudi general market index");
+assert.match(marketReadFunction, /searchCandidateScore/, "instrument autocomplete must use deterministic exact, prefix, and substring ranking");
+assert.match(marketReadFunction, /Number\(currentChange\) <= -1\.5 && Number\(priorChange\) <= -1\.5/, "sector heat state must reserve red for a two-session decline beyond 1.5 percent");
 const dashboardPage = await readFile(new URL("../src/pages/Dashboard.jsx", import.meta.url), "utf8");
 assert.match(dashboardPage, /SectorPanel/, "sector selection must open a sector profile, not only filter the table");
+assert.match(dashboardPage, /InstrumentSearchInput/, "the visible dashboard search must use the protected autocomplete instead of a cosmetic table filter");
+assert.match(dashboardPage, /MarketIndexPanel/, "TASI selection must open a dedicated market-index analysis panel");
+assert.match(dashboardPage, /sector-heat-/, "sector tiles must consume the backend movement state");
 assert.doesNotMatch(dashboardPage, /MarketDataStatus/, "the removed market-status banner must not be mounted on the dashboard");
 assert.match(marketReadFunction, /fallbackIntervals\(interval\)/, "weekly and monthly chart requests must fall back to stored daily or intraday candles");
 assert.match(marketReadFunction, /storedCandlesForInterval\(base44, instrument\.id, interval\)/, "company and sector charts must share the same candle aggregation path");
@@ -412,6 +420,14 @@ assert.match(historicalBackfillFunction, /includeAdjustedClose/, "historical imp
 assert.match(historicalBackfillFunction, /function historyProvider\(\) \{[\s\S]*?code: YAHOO_PROVIDER_CODE/, "historical backfill must keep its declared no-secret archive provider deterministic");
 assert.match(historicalBackfillFunction, /history_already_complete/, "completed instrument archives must not be requested again");
 assert.match(historicalBackfillFunction, /canonical_version:\s*options\.provider\.canonicalVersion/, "historical candles must be persisted as canonical yearly chunks");
+assert.match(historicalBackfillFunction, /symbol === "TASI" \? "\^TASI\.SR"/, "TASI history must use the provider's index symbol instead of an equity suffix");
+assert.match(historicalBackfillFunction, /ensureTasiInstrument/, "the one-time archive workflow must seed the canonical TASI instrument before importing candles");
+const instrumentSearchInput = await readFile(new URL("../src/components/market/InstrumentSearchInput.jsx", import.meta.url), "utf8");
+assert.match(instrumentSearchInput, /role="combobox"/, "instrument search must expose the WAI-ARIA combobox role");
+assert.match(instrumentSearchInput, /aria-activedescendant/, "instrument search must preserve input focus while navigating suggestions");
+for (const key of ["ArrowDown", "ArrowUp", "Enter", "Escape"]) {
+  assert.match(instrumentSearchInput, new RegExp(`event\\.key === "${key}"`), `instrument autocomplete must support ${key}`);
+}
 const historicalCompanyChart = await readFile(new URL("../src/components/market/CompanyChart.jsx", import.meta.url), "utf8");
 assert.match(historicalCompanyChart, /value:\s*"max",\s*ar:\s*"تاريخي"/, "the chart must expose a stored full-history range");
 assert.match(historicalCompanyChart, /rangeOptions\.map/, "all chart ranges must remain visible instead of disappearing with the selected interval");

@@ -5747,6 +5747,21 @@ function replyError(error) {
 }
 var SAUDI_PROFILE = "https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/company-profile-main?companySymbol=";
 var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
+var TASI_INSTRUMENT = {
+  symbol: "TASI",
+  market_code: "SA_MAIN",
+  instrument_code: "TASI",
+  instrument_type: "market_index",
+  composite_key: "SA_MAIN:TASI",
+  name_ar: "\u0645\u0624\u0634\u0631 \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0631\u0626\u064a\u0633\u064a\u0629 (\u062a\u0627\u0633\u064a)",
+  name_en: "Tadawul All Share Index (TASI)",
+  sector_ar: "\u0645\u0624\u0634\u0631\u0627\u062a \u0627\u0644\u0633\u0648\u0642",
+  sector_en: "Market Indices",
+  market: "Saudi Main Market",
+  currency: "SAR",
+  status: "active",
+  official_url: "https://www.saudiexchange.sa/wps/portal/saudiexchange/rules-guidance/indices?locale=ar"
+};
 var GCC_MARKETS = [
   { market_code: "SA_MAIN", country_code: "SA", name_ar: "\u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629", name_en: "Saudi Main Market", currency: "SAR", timezone: "Asia/Riyadh", quote_mode: "delayed", delay_seconds: 900, license_status: "pending", active: true },
   { market_code: "AE_ADX", country_code: "AE", name_ar: "\u0633\u0648\u0642 \u0623\u0628\u0648\u0638\u0628\u064A", name_en: "Abu Dhabi Securities Exchange", currency: "AED", timezone: "Asia/Dubai", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
@@ -5788,6 +5803,7 @@ function exactInstrument(row) {
     symbol: row.symbol,
     market_code: "SA_MAIN",
     instrument_code: row.symbol,
+    instrument_type: "equity",
     composite_key: `SA_MAIN:${row.symbol}`,
     name_ar: row.nameAr,
     name_en: row.nameEn,
@@ -6109,10 +6125,19 @@ Deno.serve(async (req) => {
     stage = "market_upsert";
     await upsertMany(base44, "Market", GCC_MARKETS, ["market_code"]);
     stage = "instrument_upsert";
-    await upsertMany(base44, "Instrument", official_main_market_catalog_2026_07_21_default.companies.map(exactInstrument), ["symbol"]);
+    await upsertMany(base44, "Instrument", [...official_main_market_catalog_2026_07_21_default.companies.map(exactInstrument), TASI_INSTRUMENT], ["symbol"]);
     const instruments = (await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((row) => MAIN_MARKET_SYMBOLS.has(row.symbol));
     if (instruments.length !== EXPECTED_INSTRUMENT_COUNT) {
       throw ingestionFailure(`Verified main-market catalog is incomplete: ${instruments.length}/${EXPECTED_INSTRUMENT_COUNT}`, "MARKET_CATALOG_INCOMPLETE");
+    }
+    const tasi = (await base44.asServiceRole.entities.Instrument.filter({ market_code: "SA_MAIN", instrument_code: "TASI" }))[0] || null;
+    if (tasi) {
+      await upsertMany(base44, "InstrumentAlias", [
+        { instrument_id: tasi.id, market_code: "SA_MAIN", alias: "TASI", alias_type: "symbol", normalized_alias: "tasi", active: true },
+        { instrument_id: tasi.id, market_code: "SA_MAIN", alias: "\u062a\u0627\u0633\u064a", alias_type: "search", normalized_alias: "\u062a\u0627\u0633\u064a", active: true },
+        { instrument_id: tasi.id, market_code: "SA_MAIN", alias: "\u0627\u0644\u0645\u0624\u0634\u0631 \u0627\u0644\u0639\u0627\u0645", alias_type: "search", normalized_alias: "\u0627\u0644\u0645\u0648\u0634\u0631 \u0627\u0644\u0639\u0627\u0645", active: true },
+        { instrument_id: tasi.id, market_code: "SA_MAIN", alias: "Tadawul All Share Index", alias_type: "search", normalized_alias: "tadawul all share index", active: true }
+      ], ["instrument_id", "normalized_alias"]);
     }
     const officialSource = await source(base44, "SAUDI_EXCHANGE_DAILY_REFERENCE", {
       name: "\u062A\u062F\u0627\u0648\u0644 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u2014 \u0627\u0644\u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u064A\u0648\u0645\u064A \u0627\u0644\u062A\u0641\u0635\u064A\u0644\u064A",

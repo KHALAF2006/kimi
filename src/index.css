@@ -54,11 +54,18 @@
   .instrument-search-field > input { @apply w-full ps-10 pe-9; }
   .instrument-search-field > svg:last-child:not(:first-child) { @apply pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-sky-500; }
   .instrument-search-results { @apply absolute inset-x-0 top-[calc(100%+6px)] z-[80] max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-2xl dark:border-slate-700 dark:bg-slate-950; }
-  .instrument-search-results > button { @apply flex w-full flex-col gap-1 rounded-lg px-3 py-2 text-start hover:bg-slate-100 dark:hover:bg-slate-800; }
-  .instrument-search-results > button > span { @apply flex items-center gap-2; }
+  .instrument-search-results > button { @apply flex w-full flex-col gap-1 rounded-lg px-3 py-2 text-start outline-none transition hover:bg-slate-100 dark:hover:bg-slate-800; }
+  .instrument-search-results > button.active, .instrument-search-results > button[aria-selected="true"] { @apply bg-sky-50 ring-1 ring-inset ring-sky-300 dark:bg-sky-500/10 dark:ring-sky-500/50; }
+  .instrument-search-result-main { @apply flex min-w-0 items-center gap-2; }
+  .instrument-search-result-main > svg { @apply shrink-0 text-slate-400; }
   .instrument-search-results b { @apply font-mono text-xs text-sky-700 dark:text-sky-300; }
   .instrument-search-results strong { @apply min-w-0 truncate text-xs; }
-  .instrument-search-results small, .instrument-search-results > p { @apply px-3 py-2 text-[10px] text-slate-500 dark:text-slate-400; }
+  .instrument-search-results small { @apply flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400; }
+  .instrument-search-results > p { @apply px-3 py-2 text-[10px] text-slate-500 dark:text-slate-400; }
+  .instrument-kind { @apply rounded-full border px-1.5 py-0.5 font-black; }
+  .instrument-kind-equity { @apply border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  .instrument-kind-sector_index { @apply border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300; }
+  .instrument-kind-market_index { @apply border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300; }
   .eyebrow, .section-kicker { @apply inline-flex items-center gap-2 rounded-full border border-sky-300/60 bg-sky-50 px-3 py-1.5 text-xs font-black text-sky-800 dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-300; }
   .content-card { @apply rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-[#0d192a]; }
   .error-banner { @apply rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300; }
@@ -96,8 +103,14 @@
   .search-field input { @apply min-w-0 flex-1 bg-transparent text-sm text-slate-950 outline-none placeholder:text-slate-400 dark:text-white; }
   .filter-chip { @apply inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 transition hover:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
   .filter-chip span { @apply rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] dark:bg-slate-800; }
+  .filter-chip em { @apply text-[10px] font-black not-italic; }
   .filter-chip-active { @apply border-sky-500 bg-sky-500 text-white hover:border-sky-500 dark:bg-sky-500 dark:text-white; }
   .filter-chip-active span { @apply bg-slate-950/10; }
+  .sector-heat-strong_up:not(.filter-chip-active) { @apply border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-500/60 dark:bg-emerald-500/20 dark:text-emerald-100; }
+  .sector-heat-up:not(.filter-chip-active) { @apply border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200; }
+  .sector-heat-soft_down:not(.filter-chip-active) { @apply border-slate-300 bg-slate-100 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100; }
+  .sector-heat-strong_down:not(.filter-chip-active) { @apply border-red-300 bg-red-100 text-red-900 dark:border-red-500/50 dark:bg-red-500/20 dark:text-red-100; }
+  .sector-heat-neutral:not(.filter-chip-active) { @apply border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
   .sector-groups { @apply grid w-full gap-3 md:grid-cols-2 xl:grid-cols-3; }
   .sector-all-chip { @apply md:col-span-2 xl:col-span-3; }
   .sector-group { @apply min-w-0 rounded-xl border border-slate-200 p-3 dark:border-slate-800; }

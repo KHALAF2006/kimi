@@ -124,6 +124,7 @@ Deno.serve(async (req) => {
         session_id: body.session_id,
         reason,
         force: false,
+        symbols: Array.isArray(body.symbols) ? body.symbols.slice(0, 10) : undefined,
       })
       : action === "refresh_signals"
       ? await base44.functions.invoke("marketSignalRefresh", {
