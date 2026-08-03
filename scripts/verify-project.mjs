@@ -57,7 +57,9 @@ assert.match(ingestion, /persistIncrementalCandleChunks/, "current-session candl
 assert.doesNotMatch(ingestion, /upsertMany\(base44,\s*["']CandleChunk["']/, "incremental candle writes must not list every historical chunk before each cycle");
 assert.match(ingestion, /QuoteObservation\.bulkCreate/, "accepted provider readings must be stored before promotion");
 assert.match(ingestion, /query1\.finance\.yahoo\.com/, "experimental public source must be explicit and auditable in the backend");
-assert.match(ingestion, /from\s+["']\.\.\/\.\.\/shared\/security\.ts["']/, "scheduled market ingestion must use the centralized security boundary");
+assert.doesNotMatch(ingestion, /from\s+["']\.\.\/\.\.\/shared\//, "scheduled market ingestion must be self-contained because Base44 rejects imports outside the function directory");
+assert.match(ingestion, /async function readJsonBody\(/, "scheduled market ingestion must enforce its self-contained request boundary");
+assert.match(ingestion, /acquisition_source === "platform_owner_bootstrap"/, "scheduled market ingestion must enforce the trusted owner marker locally");
 
 const historicalBackfill = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
 assert.match(historicalBackfill, /requireAdminUser\(base44\)/, "historical backfill must require a verified admin identity");

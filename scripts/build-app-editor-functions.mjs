@@ -29,7 +29,9 @@ for (const functionName of generatedFunctions) {
 
   if (checkOnly) {
     const current = await readFile(entryPoint, "utf8");
-    assert.equal(current, generated, `${functionName}/entry.ts is stale; run npm run build:app-editor-functions`);
+    const canonicalCurrent = current.replace(/\r\n?/g, "\n");
+    const canonicalGenerated = generated.replace(/\r\n?/g, "\n");
+    assert.equal(canonicalCurrent, canonicalGenerated, `${functionName}/entry.ts is stale; run npm run build:app-editor-functions`);
   } else {
     await writeFile(entryPoint, generated, "utf8");
   }

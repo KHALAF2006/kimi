@@ -1,6 +1,46 @@
 // base44/functions/marketIngestion/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { readJsonBody, requireTrustedOwner } from "../../shared/security.ts";
+
+// Base44 scheduled functions cannot import files outside their own function
+// directory. Keep this narrow security boundary self-contained and verify it
+// against the canonical helpers in base44/shared/security.ts in acceptance tests.
+async function readJsonBody(req, maxBytes = 256 * 1024) {
+  if (String(req?.method || "").toUpperCase() !== "POST") {
+    throw Object.assign(new Error("Method not allowed"), { status: 405, code: "METHOD_NOT_ALLOWED" });
+  }
+  const declaredLength = Number(req.headers?.get?.("content-length") || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw Object.assign(new Error("Request body is too large"), { status: 413, code: "REQUEST_TOO_LARGE" });
+  }
+  const raw = await req.text();
+  if (new TextEncoder().encode(raw).byteLength > maxBytes) {
+    throw Object.assign(new Error("Request body is too large"), { status: 413, code: "REQUEST_TOO_LARGE" });
+  }
+  if (!raw.trim()) return {};
+  let body;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    throw Object.assign(new Error("Invalid JSON request"), { status: 400, code: "INVALID_JSON" });
+  }
+  if (!body || Array.isArray(body) || typeof body !== "object") {
+    throw Object.assign(new Error("JSON object required"), { status: 400, code: "INVALID_JSON_OBJECT" });
+  }
+  return body;
+}
+
+async function requireTrustedOwner(base44) {
+  const user = await base44.auth.me();
+  if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
+  if (user.role !== "admin") throw Object.assign(new Error("Forbidden"), { status: 403, code: "OWNER_REQUIRED" });
+  const profiles = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
+  const profile = profiles[0] || null;
+  const trusted = profile?.acquisition_source === "platform_owner_bootstrap"
+    && Array.isArray(profile?.tags)
+    && profile.tags.includes("owner");
+  if (!trusted) throw Object.assign(new Error("Forbidden"), { status: 403, code: "OWNER_REQUIRED" });
+  return { user, profile, role: "owner" };
+}
 
 // base44/shared/market-data.ts
 var SAUDI_MAIN_MARKET = "SA_MAIN";
