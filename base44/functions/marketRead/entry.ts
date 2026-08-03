@@ -12,6 +12,7 @@ import {
   mergeStoredCandleSeries,
   riyadhClock
 } from "../../shared/market-data.ts";
+import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from "../../shared/momentum.ts";
 var official_main_market_catalog_2026_07_21_default = {
   source: "Saudi Exchange",
   sourceUrl: "https://www.saudiexchange.sa/Resources/Reports-v2/DetailedDaily_en.html",
@@ -5336,8 +5337,25 @@ async function chartResponse(base44, body, sources) {
   const source = sources.find((item) => item.id === latestChunk.source_id) || null;
   const asOf = latestChunk.provider_as_of || stored.latestSourceTime || latestChunk.end_time || candles[candles.length - 1].time;
   const history = historyRows.find((item) => item.status === "complete" && item.coverage_verified === true && item.provider_partial !== true) || historyRows[0] || null;
+  const momentumBars = stored.bars.map((bar, index) => ({
+    ...bar,
+    is_final: index < stored.bars.length - 1 || latestChunk?.is_final !== false,
+  }));
+  const momentumIndicator = calculateMomentumZones(
+    momentumBars,
+    Math.min(30, Math.max(6, Math.round(Number(body.lookback_days) || 20))),
+    Number.POSITIVE_INFINITY,
+  );
   return {
     candles,
+    momentum_indicator: momentumIndicator ? {
+      indicator_key: "momentum_zones",
+      timeframe: interval,
+      values: momentumIndicator,
+      source_as_of: momentumBars.filter((bar) => bar.is_final !== false).at(-1)?.time || null,
+      calculated_at: new Date().toISOString(),
+      formula_version: MOMENTUM_FORMULA_VERSION,
+    } : null,
     as_of: asOf,
     data_state: stateFor(asOf, source),
     data_meta: {
@@ -5550,9 +5568,22 @@ async function sectorChartResponse(base44, body) {
     };
   }).filter(Boolean);
   if (candles.length < 2) throw Object.assign(new Error("Stored sector chart data is incomplete"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
+  const momentumIndicator = calculateMomentumZones(
+    candles,
+    Math.min(30, Math.max(6, Math.round(Number(body.lookback_days) || 20))),
+    Number.POSITIVE_INFINITY,
+  );
   return {
     sector,
     candles,
+    momentum_indicator: momentumIndicator ? {
+      indicator_key: "momentum_zones",
+      timeframe: interval,
+      values: momentumIndicator,
+      source_as_of: candles.at(-1)?.time || null,
+      calculated_at: new Date().toISOString(),
+      formula_version: MOMENTUM_FORMULA_VERSION,
+    } : null,
     as_of: candles[candles.length - 1].time,
     methodology: series.some((item) => Number(quoteByInstrument.get(item.instrument.id)?.market_cap || 0) > 0) ? "market_cap_weighted" : "equal_weighted"
   };
@@ -5622,7 +5653,8 @@ Deno.serve(async (req) => {
       const quote = quotes2.filter(usableQuote).sort((a, b) => new Date(b.quote_time).getTime() - new Date(a.quote_time).getTime())[0] || null;
       const source = quote ? sourceById.get(quote.source_id) : null;
       const indicators = entityRows(indicators2).sort((a, b) => String(b.source_as_of || b.calculated_at || b.updated_date || "").localeCompare(String(a.source_as_of || a.calculated_at || a.updated_date || "")));
-      const momentumIndicator = indicators.find((item) => item.indicator_key === "momentum_zones") || null;
+      const requestedTimeframe = ALLOWED_INTERVALS.has(String(body.timeframe || "1d")) ? String(body.timeframe || "1d") : "1d";
+      const momentumIndicator = indicators.find((item) => item.indicator_key === "momentum_zones" && item.timeframe === requestedTimeframe) || null;
       return Response.json({
         instrument: { ...instrument, warning_flag: losses2[0]?.level === "none" ? null : losses2[0]?.level },
         quote: quoteView(quote, source),
@@ -5669,9 +5701,8 @@ Deno.serve(async (req) => {
       const signals = Object.fromEntries(instrumentIndicators
         .filter((item) => item.indicator_key === "technical_signals")
         .map((item) => [item.timeframe, item]));
-      const momentumIndicator = instrumentIndicators.find((item) => item.indicator_key === "momentum_zones")
-        || instrumentIndicators[0]
-        || null;
+      const requestedSignalTimeframe = ["1d", "1wk", "1mo"].includes(String(body.timeframe || "1d")) ? String(body.timeframe || "1d") : "1d";
+      const momentumIndicator = instrumentIndicators.find((item) => item.indicator_key === "momentum_zones" && item.timeframe === requestedSignalTimeframe) || null;
       return {
         ...instrument,
         warning_flag: loss?.level === "none" ? null : loss?.level,

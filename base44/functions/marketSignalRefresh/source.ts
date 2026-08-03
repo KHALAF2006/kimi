@@ -8,6 +8,7 @@ import {
   calculateTechnicalSignals,
   normalizeTechnicalBars,
 } from "../../shared/technical-signals.ts";
+import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from "../../shared/momentum.ts";
 
 const CANONICAL_VERSION = "candle-projection-v1";
 const MARKET_CODE = "SA_MAIN";
@@ -281,6 +282,23 @@ async function projectInstrumentBatch(
         calculated_at: new Date().toISOString(),
         formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION,
       });
+      const momentumBars = signalBars.map((bar, index) => ({
+        ...bar,
+        is_final: index < signalBars.length - 1 || currentPeriodIsFinal,
+      }));
+      const momentumValues = calculateMomentumZones(momentumBars, 20, Number.POSITIVE_INFINITY);
+      if (momentumValues) {
+        indicatorRows.push({
+          instrument_id: instrument.id,
+          symbol: instrument.symbol,
+          indicator_key: "momentum_zones",
+          timeframe,
+          values: { ...momentumValues, is_final: currentPeriodIsFinal },
+          source_as_of: signalBars.at(-1)?.time,
+          calculated_at: new Date().toISOString(),
+          formula_version: MOMENTUM_FORMULA_VERSION,
+        });
+      }
     }
   }
 

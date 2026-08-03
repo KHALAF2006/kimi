@@ -219,7 +219,7 @@ function calculateTechnicalSnapshot(bars: CandleBar[]) {
   const engulfing = detectEngulfingPattern(previous, last);
   const momentum = calculateMomentumZones(bars);
   const matchingZone = pinBar.matches && last && momentum?.zones
-    ? momentum.zones.find((zone) => zone.active && last.low <= zone.top && last.high >= zone.bottom && last.close >= zone.bottom) || null
+    ? momentum.zones.find((zone) => zone.active && zone.role === "support" && last.low <= zone.top && last.high >= zone.bottom && last.close >= zone.bottom) || null
     : null;
 
   return {
@@ -242,8 +242,9 @@ function calculateTechnicalSnapshot(bars: CandleBar[]) {
     zone_pin_bar_direction: matchingZone ? pinBar.direction : null,
     matching_zone: matchingZone ? {
       key: matchingZone.key,
-      name_ar: matchingZone.nameAr,
-      name_en: matchingZone.nameEn,
+      name_ar: matchingZone.displayNameAr || matchingZone.nameAr,
+      name_en: matchingZone.displayNameEn || matchingZone.nameEn,
+      role: matchingZone.role,
       top: rounded(matchingZone.top),
       bottom: rounded(matchingZone.bottom),
     } : null,

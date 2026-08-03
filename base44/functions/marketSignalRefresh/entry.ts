@@ -137,54 +137,103 @@ function replyError(error) {
 }
 
 // base44/shared/momentum.ts
-var MOMENTUM_FORMULA_VERSION = "momentum-zones-v1";
+var MOMENTUM_FORMULA_VERSION = "momentum-zones-v2-role-reversal";
 var LOOKBACK_DAYS = 20;
 var HISTORY_BARS = Number.POSITIVE_INFINITY;
 var FIXED_STOP_PERCENT = 0.03;
-var ZONE_DEFINITIONS = [
-  { key: "zone1", nameAr: "\u0627\u0644\u0627\u0631\u062A\u062F\u0627\u062F", nameEn: "Rebound", colorNameAr: "\u0623\u062E\u0636\u0631", colorNameEn: "Green", light: "#16a34a", dark: "#22c55e", topPercent: 0.075, bottomPercent: 0.1 },
-  { key: "zone2", nameAr: "\u0642\u0627\u0639 \u0623\u0633\u0628\u0648\u0639\u064A/\u0634\u0647\u0631\u064A", nameEn: "Weekly / Monthly Base", colorNameAr: "\u0628\u0631\u062A\u0642\u0627\u0644\u064A", colorNameEn: "Orange", light: "#d97706", dark: "#f59e0b", topPercent: 0.2, bottomPercent: 0.24 },
-  { key: "zone3", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0645\u0646\u062E\u0641\u0636", nameEn: "Low-Risk Investment", colorNameAr: "\u0623\u0632\u0631\u0642", colorNameEn: "Blue", light: "#2563eb", dark: "#60a5fa", topPercent: 0.32, bottomPercent: 0.36 },
-  { key: "zone4", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0631\u0628\u0639 \u0633\u0646\u0648\u064A", nameEn: "Quarterly Investment", colorNameAr: "\u0628\u0646\u0641\u0633\u062C\u064A", colorNameEn: "Purple", light: "#7c3aed", dark: "#a78bfa", topPercent: 0.48, bottomPercent: 0.52 },
-  { key: "zone5", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0633\u0646\u0648\u064A", nameEn: "Annual Investment", colorNameAr: "\u0641\u064A\u0631\u0648\u0632\u064A", colorNameEn: "Teal", light: "#0d9488", dark: "#2dd4bf", topPercent: 0.58, bottomPercent: 0.65 }
+var ARCHIVED_CYCLE_LIMIT = 20;
+var MOMENTUM_ZONE_DEFINITIONS = [
+  { key: "zone1", nameAr: "\u0645\u0646\u0637\u0642\u0629 \u0627\u0644\u0627\u0631\u062A\u062F\u0627\u062F", nameEn: "Rebound zone", resistanceNameAr: "\u0645\u0642\u0627\u0648\u0645\u0629 \u0627\u0644\u0627\u0631\u062A\u062F\u0627\u062F", resistanceNameEn: "Rebound resistance", reclaimedNameAr: "\u062F\u0639\u0645 \u0627\u0631\u062A\u062F\u0627\u062F \u0645\u0633\u062A\u0639\u0627\u062F", reclaimedNameEn: "Reclaimed rebound support", colorNameAr: "\u0623\u062E\u0636\u0631", colorNameEn: "Green", light: "#16a34a", dark: "#22c55e", topPercent: 0.075, bottomPercent: 0.1 },
+  { key: "zone2", nameAr: "\u0642\u0627\u0639 \u0623\u0633\u0628\u0648\u0639\u064A / \u0634\u0647\u0631\u064A", nameEn: "Weekly / monthly base", resistanceNameAr: "\u0645\u0642\u0627\u0648\u0645\u0629 \u0623\u0633\u0628\u0648\u0639\u064A\u0629 / \u0634\u0647\u0631\u064A\u0629", resistanceNameEn: "Weekly / monthly resistance", reclaimedNameAr: "\u062F\u0639\u0645 \u0623\u0633\u0628\u0648\u0639\u064A / \u0634\u0647\u0631\u064A \u0645\u0633\u062A\u0639\u0627\u062F", reclaimedNameEn: "Reclaimed weekly / monthly support", colorNameAr: "\u0628\u0631\u062A\u0642\u0627\u0644\u064A", colorNameEn: "Orange", light: "#d97706", dark: "#f59e0b", topPercent: 0.2, bottomPercent: 0.24 },
+  { key: "zone3", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0645\u0646\u062E\u0641\u0636 \u0627\u0644\u0645\u062E\u0627\u0637\u0631", nameEn: "Low-risk investment", resistanceNameAr: "\u0645\u0642\u0627\u0648\u0645\u0629 \u0645\u0646\u062E\u0641\u0636\u0629 \u0627\u0644\u0645\u062E\u0627\u0637\u0631", resistanceNameEn: "Low-risk resistance", reclaimedNameAr: "\u062F\u0639\u0645 \u0645\u0646\u062E\u0641\u0636 \u0627\u0644\u0645\u062E\u0627\u0637\u0631 \u0645\u0633\u062A\u0639\u0627\u062F", reclaimedNameEn: "Reclaimed low-risk support", colorNameAr: "\u0623\u0632\u0631\u0642", colorNameEn: "Blue", light: "#2563eb", dark: "#60a5fa", topPercent: 0.32, bottomPercent: 0.36 },
+  { key: "zone4", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0631\u0628\u0639 \u0633\u0646\u0648\u064A", nameEn: "Quarterly investment", resistanceNameAr: "\u0645\u0642\u0627\u0648\u0645\u0629 \u0631\u0628\u0639 \u0633\u0646\u0648\u064A\u0629", resistanceNameEn: "Quarterly resistance", reclaimedNameAr: "\u062F\u0639\u0645 \u0631\u0628\u0639 \u0633\u0646\u0648\u064A \u0645\u0633\u062A\u0639\u0627\u062F", reclaimedNameEn: "Reclaimed quarterly support", colorNameAr: "\u0628\u0646\u0641\u0633\u062C\u064A", colorNameEn: "Purple", light: "#7c3aed", dark: "#a78bfa", topPercent: 0.48, bottomPercent: 0.52 },
+  { key: "zone5", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0633\u0646\u0648\u064A", nameEn: "Annual investment", resistanceNameAr: "\u0645\u0642\u0627\u0648\u0645\u0629 \u0633\u0646\u0648\u064A\u0629", resistanceNameEn: "Annual resistance", reclaimedNameAr: "\u062F\u0639\u0645 \u0633\u0646\u0648\u064A \u0645\u0633\u062A\u0639\u0627\u062F", reclaimedNameEn: "Reclaimed annual support", colorNameAr: "\u0641\u064A\u0631\u0648\u0632\u064A", colorNameEn: "Teal", light: "#0d9488", dark: "#2dd4bf", topPercent: 0.58, bottomPercent: 0.65 }
 ];
-function buildMomentumZones(referencePeak, zone4Active = false, zone5Active = false) {
-  return ZONE_DEFINITIONS.map((definition, index) => {
+function initialLifecycle(originalStop) {
+  return {
+    role: "support",
+    lifecycleStatus: "support_active",
+    originalStop,
+    currentStop: originalStop,
+    brokenAt: null,
+    retestedAt: null,
+    reclaimCandidateAt: null,
+    reclaimedAt: null,
+    reclaimLow: null
+  };
+}
+function lifecycleName(definition, state) {
+  if (state.role === "resistance") return { displayNameAr: definition.resistanceNameAr, displayNameEn: definition.resistanceNameEn };
+  if (state.lifecycleStatus === "support_reclaimed") return { displayNameAr: definition.reclaimedNameAr, displayNameEn: definition.reclaimedNameEn };
+  return { displayNameAr: definition.nameAr, displayNameEn: definition.nameEn };
+}
+function eventId(referenceTime, zoneKey, type, time) {
+  return `${referenceTime || "unknown"}:${zoneKey}:${type}:${time}`;
+}
+function buildMomentumZones(referencePeak, zone4Active = false, zone5Active = false, lifecycle = {}) {
+  return MOMENTUM_ZONE_DEFINITIONS.map((definition, index) => {
     const top = referencePeak * (1 - definition.topPercent);
     const bottom = referencePeak * (1 - definition.bottomPercent);
+    const originalStop = bottom * (1 - FIXED_STOP_PERCENT);
+    const state = lifecycle[definition.key] || initialLifecycle(originalStop);
     return {
       ...definition,
+      ...lifecycleName(definition, state),
       top,
       bottom,
-      stop: bottom * (1 - FIXED_STOP_PERCENT),
+      stop: state.currentStop,
+      originalStop: state.originalStop,
+      displayStop: state.role === "support" ? state.currentStop : null,
+      stopVisible: state.role === "support",
+      role: state.role,
+      lifecycleStatus: state.lifecycleStatus,
+      brokenAt: state.brokenAt,
+      retestedAt: state.retestedAt,
+      reclaimCandidateAt: state.reclaimCandidateAt,
+      reclaimedAt: state.reclaimedAt,
       active: index < 3 || index === 3 && zone4Active || index === 4 && zone5Active
     };
   });
 }
-function crossedUnder(current, threshold, previous, previousThreshold) {
-  return previous !== null && previousThreshold !== null && current < threshold && previous >= previousThreshold;
+function crossedUnder(current, threshold, previous) {
+  return previous !== null && current < threshold && previous >= threshold;
+}
+function freshLifecycle(referencePeak) {
+  return Object.fromEntries(MOMENTUM_ZONE_DEFINITIONS.map((definition) => {
+    const bottom = referencePeak * (1 - definition.bottomPercent);
+    return [definition.key, initialLifecycle(bottom * (1 - FIXED_STOP_PERCENT))];
+  }));
 }
 function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, historyBars = HISTORY_BARS) {
-  const normalized = inputBars.map((bar) => ({
+  const lookback = Math.min(30, Math.max(6, Math.round(Number(lookbackDays) || LOOKBACK_DAYS)));
+  const normalizedCandidates = inputBars.map((bar) => ({
     time: String(bar.time || ""),
+    open: Number(bar.open),
     high: Number(bar.high),
-    close: Number(bar.close)
-  })).filter((bar) => bar.time && Number.isFinite(bar.high) && Number.isFinite(bar.close) && bar.high > 0 && bar.close > 0).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-  const finiteHistoryLimit = Number.isFinite(Number(historyBars)) ? Math.max(lookbackDays + 2, Math.round(Number(historyBars))) : normalized.length;
+    low: Number(bar.low),
+    close: Number(bar.close),
+    isFinal: bar.is_final !== false && bar.isFinal !== false
+  })).filter((bar) => bar.time && Number.isFinite(new Date(bar.time).getTime()) && bar.isFinal && [bar.high, bar.low, bar.close].every((value) => Number.isFinite(value) && value > 0) && bar.high >= bar.low);
+  const normalized = [...new Map(normalizedCandidates.map((bar) => [new Date(bar.time).toISOString(), { ...bar, time: new Date(bar.time).toISOString() }])).values()].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  const finiteHistoryLimit = Number.isFinite(Number(historyBars)) ? Math.max(lookback + 2, Math.round(Number(historyBars))) : normalized.length;
   const bars = normalized.slice(-finiteHistoryLimit);
-  if (bars.length < 2) return null;
+  if (bars.length < lookback + 1) return null;
   let referencePeak = null;
   let referenceTime = null;
   let lastBrokenPeak = null;
   let zone4Active = false;
   let zone5Active = false;
   let previousClose = null;
-  let previousZone3Stop = null;
-  let previousZone4Stop = null;
+  let lifecycle = {};
+  let zoneEvents = [];
+  const archivedCycles = [];
+  const addEvent = (zoneKey, type, time, price, details = {}) => {
+    zoneEvents.push({ id: eventId(referenceTime, zoneKey, type, time), zoneKey, type, time, price, ...details });
+  };
   for (let index = 0; index < bars.length; index += 1) {
     let candidatePeak = null;
     let candidateTime = null;
-    for (let offset = 1; offset <= lookbackDays; offset += 1) {
+    for (let offset = 1; offset <= lookback; offset += 1) {
       const candidate = bars[index - offset];
       if (!candidate) continue;
       if (candidatePeak === null || candidate.high > candidatePeak) {
@@ -194,27 +243,75 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
     }
     const bar = bars[index];
     if (referencePeak !== null && bar.high > referencePeak) {
+      archivedCycles.push({ referencePeak, referenceTime, endedAt: bar.time, reason: "new_reference_peak", zone4Active, zone5Active, zones: buildMomentumZones(referencePeak, zone4Active, zone5Active, lifecycle), events: zoneEvents });
       lastBrokenPeak = referencePeak;
       referencePeak = null;
       referenceTime = null;
       zone4Active = false;
       zone5Active = false;
+      lifecycle = {};
+      zoneEvents = [];
     }
     if (referencePeak === null && candidatePeak !== null && (lastBrokenPeak === null || candidatePeak !== lastBrokenPeak)) {
       referencePeak = candidatePeak;
       referenceTime = candidateTime;
       zone4Active = false;
       zone5Active = false;
+      lifecycle = freshLifecycle(referencePeak);
+      zoneEvents = [];
     }
     if (referencePeak !== null) {
-      const zones = buildMomentumZones(referencePeak, zone4Active, zone5Active);
-      if (crossedUnder(bar.close, zones[2].stop, previousClose, previousZone3Stop)) zone4Active = true;
-      if (zone4Active && crossedUnder(bar.close, zones[3].stop, previousClose, previousZone4Stop)) zone5Active = true;
-      previousZone3Stop = zones[2].stop;
-      previousZone4Stop = zones[3].stop;
-    } else {
-      previousZone3Stop = null;
-      previousZone4Stop = null;
+      let zones = buildMomentumZones(referencePeak, zone4Active, zone5Active, lifecycle);
+      for (const zone of zones) {
+        if (!zone.active) continue;
+        const state = lifecycle[zone.key];
+        if (state.role === "support" && crossedUnder(bar.close, state.currentStop, previousClose)) {
+          state.role = "resistance";
+          state.lifecycleStatus = "resistance_candidate";
+          state.brokenAt = bar.time;
+          state.retestedAt = null;
+          state.reclaimCandidateAt = null;
+          state.reclaimedAt = null;
+          state.reclaimLow = null;
+          addEvent(zone.key, "stop_broken", bar.time, bar.close, { previousRole: "support", nextRole: "resistance", stop: state.currentStop });
+          if (zone.key === "zone3") zone4Active = true;
+          if (zone.key === "zone4") zone5Active = true;
+          continue;
+        }
+        if (state.role !== "resistance" || state.brokenAt === bar.time) continue;
+        if (bar.close > zone.top) {
+          if (state.lifecycleStatus === "reclaim_candidate" && state.reclaimCandidateAt !== bar.time) {
+            state.role = "support";
+            state.lifecycleStatus = "support_reclaimed";
+            state.reclaimedAt = bar.time;
+            state.currentStop = Math.min(zone.bottom, state.reclaimLow || zone.bottom, bar.low) * (1 - FIXED_STOP_PERCENT);
+            addEvent(zone.key, "support_reclaimed", bar.time, bar.close, { previousRole: "resistance", nextRole: "support", newStop: state.currentStop });
+          } else if (state.lifecycleStatus !== "reclaim_candidate") {
+            state.lifecycleStatus = "reclaim_candidate";
+            state.reclaimCandidateAt = bar.time;
+            state.reclaimLow = bar.low;
+            addEvent(zone.key, "reclaim_candidate", bar.time, bar.close, { zoneTop: zone.top });
+          }
+          continue;
+        }
+        if (state.lifecycleStatus === "reclaim_candidate" && bar.close <= zone.bottom) {
+          state.lifecycleStatus = "resistance_confirmed";
+          state.retestedAt = bar.time;
+          state.reclaimCandidateAt = null;
+          state.reclaimLow = null;
+          addEvent(zone.key, "resistance_confirmed", bar.time, bar.close, { reason: "failed_reclaim" });
+          continue;
+        }
+        const touchedZone = bar.high >= zone.bottom && bar.low <= zone.top;
+        if (state.lifecycleStatus === "resistance_candidate" && touchedZone && bar.close < zone.bottom) {
+          state.lifecycleStatus = "resistance_confirmed";
+          state.retestedAt = bar.time;
+          addEvent(zone.key, "resistance_confirmed", bar.time, bar.close, { reason: "retest_rejection" });
+        }
+      }
+      zones = buildMomentumZones(referencePeak, zone4Active, zone5Active, lifecycle);
+      if (zones[2].role === "resistance") zone4Active = true;
+      if (zones[3].active && zones[3].role === "resistance") zone5Active = true;
     }
     previousClose = bar.close;
   }
@@ -222,12 +319,14 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
   return {
     referencePeak,
     referenceTime,
-    lookbackDays,
+    lookbackDays: lookback,
     historyBars: bars.length,
     formulaVersion: MOMENTUM_FORMULA_VERSION,
     zone4Active,
     zone5Active,
-    zones: buildMomentumZones(referencePeak, zone4Active, zone5Active)
+    zones: buildMomentumZones(referencePeak, zone4Active, zone5Active, lifecycle),
+    zoneEvents,
+    archivedCycles: archivedCycles.slice(-ARCHIVED_CYCLE_LIMIT)
   };
 }
 
@@ -406,7 +505,7 @@ function calculateTechnicalSnapshot(bars) {
   const pinBar = detectPinBar(last);
   const engulfing = detectEngulfingPattern(previous, last);
   const momentum = calculateMomentumZones(bars);
-  const matchingZone = pinBar.matches && last && momentum?.zones ? momentum.zones.find((zone) => zone.active && last.low <= zone.top && last.high >= zone.bottom && last.close >= zone.bottom) || null : null;
+  const matchingZone = pinBar.matches && last && momentum?.zones ? momentum.zones.find((zone) => zone.active && zone.role === "support" && last.low <= zone.top && last.high >= zone.bottom && last.close >= zone.bottom) || null : null;
   return {
     bar_count: bars.length,
     candle_time: last?.time || null,
@@ -427,8 +526,9 @@ function calculateTechnicalSnapshot(bars) {
     zone_pin_bar_direction: matchingZone ? pinBar.direction : null,
     matching_zone: matchingZone ? {
       key: matchingZone.key,
-      name_ar: matchingZone.nameAr,
-      name_en: matchingZone.nameEn,
+      name_ar: matchingZone.displayNameAr || matchingZone.nameAr,
+      name_en: matchingZone.displayNameEn || matchingZone.nameEn,
+      role: matchingZone.role,
       top: rounded(matchingZone.top),
       bottom: rounded(matchingZone.bottom)
     } : null,
@@ -691,6 +791,23 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate) {
         calculated_at: (/* @__PURE__ */ new Date()).toISOString(),
         formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION
       });
+      const momentumBars = signalBars.map((bar, index) => ({
+        ...bar,
+        is_final: index < signalBars.length - 1 || currentPeriodIsFinal
+      }));
+      const momentumValues = calculateMomentumZones(momentumBars, 20, Number.POSITIVE_INFINITY);
+      if (momentumValues) {
+        indicatorRows.push({
+          instrument_id: instrument.id,
+          symbol: instrument.symbol,
+          indicator_key: "momentum_zones",
+          timeframe,
+          values: { ...momentumValues, is_final: currentPeriodIsFinal },
+          source_as_of: signalBars.at(-1)?.time,
+          calculated_at: (/* @__PURE__ */ new Date()).toISOString(),
+          formula_version: MOMENTUM_FORMULA_VERSION
+        });
+      }
     }
   }
   const candleResult = await upsertRows(

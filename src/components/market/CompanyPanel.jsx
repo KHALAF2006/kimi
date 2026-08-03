@@ -24,16 +24,16 @@ export default function CompanyPanel({ symbol, requestedTimeframe = "", onResetW
     if (!symbol) { setState({ loading: false, data: null, dataSymbol: "", error: "" }); return; }
     let active = true;
     setState((current) => ({ ...current, loading: true, error: "" }));
-    invokeAppFunction("marketRead", { symbol })
+    invokeAppFunction("marketRead", { symbol, timeframe: requestedTimeframe || "1d" })
       .then((data) => active && setState({ loading: false, data, dataSymbol: symbol, error: "" }))
       .catch((error) => active && setState((current) => ({ ...current, loading: false, error: error?.response?.data?.error || error?.message || "company_fetch_failed" })));
     return () => { active = false; };
   }, [symbol]);
 
   const storedMomentum = useMemo(() => state.dataSymbol === symbol ? normalizeMomentum(
-    state.data?.momentum_indicator || selectMomentumSnapshot(state.data?.indicators),
+    state.data?.momentum_indicator || selectMomentumSnapshot(state.data?.indicators, requestedTimeframe || "1d"),
     theme,
-  ) : null, [state.data, state.dataSymbol, symbol, theme]);
+  ) : null, [state.data, state.dataSymbol, symbol, theme, requestedTimeframe]);
   const momentum = chartMomentum?.symbol === symbol ? chartMomentum.value : storedMomentum;
   const handleMomentumChange = useCallback((value, interval) => {
     setChartMomentum({ symbol, interval, value });
@@ -67,8 +67,8 @@ export default function CompanyPanel({ symbol, requestedTimeframe = "", onResetW
     <CompanyChart symbol={symbol} momentum={storedMomentum} requestedInterval={requestedTimeframe} onMomentumChange={handleMomentumChange} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} onResetWidth={onResetWidth} />
 
     <section className="content-card">
-      <div className="section-heading"><TrendingUp size={18} /><div><h3>{isArabic ? "مناطق المستثمر" : "Investor zones"}</h3><p>{isArabic ? "حدود سعرية صارمة محسوبة للفاصل المعروض، بأسمائها وألوانها وأسعارها ووقفها." : "Strict price boundaries for the selected interval, with names, colors, prices and stops."}</p></div></div>
-      {momentum?.zones?.length ? <div className="mt-4 space-y-2">{momentum.zones.map((zone) => <div key={zone.key} className={"zone-row " + (zone.active === false ? "opacity-45" : "")}><span className="zone-color" style={{ background: zone.color }} /><div className="min-w-0 flex-1"><b>{isArabic ? zone.nameAr : zone.nameEn}</b><p>{isArabic ? zone.colorNameAr : zone.colorNameEn}{zone.active === false ? (isArabic ? " · غير مفعلة" : " · Inactive") : ""}</p></div><div className="text-left font-mono text-xs" dir="ltr"><b>{formatNumber(zone.top, "en")}</b><span> → </span><b>{formatNumber(zone.bottom, "en")}</b><p className="text-red-600">Stop {formatNumber(zone.stop, "en")}</p></div></div>)}</div> : <EmptySection>{isArabic ? "لا توجد لقطة مؤشر موثقة بعد. تُحسب من الشموع الحقيقية فقط." : "No verified indicator snapshot yet. It is calculated from real candles only."}</EmptySection>}
+      <div className="section-heading"><TrendingUp size={18} /><div><h3>{isArabic ? "المناطق السعرية" : "Price zones"}</h3><p>{isArabic ? "تتحول المنطقة المكسورة بالإغلاق إلى مقاومة، ويختفي وقفها حتى تُستعاد كدعم." : "A zone broken on close becomes resistance and its stop stays hidden until support is reclaimed."}</p></div></div>
+      {momentum?.zones?.length ? <div className="mt-4 space-y-2">{momentum.zones.map((zone) => <div key={zone.key} className={"zone-row " + (zone.active === false ? "opacity-45" : "")}><span className="zone-color" style={{ background: zone.role === "resistance" ? "#dc2626" : zone.color }} /><div className="min-w-0 flex-1"><b>{isArabic ? (zone.displayNameAr || zone.nameAr) : (zone.displayNameEn || zone.nameEn)}</b><p>{zone.active === false ? (isArabic ? "بانتظار التفعيل" : "Waiting") : zone.role === "resistance" ? (isArabic ? "مقاومة بعد كسر الوقف" : "Resistance after stop break") : zone.lifecycleStatus === "support_reclaimed" ? (isArabic ? "دعم مستعاد" : "Reclaimed support") : (isArabic ? "دعم نشط" : "Active support")}</p></div><div className="text-left font-mono text-xs" dir="ltr"><b>{formatNumber(zone.top, "en")}</b><span> → </span><b>{formatNumber(zone.bottom, "en")}</b><p className="text-red-600">Stop {zone.active === false || zone.stopVisible === false ? "—" : formatNumber(zone.displayStop ?? zone.stop, "en")}</p></div></div>)}</div> : <EmptySection>{isArabic ? "لا توجد لقطة مؤشر موثقة بعد. تُحسب من الشموع الحقيقية فقط." : "No verified indicator snapshot yet. It is calculated from real candles only."}</EmptySection>}
     </section>
 
     <div className="grid gap-4 xl:grid-cols-2">

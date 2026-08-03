@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, LineStyle } from "lightweight-charts";
 import { BarChart3, ChartCandlestick, ChevronLeft, ChevronRight, Eye, EyeOff, Flame, Layers3, Maximize2, Minus, Plus, RotateCcw, Settings2, SlidersHorizontal, TrendingUp, Waves } from "lucide-react";
 import { invokeAppFunction } from "@/services/marketService";
-import { calculateMomentumSnapshot, calculateRsiSeries, formatNumber, MOMENTUM_ZONE_DEFINITIONS, normalizeMomentum } from "@/lib/market";
+import { calculateRsiSeries, formatNumber, MOMENTUM_ZONE_DEFINITIONS, normalizeMomentum } from "@/lib/market";
 import { calculateSmaSeries, reversalPatternMap } from "@/lib/technical-signals";
 import { buildDisplayCandles, chartPreferencePayload, chartVisualDefaults, resolvedChartColors, sanitizeChartPreferences } from "@/lib/chart-visuals";
 import { usePreferences } from "@/lib/preferences";
@@ -67,6 +67,7 @@ const momentumDefaults = {
     visible: true,
     stopVisible: true,
     color: zone.dark,
+    resistanceColor: "#dc2626",
     stopColor: "#dc2626",
   }])),
 };
@@ -159,7 +160,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const [interval, setInterval] = useState(() => initialChartInterval(requestedInterval));
   const [range, setRange] = useState(() => initialChartRange(initialChartInterval(requestedInterval)));
   const [candles, setCandles] = useState([]);
-  const [indicatorState, setIndicatorState] = useState({ key: "", candles: [] });
+  const [indicatorState, setIndicatorState] = useState({ key: "", momentum: null });
   const [historyMeta, setHistoryMeta] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -201,7 +202,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   const [drawingVisibilityCommand, setDrawingVisibilityCommand] = useState(null);
   const chartTarget = sector || symbol;
   const indicatorKey = `${chartTarget}:${interval}`;
-  const indicatorCandles = indicatorState.key === indicatorKey ? indicatorState.candles : [];
+  const backendMomentum = useMemo(() => indicatorState.key === indicatorKey ? normalizeMomentum(indicatorState.momentum, theme) : null, [indicatorState, indicatorKey, theme]);
   const chartTitle = sector ? (isArabic ? `مؤشر قطاع ${sector}` : `${sector} sector index`) : (isArabic ? "الرسم البياني" : "Chart");
 
   const orderedCandles = useMemo(() => normalizeCandles(candles), [candles]);
@@ -243,8 +244,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
   sma20DataRef.current = sma20Data;
   sma50DataRef.current = sma50Data;
   const fallbackMomentum = useMemo(() => normalizeMomentum(rawMomentum, theme), [rawMomentum, theme]);
-  const calculatedMomentum = useMemo(() => calculateMomentumSnapshot(indicatorCandles, momentumSettings.peakLookbackDays, Number.POSITIVE_INFINITY, theme), [indicatorCandles, momentumSettings.peakLookbackDays, theme]);
-  const momentum = calculatedMomentum || fallbackMomentum;
+  const momentum = backendMomentum || fallbackMomentum;
   const chartHeight = 470 + (showVolume ? 115 : 0) + (showRsi ? 165 : 0);
   const investorZoneLabel = isArabic
     ? { "15m": "مناطق المستثمر لفاصل 15 دقيقة", "1h": "مناطق المستثمر الساعية", "2h": "مناطق المستثمر لساعتين", "3h": "مناطق المستثمر لثلاث ساعات", "4h": "مناطق المستثمر لأربع ساعات", "1d": "مناطق المستثمر اليومية", "1wk": "مناطق المستثمر الأسبوعية", "1mo": "مناطق المستثمر الشهرية" }[interval]
@@ -290,18 +290,18 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     if (!chartTarget) return;
     let active = true;
     const indicatorRange = interval === "15m" ? "1mo" : ["1h", "2h", "3h", "4h"].includes(interval) ? "1y" : "max";
-    setIndicatorState({ key: indicatorKey, candles: [] });
+    setIndicatorState({ key: indicatorKey, momentum: null });
     invokeAppFunction("marketRead", sector
-      ? { action: "sector_chart", sector, market_code: marketCode, interval, range: indicatorRange }
-      : { action: "chart", symbol, interval, range: indicatorRange })
-      .then((data) => active && setIndicatorState({ key: indicatorKey, candles: Array.isArray(data.candles) ? data.candles : [] }))
-      .catch(() => active && setIndicatorState({ key: indicatorKey, candles: [] }));
+      ? { action: "sector_chart", sector, market_code: marketCode, interval, range: indicatorRange, lookback_days: momentumSettings.peakLookbackDays }
+      : { action: "chart", symbol, interval, range: indicatorRange, lookback_days: momentumSettings.peakLookbackDays })
+      .then((data) => active && setIndicatorState({ key: indicatorKey, momentum: data.momentum_indicator || null }))
+      .catch(() => active && setIndicatorState({ key: indicatorKey, momentum: null }));
     return () => { active = false; };
-  }, [chartTarget, sector, symbol, marketCode, interval, indicatorKey]);
+  }, [chartTarget, sector, symbol, marketCode, interval, indicatorKey, momentumSettings.peakLookbackDays]);
 
   useEffect(() => {
-    onMomentumChange(calculatedMomentum, interval);
-  }, [calculatedMomentum, interval, onMomentumChange]);
+    onMomentumChange(momentum, interval);
+  }, [momentum, interval, onMomentumChange]);
 
   useEffect(() => {
     localStorage.setItem("kmy_show_momentum", String(showMomentum));
@@ -633,12 +633,13 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
     }
     momentum.zones.filter((zone) => zone.active !== false).forEach((zone) => {
       const zoneSetting = momentumSettings.zones[zone.key] || momentumDefaults.zones[zone.key];
+      const zoneColor = zone.role === "resistance" ? zoneSetting.resistanceColor : zoneSetting.color;
       if (momentumSettings.showZones && zoneSetting.visible) {
-        momentumLinesRef.current.push(series.createPriceLine({ price: Number(zone.top), color: zoneSetting.color, lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: false, title: "" }));
-        momentumLinesRef.current.push(series.createPriceLine({ price: Number(zone.bottom), color: zoneSetting.color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "" }));
+        momentumLinesRef.current.push(series.createPriceLine({ price: Number(zone.top), color: zoneColor, lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: false, title: "" }));
+        momentumLinesRef.current.push(series.createPriceLine({ price: Number(zone.bottom), color: zoneColor, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "" }));
       }
-      if (momentumSettings.showStopLines && zoneSetting.stopVisible) {
-        momentumLinesRef.current.push(series.createPriceLine({ price: Number(zone.stop), color: zoneSetting.stopColor, lineWidth: zone.key === "zone4" || zone.key === "zone5" ? 3 : 2, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "" }));
+      if (momentumSettings.showStopLines && zoneSetting.stopVisible && zone.stopVisible !== false && Number.isFinite(Number(zone.displayStop))) {
+        momentumLinesRef.current.push(series.createPriceLine({ price: Number(zone.displayStop), color: zoneSetting.stopColor, lineWidth: zone.key === "zone4" || zone.key === "zone5" ? 3 : 2, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "" }));
       }
     });
     window.requestAnimationFrame(() => overlayUpdateRef.current());
@@ -662,6 +663,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       const right = Math.max(left, container.clientWidth - 70);
       const zones = momentum.zones.filter((zone) => zone.active !== false).map((zone) => {
         const setting = momentumSettings.zones[zone.key] || momentumDefaults.zones[zone.key];
+        const zoneColor = zone.role === "resistance" ? setting.resistanceColor : setting.color;
         const top = series.priceToCoordinate(Number(zone.top));
         const bottom = series.priceToCoordinate(Number(zone.bottom));
         if (!setting.visible || top == null || bottom == null) return null;
@@ -676,8 +678,8 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
           width: Math.max(0, right - left),
           top: clippedTop,
           height: Math.max(2, clippedBottom - clippedTop),
-          color: setting.color,
-          name: isArabic ? zone.nameAr : zone.nameEn,
+          color: zoneColor,
+          name: isArabic ? (zone.displayNameAr || zone.nameAr) : (zone.displayNameEn || zone.nameEn),
           topPrice: zone.top,
           bottomPrice: zone.bottom,
         };
@@ -925,6 +927,7 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
           <b>{isArabic ? zone.nameAr : zone.nameEn}</b>
           <label className="settings-check"><input type="checkbox" checked={setting.visible} onChange={(event) => updateZoneSetting(zone.key, { visible: event.target.checked })} /><span>{isArabic ? "المنطقة" : "Zone"}</span></label>
           <input type="color" value={setting.color} onChange={(event) => updateZoneSetting(zone.key, { color: event.target.value })} title={isArabic ? "لون المنطقة" : "Zone color"} />
+          <input type="color" value={setting.resistanceColor} onChange={(event) => updateZoneSetting(zone.key, { resistanceColor: event.target.value })} title={isArabic ? "لون المقاومة بعد الكسر" : "Resistance color after break"} />
           <label className="settings-check"><input type="checkbox" checked={setting.stopVisible} onChange={(event) => updateZoneSetting(zone.key, { stopVisible: event.target.checked })} /><span>{isArabic ? "الوقف" : "Stop"}</span></label>
           <input type="color" value={setting.stopColor} onChange={(event) => updateZoneSetting(zone.key, { stopColor: event.target.value })} title={isArabic ? "لون الوقف" : "Stop color"} />
         </div>;
@@ -943,8 +946,12 @@ export default function CompanyChart({ symbol = "", sector = "", marketCode = "S
       {symbol && chartRef.current && candleSeriesRef.current && <ChartDrawingTools chart={chartRef.current} series={candleSeriesRef.current} symbol={symbol} interval={interval} mainPaneHeight={mainPaneHeight} isArabic={isArabic} onResetChart={resetChartView} visibilityCommand={drawingVisibilityCommand} onDrawingVisibilityChange={onDrawingVisibilityChange} />}
       {showMomentum && momentum?.zones?.length > 0 && <div className={"momentum-price-panel " + (!showMomentumCard ? "momentum-price-panel-collapsed" : "")}>
         <button type="button" className="momentum-card-eye" onClick={() => setShowMomentumCard((value) => !value)} title={showMomentumCard ? (isArabic ? "إخفاء بطاقة أسعار المناطق" : "Hide zone price card") : (isArabic ? "إظهار بطاقة أسعار المناطق" : "Show zone price card")} aria-expanded={showMomentumCard}>{showMomentumCard ? <EyeOff size={14} /> : <Eye size={14} />}<span>{investorZoneLabel}</span></button>
-        {showMomentumCard && <><div className="momentum-price-head"><span>{isArabic ? "المنطقة" : "Zone"}</span><span>{isArabic ? "من" : "From"}</span><span>{isArabic ? "إلى" : "To"}</span><span>{isArabic ? "الوقف" : "Stop"}</span></div>
-        {momentum.zones.map((zone) => <div key={zone.key} className={zone.active === false ? "opacity-45" : ""}><b style={{ color: momentumSettings.zones[zone.key]?.color }}>{isArabic ? zone.nameAr : zone.nameEn}</b><span>{zone.active === false ? (isArabic ? "بانتظار" : "Waiting") : formatNumber(zone.top, "en")}</span><span>{zone.active === false ? "—" : formatNumber(zone.bottom, "en")}</span><span className="text-red-500">{zone.active === false ? "—" : formatNumber(zone.stop, "en")}</span></div>)}</>}
+        {showMomentumCard && <><div className="momentum-price-head"><span>{isArabic ? "المنطقة / الدور" : "Zone / role"}</span><span>{isArabic ? "من" : "From"}</span><span>{isArabic ? "إلى" : "To"}</span><span>{isArabic ? "الوقف" : "Stop"}</span></div>
+        {momentum.zones.map((zone) => {
+          const setting = momentumSettings.zones[zone.key] || momentumDefaults.zones[zone.key];
+          const zoneColor = zone.role === "resistance" ? setting.resistanceColor : setting.color;
+          return <div key={zone.key} className={zone.active === false ? "opacity-45" : ""}><b style={{ color: zoneColor }}>{isArabic ? (zone.displayNameAr || zone.nameAr) : (zone.displayNameEn || zone.nameEn)}</b><span>{zone.active === false ? (isArabic ? "بانتظار" : "Waiting") : formatNumber(zone.top, "en")}</span><span>{zone.active === false ? "—" : formatNumber(zone.bottom, "en")}</span><span className="text-red-500">{zone.active === false || zone.stopVisible === false ? "—" : formatNumber(zone.displayStop ?? zone.stop, "en")}</span></div>;
+        })}</>}
       </div>}
     </div>
     <ChartSettingsSheet open={chartSettingsOpen} onOpenChange={setChartSettingsOpen} preferences={chartPreferences} onApply={saveChartPreferences} theme={theme} isArabic={isArabic} saving={savingChartSettings} />

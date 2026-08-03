@@ -665,10 +665,49 @@ assert.throws(() => normalizeYahooHistoricalBars({ chart: { error: { code: "Not 
 const longHistory = Array.from({ length: 650 }, (_, index) => ({
   time: new Date(Date.UTC(2020, 0, index + 1)).toISOString(),
   high: 100,
+  low: 89,
   close: 90,
 }));
 const longHistoryMomentum = calculateMomentumZones(longHistory, 20);
 assert.equal(longHistoryMomentum?.historyBars, 650, "reference-peak calculations must consume the complete stored history instead of truncating at 500 candles");
+
+const lifecycleBars = Array.from({ length: 7 }, (_, index) => ({
+  time: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+  open: index === 0 ? 98 : 95,
+  high: index === 0 ? 100 : 99,
+  low: index === 0 ? 97 : 94,
+  close: index === 0 ? 98 : 95,
+}));
+const wickOnlyBars = [...lifecycleBars, { time: "2026-01-08T00:00:00.000Z", open: 89, high: 91, low: 86, close: 88 }];
+const wickOnlyMomentum = calculateMomentumZones(wickOnlyBars, 6);
+assert.equal(wickOnlyMomentum.zones[0].role, "support", "a wick below the stop must not reverse a zone without a closing-price break");
+const brokenBars = [...wickOnlyBars, { time: "2026-01-09T00:00:00.000Z", open: 88, high: 89, low: 85, close: 86 }];
+const brokenMomentum = calculateMomentumZones(brokenBars, 6);
+assert.equal(brokenMomentum.zones[0].role, "resistance", "a confirmed close below the stop must reverse support into resistance");
+assert.equal(brokenMomentum.zones[0].lifecycleStatus, "resistance_candidate");
+assert.equal(brokenMomentum.zones[0].displayStop, null, "the obsolete support stop must disappear from the active display after reversal");
+assert.equal(brokenMomentum.zones[0].displayNameAr, "مقاومة الارتداد", "the displayed Arabic name must reflect the new resistance role");
+const duplicateBreakMomentum = calculateMomentumZones([...brokenBars, brokenBars.at(-1)], 6);
+assert.equal(duplicateBreakMomentum.historyBars, brokenBars.length, "duplicate candle timestamps must be coalesced before lifecycle evaluation");
+assert.equal(duplicateBreakMomentum.zoneEvents.filter((event) => event.type === "stop_broken" && event.zoneKey === "zone1").length, 1, "a duplicate candle must not create a duplicate lifecycle event");
+const provisionalBreakMomentum = calculateMomentumZones([
+  ...wickOnlyBars,
+  { time: "2026-01-09T00:00:00.000Z", open: 88, high: 89, low: 85, close: 86, is_final: false },
+], 6);
+assert.equal(provisionalBreakMomentum.zones[0].role, "support", "a still-forming candle must never reverse a zone");
+const retestedBars = [...brokenBars, { time: "2026-01-10T00:00:00.000Z", open: 88, high: 91, low: 88, close: 89 }];
+const retestedMomentum = calculateMomentumZones(retestedBars, 6);
+assert.equal(retestedMomentum.zones[0].lifecycleStatus, "resistance_confirmed", "a rejected retest inside the former support must confirm resistance");
+const reclaimedBars = [
+  ...retestedBars,
+  { time: "2026-01-11T00:00:00.000Z", open: 91, high: 94, low: 89, close: 93 },
+  { time: "2026-01-12T00:00:00.000Z", open: 93, high: 95, low: 92, close: 94 },
+];
+const reclaimedMomentum = calculateMomentumZones(reclaimedBars, 6);
+assert.equal(reclaimedMomentum.zones[0].role, "support", "two closes above the zone must restore the support role");
+assert.equal(reclaimedMomentum.zones[0].lifecycleStatus, "support_reclaimed");
+assert.ok(Number.isFinite(reclaimedMomentum.zones[0].displayStop), "reclaimed support must receive a new visible stop");
+assert.equal(new Set(reclaimedMomentum.zoneEvents.map((event) => event.id)).size, reclaimedMomentum.zoneEvents.length, "lifecycle event IDs must be deterministic and unique");
 
 console.log(JSON.stringify({
   status: "verified",
@@ -687,6 +726,7 @@ console.log(JSON.stringify({
   chartCandleTypes: true,
   permanentHistoricalArchive: true,
   fullHistoryMomentum: true,
+  momentumRoleReversal: true,
   previewTabSessionHandoff: true,
   threeCandleSignalWindows: true,
 }, null, 2));

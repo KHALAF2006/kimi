@@ -119,6 +119,8 @@ assert.equal(Object.values(marketTechnicalSignalsDaily.definition.do[0])[0].with
 const marketSignalRefreshSource = await readFile(new URL("../base44/functions/marketSignalRefresh/source.ts", import.meta.url), "utf8");
 assert.match(marketSignalRefreshSource, /intradayHistory = barsByInstrument\(chunks, ["']15m["']\)/, "signal projection must include every stored intraday session, not only the latest date");
 assert.match(marketSignalRefreshSource, /dailyFromStoredIntraday/, "daily, weekly, and monthly signals must be derived from the stored 15-minute source of truth");
+assert.match(marketSignalRefreshSource, /indicator_key:\s*["']momentum_zones["']/, "the projection job must persist the authoritative investor-zone lifecycle snapshot");
+assert.match(marketSignalRefreshSource, /MOMENTUM_FORMULA_VERSION/, "persisted investor zones must carry their versioned role-reversal formula");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
 assert.equal(companyFinancialsTwiceWeekly.trigger.config.cron_expression, "0 16 * * 1,4");
 assert.equal(companyIntelligenceDaily.trigger.config.timezone, "Asia/Riyadh");
@@ -208,7 +210,7 @@ assert.match(companyChart, /showVolume/);
 assert.match(companyChart, /showMomentum/);
 assert.match(companyChart, /showRsi/);
 assert.match(companyChart, /calculateRsiSeries/);
-assert.match(companyChart, /calculateMomentumSnapshot/);
+assert.match(companyChart, /data\.momentum_indicator/, "investor-zone roles must arrive from the protected backend chart response");
 assert.match(companyChart, /calculateSmaSeries/);
 assert.match(companyChart, /showSma20/);
 assert.match(companyChart, /showSma50/);
@@ -332,6 +334,12 @@ assert.doesNotMatch(companyPanel, /if \(state\.loading\) return/, "company navig
 assert.match(companyPanel, /onMomentumChange=\{handleMomentumChange\}/, "the investor-zone card must consume the chart calculation for the displayed interval");
 assert.doesNotMatch(companyPanel, /indicators\?\.\[0\]/, "company details must never treat an arbitrary first indicator record as investor zones");
 assert.match(marketReadFunction, /momentum_indicator: momentumIndicator/, "company reads must expose a deterministic momentum snapshot instead of relying on entity order");
+assert.match(marketReadFunction, /calculateMomentumZones\(/, "chart reads must calculate zone roles on the backend from canonical stored candles");
+assert.match(marketReadFunction, /lookback_days/, "backend chart calculations must honor the bounded peak lookback setting");
+assert.match(companyChart, /data\.momentum_indicator/, "the chart must consume the backend lifecycle result instead of becoming a second calculation authority");
+assert.doesNotMatch(companyChart, /calculateMomentumSnapshot/, "the customer chart must not recalculate investor-zone roles in the browser");
+assert.match(companyChart, /zone\.stopVisible !== false/, "a reversed resistance must not retain the obsolete stop line");
+assert.match(companyChart, /zone\.displayNameAr/, "chart labels must follow the current support or resistance role");
 const sessionLink = await readFile(new URL("../src/components/SessionLink.jsx", import.meta.url), "utf8");
 const previewAuthHandoff = await readFile(new URL("../src/lib/preview-auth-handoff.js", import.meta.url), "utf8");
 const appParams = await readFile(new URL("../src/lib/app-params.js", import.meta.url), "utf8");
@@ -486,6 +494,20 @@ assert.ok(risingRsi.every((point) => point.value === 100), "strictly rising veri
 const momentumSnapshot = calculateMomentumSnapshot(risingBars, 20, 500, "dark");
 assert.ok(momentumSnapshot?.zones?.length === 5, "momentum port must return all five Pine zones");
 assert.ok(momentumSnapshot.zones.every((zone) => zone.top > zone.bottom && zone.bottom > zone.stop), "momentum zone price ordering must remain strict");
+const lifecycleBars = Array.from({ length: 7 }, (_, index) => ({
+  time: 1_767_225_600 + index * 86_400,
+  open: index === 0 ? 98 : 95,
+  high: index === 0 ? 100 : 99,
+  low: index === 0 ? 97 : 94,
+  close: index === 0 ? 98 : 95,
+}));
+const frontendBroken = calculateMomentumSnapshot([
+  ...lifecycleBars,
+  { time: 1_767_830_400, open: 89, high: 91, low: 86, close: 88 },
+  { time: 1_767_916_800, open: 88, high: 89, low: 85, close: 86 },
+], 6, 500, "light");
+assert.equal(frontendBroken.zones[0].role, "resistance", "the compatibility calculation must mirror backend role reversal");
+assert.equal(frontendBroken.zones[0].displayStop, null, "frontend normalization must not revive a removed stop");
 
 const viteConfig = await readFile(new URL("../vite.config.js", import.meta.url), "utf8");
 assert.match(viteConfig, /path\.replace\(\/\^\\\/reference-api\/,\s*['\"]['\"]\)/, "reference proxy must only strip its prefix");
