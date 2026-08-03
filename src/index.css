@@ -146,6 +146,7 @@
   .section-heading h3, .content-card > h3 { @apply font-black; }
   .section-heading p { @apply mt-1 text-xs leading-6 text-slate-500; }
   .zone-row { @apply flex items-center gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700; }
+  .zone-list-grid { @apply mt-4 grid gap-2 xl:grid-cols-2; }
   .zone-color { @apply h-10 w-1.5 shrink-0 rounded-full; }
   .zone-row p { @apply mt-1 text-[11px] text-slate-500; }
   .info-line { @apply mt-3 border-t border-slate-100 pt-3 text-xs leading-6 text-slate-600 first:border-t-0 dark:border-slate-800 dark:text-slate-300; }
@@ -162,23 +163,26 @@
   .financial-item dt { @apply text-[10px] text-slate-400; }
   .financial-item dd { @apply mt-1 text-xs font-black; }
 
-  .chart-shell { @apply rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-[#0d192a]; }
-  .chart-shell:fullscreen { @apply overflow-auto bg-white p-5 dark:bg-[#07111f]; }
-  #company-profile:fullscreen { @apply overflow-auto bg-white p-5 dark:bg-[#07111f]; }
-  #company-profile:fullscreen .chart-shell { @apply min-h-full border-0 shadow-none; }
-  .chart-header-row { @apply flex flex-wrap items-start justify-between gap-3; }
+  .chart-shell { @apply rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-[#0d192a]; }
+  .chart-shell:fullscreen { @apply h-screen overflow-hidden rounded-none border-0 bg-white p-2 shadow-none dark:bg-[#07111f]; }
+  .chart-header-row { @apply flex flex-wrap items-center justify-between gap-2; }
+  .chart-title-block { @apply min-w-0; }
+  .chart-identity { @apply mt-1 flex min-w-0 flex-wrap items-center gap-2 text-[11px] font-bold text-slate-500 dark:text-slate-400; }
+  .chart-identity b { @apply font-mono text-xs text-slate-950 dark:text-white; }
+  .chart-identity span { @apply truncate; }
+  .chart-shell .icon-button { @apply h-8 min-w-8 rounded-lg; }
+  .chart-shell .icon-button.active { @apply border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-400/10 dark:text-sky-300; }
   .chart-company-navigation { @apply min-w-[min(100%,520px)] flex-1; }
-  .chart-toolbar-grid { @apply mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-800 dark:bg-slate-950/40 lg:grid-cols-2; }
-  .chart-control-group { @apply flex min-w-0 items-start gap-3; }
-  .chart-control-group > span { @apply shrink-0 pt-1.5 text-[10px] font-black text-slate-400; }
-  .chart-control-group > div { @apply flex flex-wrap gap-1.5; }
-  .chart-chip { @apply rounded-full border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-black text-slate-500 transition hover:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  .chart-toolbar-grid { @apply mt-2 grid gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-2 dark:border-slate-800 dark:bg-slate-950/40 lg:grid-cols-2; }
+  .chart-control-group { @apply flex min-w-0 items-center gap-2; }
+  .chart-control-group > span { @apply shrink-0 text-[9px] font-black text-slate-400; }
+  .chart-control-group > div { @apply flex flex-wrap gap-1; }
+  .chart-chip { @apply rounded-full border border-slate-200 bg-white px-2 py-1 text-[9px] font-black text-slate-500 transition hover:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
   .chart-chip-active { @apply border-sky-500 bg-sky-500 text-white dark:bg-sky-500 dark:text-white; }
   .chart-menu-anchor { @apply relative z-20; }
-  .chart-type-button { @apply inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-600 transition hover:border-sky-400 hover:bg-sky-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-sky-950/20; }
+  .chart-type-button { @apply inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-black text-slate-600 transition hover:border-sky-400 hover:bg-sky-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-sky-950/20; }
   .chart-type-button > svg:last-child { @apply rotate-90; }
   .chart-type-popover { @apply absolute top-[calc(100%+8px)] z-50 w-[min(288px,calc(100vw-24px))] max-h-[min(70vh,520px)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-700 dark:bg-slate-950; }
-  .chart-type-inline-panel { @apply relative top-auto z-10 mt-3 ms-auto shadow-lg; }
   .chart-type-popover[dir="rtl"],
   .indicator-hub-popover[dir="rtl"] { right: 0; left: auto; }
   .chart-type-popover[dir="ltr"],
@@ -187,10 +191,10 @@
   .chart-type-popover > p { @apply px-2 pb-2 pt-1 text-[10px] leading-5 text-slate-500 dark:text-slate-400; }
   .chart-type-popover > button { @apply mt-1 grid w-full grid-cols-[20px_minmax(0,1fr)_20px] items-center gap-2 rounded-xl px-3 py-2.5 text-start text-xs font-bold text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800; }
   .chart-type-popover > button.active { @apply bg-sky-50 text-sky-800 ring-1 ring-sky-300 dark:bg-sky-400/10 dark:text-sky-300 dark:ring-sky-500/40; }
-  .indicator-toolbar { @apply mt-3 flex flex-wrap items-center gap-2; }
+  .indicator-toolbar { @apply mt-2 flex flex-wrap items-center gap-1.5; }
   .chart-history-status { @apply mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200; }
-  .indicator-toolbar-compact { @apply min-h-10; }
-  .indicator-hub-button { @apply inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 shadow-sm transition hover:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  .indicator-toolbar-compact { @apply min-h-8; }
+  .indicator-hub-button { @apply inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-black text-slate-600 shadow-sm transition hover:border-sky-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
   .indicator-hub-button.active { @apply border-emerald-400 bg-emerald-50 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-300; }
   .reversal-hub-button.active { @apply border-sky-400 bg-sky-50 text-sky-900 dark:bg-sky-400/10 dark:text-sky-200; }
   .indicator-hub-button small { @apply grid h-5 min-w-5 place-items-center rounded-full bg-slate-100 px-1 font-mono text-[9px] dark:bg-slate-800; }
@@ -216,9 +220,33 @@
   .reversal-direction-colors label { @apply flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-[10px] font-black first:border-e first:border-slate-200 dark:first:border-slate-700; }
   .reversal-pattern-row input[type="color"] { @apply h-8 w-8 cursor-pointer rounded-lg border-0 bg-transparent p-0; }
   .reversal-color-dot { @apply h-4 w-4 rounded-full border border-black/10 shadow-sm; }
+  .chart-replay-panel { @apply relative mt-2 flex min-h-10 flex-wrap items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-2 py-1.5 text-[10px] text-sky-950 shadow-sm dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-100; }
+  .chart-replay-selecting { @apply border-dashed; }
+  .chart-replay-status { @apply flex min-w-0 flex-1 items-center gap-2 font-black; }
+  .chart-replay-status > span { @apply flex min-w-0 flex-wrap items-center gap-2; }
+  .chart-replay-status b, .chart-replay-status small { @apply rounded-md bg-white/75 px-2 py-1 font-mono text-[9px] dark:bg-slate-950/60; }
+  .chart-replay-actions { @apply flex flex-wrap items-center gap-1; }
+  .chart-replay-actions button, .chart-replay-close { @apply inline-flex h-7 min-w-7 items-center justify-center rounded-md border border-sky-200 bg-white px-1.5 font-black transition hover:border-sky-500 disabled:cursor-not-allowed disabled:opacity-35 dark:border-sky-500/30 dark:bg-slate-950/70; }
+  .chart-replay-actions .chart-replay-play { @apply bg-sky-600 text-white dark:bg-sky-400 dark:text-slate-950; }
+  .chart-replay-actions .chart-replay-reselect { @apply px-2.5; }
+  .chart-replay-actions select { @apply h-7 rounded-md border border-sky-200 bg-white px-2 font-bold outline-none dark:border-sky-500/30 dark:bg-slate-950/70; }
+  .chart-replay-close { @apply ms-auto text-red-600 dark:text-red-400; }
+  .chart-replay-start-line { @apply pointer-events-none absolute top-0 z-[7] w-px border-s-2 border-sky-500; }
+  .chart-replay-start-line > span { @apply absolute start-1 top-2 rounded-md bg-sky-600 px-1.5 py-1 text-[9px] font-black text-white shadow; }
+  .chart-replay-selection-hint { @apply pointer-events-none absolute start-1/2 top-3 z-[8] flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-sky-300 bg-white/95 px-3 py-1.5 text-[10px] font-black text-sky-800 shadow-lg dark:border-sky-500/50 dark:bg-slate-950/95 dark:text-sky-300; }
+  .chart-shell:fullscreen .chart-company-navigation { @apply hidden; }
+  .chart-shell:fullscreen .chart-header-row { @apply flex-nowrap; }
+  .chart-shell:fullscreen .chart-toolbar-grid { @apply mt-1.5 gap-1.5 p-1.5; }
+  .chart-shell:fullscreen .chart-control-group > div { @apply flex-nowrap overflow-x-auto; }
+  .chart-shell:fullscreen .indicator-toolbar { @apply mt-1.5; }
+  .chart-shell:fullscreen .chart-replay-panel { @apply mt-1.5; }
+  .chart-shell:fullscreen .ohlc-strip { @apply mt-1.5; }
+  .chart-shell:fullscreen .chart-canvas-wrap { @apply mt-1.5; }
   @media (max-width: 480px) {
     .indicator-hub-popover { width: calc(100vw - 48px); }
-    .chart-type-inline-panel { width: 100%; }
+    .chart-title-block h3 { @apply text-sm; }
+    .chart-identity { @apply max-w-[180px]; }
+    .chart-replay-status { @apply basis-full; }
   }
   .chart-settings-backdrop { @apply fixed inset-0 z-[120] bg-slate-950/55 backdrop-blur-sm; }
   .chart-settings-sheet { @apply fixed inset-y-0 flex w-[min(520px,100vw)] max-w-none flex-col gap-0 overflow-hidden border-slate-200 bg-slate-50 p-0 shadow-2xl dark:border-slate-700 dark:bg-[#08111f]; }
@@ -274,7 +302,7 @@
   .momentum-zone-setting { @apply grid items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900 sm:grid-cols-[minmax(150px,1fr)_auto_50px_50px_auto_50px]; }
   .momentum-zone-setting > b { @apply text-xs; }
   .momentum-zone-setting .settings-check { @apply border-0 bg-transparent px-1; }
-  .chart-canvas-wrap { @apply relative mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-[#091321]; }
+  .chart-canvas-wrap { @apply relative mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-[#091321]; }
   .chart-canvas-wrap::after { content:""; @apply pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-[26px] border-t border-slate-300 bg-slate-50/35 dark:border-slate-700 dark:bg-slate-950/25; }
   .momentum-zone-overlay { @apply pointer-events-none absolute inset-0 z-[2] overflow-hidden; }
   .momentum-zone-box { @apply absolute border-y; }
@@ -356,7 +384,7 @@
   .drawing-confirm-actions { @apply flex flex-row justify-end gap-2 border-t border-slate-200 px-5 py-4 dark:border-slate-800; }
   .drawing-confirm-actions button { @apply mt-0 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black; }
   .drawing-confirm-danger { @apply bg-red-600 text-white hover:bg-red-700; }
-  .ohlc-strip { @apply mt-3 flex flex-wrap gap-3 rounded-xl bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-600 dark:bg-slate-950/50 dark:text-slate-300; }
+  .ohlc-strip { @apply mt-2 flex min-h-7 flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-2 py-1 font-mono text-[10px] text-slate-600 dark:bg-slate-950/50 dark:text-slate-300; }
   .ohlc-strip time { @apply font-black text-slate-950 dark:text-white; }
   .chart-message { @apply mt-3 rounded-xl bg-slate-50 px-4 py-8 text-center text-xs text-slate-500 dark:bg-slate-950/50; }
 

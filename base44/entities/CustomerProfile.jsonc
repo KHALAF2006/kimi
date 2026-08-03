@@ -127,6 +127,9 @@
         "borderVisible": {
           "type": "boolean"
         },
+        "watermarkVisible": {
+          "type": "boolean"
+        },
         "sma": {
           "type": "object"
         },

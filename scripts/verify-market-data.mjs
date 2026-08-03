@@ -670,6 +670,27 @@ const longHistory = Array.from({ length: 650 }, (_, index) => ({
 }));
 const longHistoryMomentum = calculateMomentumZones(longHistory, 20);
 assert.equal(longHistoryMomentum?.historyBars, 650, "reference-peak calculations must consume the complete stored history instead of truncating at 500 candles");
+assert.equal(longHistoryMomentum?.zones?.length, 7, "the backend must publish all established and deep recurrence zones from the same authoritative formula");
+assert.deepEqual(longHistoryMomentum.zones.slice(5).map((zone) => zone.nameAr), ["قاع ثلاث سنوات", "منطقة خمس سنوات"], "the deep recurrence zones must keep stable Arabic identities");
+
+const deepCycleSeed = Array.from({ length: 7 }, (_, index) => ({
+  time: new Date(Date.UTC(2026, 2, index + 1)).toISOString(),
+  open: index === 0 ? 98 : 95,
+  high: index === 0 ? 100 : 99,
+  low: index === 0 ? 97 : 93,
+  close: index === 0 ? 98 : 95,
+}));
+const deepCycleMomentum = calculateMomentumZones([
+  ...deepCycleSeed,
+  { time: "2026-03-08T00:00:00.000Z", open: 95, high: 96, low: 60, close: 61 },
+  { time: "2026-03-09T00:00:00.000Z", open: 61, high: 62, low: 44, close: 45 },
+  { time: "2026-03-10T00:00:00.000Z", open: 45, high: 46, low: 32, close: 33 },
+  { time: "2026-03-11T00:00:00.000Z", open: 33, high: 34, low: 18, close: 19 },
+], 6);
+assert.equal(deepCycleMomentum.zone6Active, true, "breaking the annual-zone stop must activate the three-year recurrence zone");
+assert.equal(deepCycleMomentum.zone7Active, true, "breaking the three-year-zone stop must activate the five-year recurrence zone");
+assert.equal(deepCycleMomentum.zones[5].role, "resistance", "a confirmed break of the three-year zone must reverse it into three-year resistance");
+assert.equal(deepCycleMomentum.zones[6].active, true, "the five-year zone must be visible only after the sequential deep-cycle break");
 
 const lifecycleBars = Array.from({ length: 7 }, (_, index) => ({
   time: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),

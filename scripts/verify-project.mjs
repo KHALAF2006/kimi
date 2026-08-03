@@ -232,9 +232,9 @@ assert.match(companyChart, /axisPressedMouseMove:\s*\{\s*time:\s*true,\s*price:\
 assert.match(companyChart, /axisDoubleClickReset:\s*\{\s*time:\s*true,\s*price:\s*true\s*\}/, "price and time axes must support direct reset");
 assert.match(companyChart, /toggleAllIndicators/, "the chart must expose one action for all indicators");
 assert.match(companyChart, /toggleAllChartObjects/, "the chart must expose one action for drawings and indicators together");
-assert.match(companyChart, /function resetChartView\(\)[\s\S]*panes\[0\]\?\.setHeight\(470\)/, "resetting the chart must restore the main price pane height");
-assert.match(companyChart, /if \(showVolume\) panes\[1\]\?\.setHeight\(115\)/, "resetting the chart must restore the volume pane height");
-assert.match(companyChart, /if \(showRsi\) panes\[showVolume \? 2 : 1\]\?\.setHeight\(165\)/, "resetting the chart must restore the RSI pane height");
+assert.match(companyChart, /function resetChartView\(\)[\s\S]*panes\[0\]\?\.setHeight\(mainPaneTarget\)/, "resetting the chart must restore the responsive main price pane height");
+assert.match(companyChart, /if \(showVolume\) panes\[1\]\?\.setHeight\(92\)/, "resetting the compact chart must restore the volume pane height");
+assert.match(companyChart, /if \(showRsi\) panes\[showVolume \? 2 : 1\]\?\.setHeight\(124\)/, "resetting the compact chart must restore the RSI pane height");
 
 const chartStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
 assert.match(chartStyles, /\.indicator-hub-popover\[dir="rtl"\]\s*\{\s*right:\s*0;\s*left:\s*auto;/, "the Arabic indicator menu must open inward from the right viewport edge");
@@ -323,10 +323,10 @@ assert.match(screenerPage, /آخر 3 شموع محفوظة/, "the screener must 
 assert.match(screenerPage, /detailsTimeframe=\{timeframe\}/, "strategy results must preserve the selected timeframe when opening a company");
 assert.match(customerMarketTable, /companyDashboardPath\(row\.symbol, detailsTimeframe\)/, "company links must carry an explicit strategy timeframe");
 const companyPanel = await readFile(new URL("../src/components/market/CompanyPanel.jsx", import.meta.url), "utf8");
-assert.match(companyChart, /closest\("#company-profile"\)/, "fullscreen must target the stable company panel so company navigation cannot exit fullscreen");
+assert.match(companyChart, /wrapperRef\.current\.requestFullscreen\(\)/, "fullscreen must target only the chart shell so the page itself does not require vertical scrolling");
 assert.match(companyChart, /bullishColor/, "reversal candle rendering must use a distinct bullish color");
 assert.match(companyChart, /bearishColor/, "reversal candle rendering must use a distinct bearish color");
-assert.match(companyChart, /reversalPatternMap\(orderedCandles, \{ limitPerType: 3 \}\)/, "the chart must show only the latest three candles per reversal type and direction");
+assert.match(companyChart, /reversalPatternMap\(visibleOrderedCandles, \{ limitPerType: 3 \}\)/, "bar replay must calculate reversal patterns only from candles visible at the replay cursor");
 assert.doesNotMatch(companyChart, /if \(!\["1d", "1wk", "1mo"\]\.includes\(interval\)\) return display/, "reversal coloring must not be restricted to daily, weekly and monthly intervals");
 assert.match(companyPanel, /setState\(\(current\) => \(\{ \.\.\.current, loading: true, error: "" \}\)\)/, "company navigation must retain the mounted panel while the next company loads");
 assert.match(companyPanel, /<CompanyChart symbol=\{symbol\}/, "company details and chart requests must start in parallel for smooth navigation");
@@ -337,7 +337,8 @@ assert.match(marketReadFunction, /momentum_indicator: momentumIndicator/, "compa
 assert.match(marketReadFunction, /calculateMomentumZones\(/, "chart reads must calculate zone roles on the backend from canonical stored candles");
 assert.match(marketReadFunction, /lookback_days/, "backend chart calculations must honor the bounded peak lookback setting");
 assert.match(companyChart, /data\.momentum_indicator/, "the chart must consume the backend lifecycle result instead of becoming a second calculation authority");
-assert.doesNotMatch(companyChart, /calculateMomentumSnapshot/, "the customer chart must not recalculate investor-zone roles in the browser");
+assert.match(companyChart, /replayActive\s*\?\s*calculateMomentumSnapshot\(visibleOrderedCandles/, "historical replay must recompute zones only from candles already revealed to the user");
+assert.match(companyChart, /replayActive\s*\?\s*replayMomentum\s*:\s*backendMomentum/, "the live customer chart must retain the protected backend investor-zone snapshot");
 assert.match(companyChart, /zone\.stopVisible !== false/, "a reversed resistance must not retain the obsolete stop line");
 assert.match(companyChart, /zone\.displayNameAr/, "chart labels must follow the current support or resistance role");
 const sessionLink = await readFile(new URL("../src/components/SessionLink.jsx", import.meta.url), "utf8");
@@ -397,8 +398,11 @@ assert.match(historicalCompanyChart, /value:\s*"max",\s*ar:\s*"تاريخي"/, "
 assert.match(historicalCompanyChart, /rangeOptions\.map/, "all chart ranges must remain visible instead of disappearing with the selected interval");
 assert.match(historicalCompanyChart, /if \(!option\.intervals\.includes\(interval\)\) setInterval\("1d"\)/, "long history ranges must switch incompatible intraday views to daily candles");
 assert.match(historicalCompanyChart, /history_complete/, "the chart must disclose an incomplete historical archive");
-assert.match(historicalCompanyChart, /chart-type-popover chart-type-inline-panel/, "the candle-type chooser must use an in-flow panel instead of covering the indicator controls");
-assert.match(historicalCompanyChart, /chart-menu-anchor, \.chart-type-inline-panel/, "the in-flow candle chooser must remain interactive when the outside-click handler is active");
+assert.match(historicalCompanyChart, /className="chart-type-popover"/, "the candle-type chooser must stay anchored to its compact chart control");
+assert.match(historicalCompanyChart, /requestFullscreen\(\)/, "fullscreen mode must target the chart shell instead of the entire company page");
+assert.match(historicalCompanyChart, /createTextWatermark/, "the chart must render the instrument identity with the chart engine watermark primitive");
+assert.match(historicalCompanyChart, /chartPreferences\.watermarkVisible/, "the company watermark must be user-hideable");
+assert.match(historicalCompanyChart, /beginReplaySelection/, "bar replay must expose an explicit historical starting-point selection state");
 
 const companyIntelligence = await readFile(new URL("../base44/functions/companyIntelligence/entry.ts", import.meta.url), "utf8");
 assert.match(companyIntelligence, /SAUDI_EXCHANGE_COMPANY_FEED_URL/, "company intelligence must require a configured official feed");
@@ -472,6 +476,7 @@ assert.match(legacySchemaBridge, /official_exists/, "the schema audit must disti
 assert.match(legacySchemaBridge, /count_capped/, "the schema audit must disclose bounded-count results");
 
 const { calculateRsiSeries, calculateMomentumSnapshot, companyDashboardPath, selectMomentumSnapshot } = await import(new URL("../src/lib/market.js", import.meta.url));
+const { CHART_REPLAY_SPEEDS, nextReplayCursor, replayCandles, replayStartIndex } = await import(new URL("../src/lib/chart-replay.js", import.meta.url));
 assert.equal(companyDashboardPath("1010", "1wk"), "/dashboard?company=1010&timeframe=1wk", "strategy links must preserve weekly context");
 assert.equal(companyDashboardPath("1010", "invalid"), "/dashboard?company=1010", "invalid chart intervals must not enter company URLs");
 const selectedMomentum = selectMomentumSnapshot([
@@ -492,8 +497,15 @@ const risingRsi = calculateRsiSeries(risingBars, 14, "close");
 assert.equal(risingRsi.length, 26, "RSI should start after the configured Wilder seed period");
 assert.ok(risingRsi.every((point) => point.value === 100), "strictly rising verified bars should produce RSI 100");
 const momentumSnapshot = calculateMomentumSnapshot(risingBars, 20, 500, "dark");
-assert.ok(momentumSnapshot?.zones?.length === 5, "momentum port must return all five Pine zones");
+assert.ok(momentumSnapshot?.zones?.length === 7, "momentum port must return the five established zones plus the sequential three-year and five-year recurrence zones");
 assert.ok(momentumSnapshot.zones.every((zone) => zone.top > zone.bottom && zone.bottom > zone.stop), "momentum zone price ordering must remain strict");
+assert.deepEqual(momentumSnapshot.zones.slice(5).map((zone) => zone.displayNameAr), ["قاع ثلاث سنوات", "منطقة خمس سنوات"], "deep recurrence zones must keep their approved Arabic identities");
+assert.notEqual(momentumSnapshot.zones[5].color, momentumSnapshot.zones[6].color, "deep recurrence zones must use distinct colors");
+assert.deepEqual(CHART_REPLAY_SPEEDS.map((speed) => speed.value), [10, 3000, 5000, 10000], "bar replay must implement the approved milliseconds-per-candle presets exactly");
+assert.equal(replayStartIndex(risingBars, risingBars[8].time), 8, "bar replay must resolve the selected historical candle deterministically");
+assert.equal(replayCandles(risingBars, 8).length, 9, "bar replay must hide every candle after the current replay cursor");
+assert.equal(nextReplayCursor(8, risingBars.length, -1), 7, "bar replay must step backwards one candle");
+assert.equal(nextReplayCursor(risingBars.length - 1, risingBars.length, 1), risingBars.length - 1, "bar replay must clamp at the latest stored candle");
 const lifecycleBars = Array.from({ length: 7 }, (_, index) => ({
   time: 1_767_225_600 + index * 86_400,
   open: index === 0 ? 98 : 95,

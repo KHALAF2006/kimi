@@ -137,7 +137,7 @@ function replyError(error) {
 }
 
 // base44/shared/momentum.ts
-var MOMENTUM_FORMULA_VERSION = "momentum-zones-v2-role-reversal";
+var MOMENTUM_FORMULA_VERSION = "momentum-zones-v3-deep-cycle";
 var LOOKBACK_DAYS = 20;
 var HISTORY_BARS = Number.POSITIVE_INFINITY;
 var FIXED_STOP_PERCENT = 0.03;
@@ -147,7 +147,9 @@ var MOMENTUM_ZONE_DEFINITIONS = [
   { key: "zone2", nameAr: "\u0642\u0627\u0639 \u0623\u0633\u0628\u0648\u0639\u064A / \u0634\u0647\u0631\u064A", nameEn: "Weekly / monthly base", resistanceNameAr: "\u0645\u0642\u0627\u0648\u0645\u0629 \u0623\u0633\u0628\u0648\u0639\u064A\u0629 / \u0634\u0647\u0631\u064A\u0629", resistanceNameEn: "Weekly / monthly resistance", reclaimedNameAr: "\u062F\u0639\u0645 \u0623\u0633\u0628\u0648\u0639\u064A / \u0634\u0647\u0631\u064A \u0645\u0633\u062A\u0639\u0627\u062F", reclaimedNameEn: "Reclaimed weekly / monthly support", colorNameAr: "\u0628\u0631\u062A\u0642\u0627\u0644\u064A", colorNameEn: "Orange", light: "#d97706", dark: "#f59e0b", topPercent: 0.2, bottomPercent: 0.24 },
   { key: "zone3", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0645\u0646\u062E\u0641\u0636 \u0627\u0644\u0645\u062E\u0627\u0637\u0631", nameEn: "Low-risk investment", resistanceNameAr: "\u0645\u0642\u0627\u0648\u0645\u0629 \u0645\u0646\u062E\u0641\u0636\u0629 \u0627\u0644\u0645\u062E\u0627\u0637\u0631", resistanceNameEn: "Low-risk resistance", reclaimedNameAr: "\u062F\u0639\u0645 \u0645\u0646\u062E\u0641\u0636 \u0627\u0644\u0645\u062E\u0627\u0637\u0631 \u0645\u0633\u062A\u0639\u0627\u062F", reclaimedNameEn: "Reclaimed low-risk support", colorNameAr: "\u0623\u0632\u0631\u0642", colorNameEn: "Blue", light: "#2563eb", dark: "#60a5fa", topPercent: 0.32, bottomPercent: 0.36 },
   { key: "zone4", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0631\u0628\u0639 \u0633\u0646\u0648\u064A", nameEn: "Quarterly investment", resistanceNameAr: "\u0645\u0642\u0627\u0648\u0645\u0629 \u0631\u0628\u0639 \u0633\u0646\u0648\u064A\u0629", resistanceNameEn: "Quarterly resistance", reclaimedNameAr: "\u062F\u0639\u0645 \u0631\u0628\u0639 \u0633\u0646\u0648\u064A \u0645\u0633\u062A\u0639\u0627\u062F", reclaimedNameEn: "Reclaimed quarterly support", colorNameAr: "\u0628\u0646\u0641\u0633\u062C\u064A", colorNameEn: "Purple", light: "#7c3aed", dark: "#a78bfa", topPercent: 0.48, bottomPercent: 0.52 },
-  { key: "zone5", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0633\u0646\u0648\u064A", nameEn: "Annual investment", resistanceNameAr: "\u0645\u0642\u0627\u0648\u0645\u0629 \u0633\u0646\u0648\u064A\u0629", resistanceNameEn: "Annual resistance", reclaimedNameAr: "\u062F\u0639\u0645 \u0633\u0646\u0648\u064A \u0645\u0633\u062A\u0639\u0627\u062F", reclaimedNameEn: "Reclaimed annual support", colorNameAr: "\u0641\u064A\u0631\u0648\u0632\u064A", colorNameEn: "Teal", light: "#0d9488", dark: "#2dd4bf", topPercent: 0.58, bottomPercent: 0.65 }
+  { key: "zone5", nameAr: "\u0627\u0633\u062A\u062B\u0645\u0627\u0631 \u0633\u0646\u0648\u064A", nameEn: "Annual investment", resistanceNameAr: "\u0645\u0642\u0627\u0648\u0645\u0629 \u0633\u0646\u0648\u064A\u0629", resistanceNameEn: "Annual resistance", reclaimedNameAr: "\u062F\u0639\u0645 \u0633\u0646\u0648\u064A \u0645\u0633\u062A\u0639\u0627\u062F", reclaimedNameEn: "Reclaimed annual support", colorNameAr: "\u0641\u064A\u0631\u0648\u0632\u064A", colorNameEn: "Teal", light: "#0d9488", dark: "#2dd4bf", topPercent: 0.58, bottomPercent: 0.65 },
+  { key: "zone6", nameAr: "\u0642\u0627\u0639 \u062B\u0644\u0627\u062B \u0633\u0646\u0648\u0627\u062A", nameEn: "Three-year base", resistanceNameAr: "\u0645\u0642\u0627\u0648\u0645\u0629 \u062B\u0644\u0627\u062B \u0633\u0646\u0648\u0627\u062A", resistanceNameEn: "Three-year resistance", reclaimedNameAr: "\u062F\u0639\u0645 \u062B\u0644\u0627\u062B \u0633\u0646\u0648\u0627\u062A \u0645\u0633\u062A\u0639\u0627\u062F", reclaimedNameEn: "Reclaimed three-year support", colorNameAr: "\u0648\u0631\u062F\u064A", colorNameEn: "Rose", light: "#e11d48", dark: "#fb7185", topPercent: 0.75, bottomPercent: 0.8 },
+  { key: "zone7", nameAr: "\u0645\u0646\u0637\u0642\u0629 \u062E\u0645\u0633 \u0633\u0646\u0648\u0627\u062A", nameEn: "Five-year zone", resistanceNameAr: "\u0645\u0642\u0627\u0648\u0645\u0629 \u062E\u0645\u0633 \u0633\u0646\u0648\u0627\u062A", resistanceNameEn: "Five-year resistance", reclaimedNameAr: "\u062F\u0639\u0645 \u062E\u0645\u0633 \u0633\u0646\u0648\u0627\u062A \u0645\u0633\u062A\u0639\u0627\u062F", reclaimedNameEn: "Reclaimed five-year support", colorNameAr: "\u0643\u0647\u0631\u0645\u0627\u0646\u064A", colorNameEn: "Amber", light: "#b45309", dark: "#fbbf24", topPercent: 0.85, bottomPercent: 0.9 }
 ];
 function initialLifecycle(originalStop) {
   return {
@@ -170,7 +172,7 @@ function lifecycleName(definition, state) {
 function eventId(referenceTime, zoneKey, type, time) {
   return `${referenceTime || "unknown"}:${zoneKey}:${type}:${time}`;
 }
-function buildMomentumZones(referencePeak, zone4Active = false, zone5Active = false, lifecycle = {}) {
+function buildMomentumZones(referencePeak, zone4Active = false, zone5Active = false, lifecycle = {}, zone6Active = false, zone7Active = false) {
   return MOMENTUM_ZONE_DEFINITIONS.map((definition, index) => {
     const top = referencePeak * (1 - definition.topPercent);
     const bottom = referencePeak * (1 - definition.bottomPercent);
@@ -191,7 +193,7 @@ function buildMomentumZones(referencePeak, zone4Active = false, zone5Active = fa
       retestedAt: state.retestedAt,
       reclaimCandidateAt: state.reclaimCandidateAt,
       reclaimedAt: state.reclaimedAt,
-      active: index < 3 || index === 3 && zone4Active || index === 4 && zone5Active
+      active: index < 3 || index === 3 && zone4Active || index === 4 && zone5Active || index === 5 && zone6Active || index === 6 && zone7Active
     };
   });
 }
@@ -223,6 +225,8 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
   let lastBrokenPeak = null;
   let zone4Active = false;
   let zone5Active = false;
+  let zone6Active = false;
+  let zone7Active = false;
   let previousClose = null;
   let lifecycle = {};
   let zoneEvents = [];
@@ -243,12 +247,14 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
     }
     const bar = bars[index];
     if (referencePeak !== null && bar.high > referencePeak) {
-      archivedCycles.push({ referencePeak, referenceTime, endedAt: bar.time, reason: "new_reference_peak", zone4Active, zone5Active, zones: buildMomentumZones(referencePeak, zone4Active, zone5Active, lifecycle), events: zoneEvents });
+      archivedCycles.push({ referencePeak, referenceTime, endedAt: bar.time, reason: "new_reference_peak", zone4Active, zone5Active, zone6Active, zone7Active, zones: buildMomentumZones(referencePeak, zone4Active, zone5Active, lifecycle, zone6Active, zone7Active), events: zoneEvents });
       lastBrokenPeak = referencePeak;
       referencePeak = null;
       referenceTime = null;
       zone4Active = false;
       zone5Active = false;
+      zone6Active = false;
+      zone7Active = false;
       lifecycle = {};
       zoneEvents = [];
     }
@@ -257,11 +263,13 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
       referenceTime = candidateTime;
       zone4Active = false;
       zone5Active = false;
+      zone6Active = false;
+      zone7Active = false;
       lifecycle = freshLifecycle(referencePeak);
       zoneEvents = [];
     }
     if (referencePeak !== null) {
-      let zones = buildMomentumZones(referencePeak, zone4Active, zone5Active, lifecycle);
+      let zones = buildMomentumZones(referencePeak, zone4Active, zone5Active, lifecycle, zone6Active, zone7Active);
       for (const zone of zones) {
         if (!zone.active) continue;
         const state = lifecycle[zone.key];
@@ -276,6 +284,8 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
           addEvent(zone.key, "stop_broken", bar.time, bar.close, { previousRole: "support", nextRole: "resistance", stop: state.currentStop });
           if (zone.key === "zone3") zone4Active = true;
           if (zone.key === "zone4") zone5Active = true;
+          if (zone.key === "zone5") zone6Active = true;
+          if (zone.key === "zone6") zone7Active = true;
           continue;
         }
         if (state.role !== "resistance" || state.brokenAt === bar.time) continue;
@@ -309,9 +319,11 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
           addEvent(zone.key, "resistance_confirmed", bar.time, bar.close, { reason: "retest_rejection" });
         }
       }
-      zones = buildMomentumZones(referencePeak, zone4Active, zone5Active, lifecycle);
+      zones = buildMomentumZones(referencePeak, zone4Active, zone5Active, lifecycle, zone6Active, zone7Active);
       if (zones[2].role === "resistance") zone4Active = true;
       if (zones[3].active && zones[3].role === "resistance") zone5Active = true;
+      if (zones[4].active && zones[4].role === "resistance") zone6Active = true;
+      if (zones[5].active && zones[5].role === "resistance") zone7Active = true;
     }
     previousClose = bar.close;
   }
@@ -324,7 +336,9 @@ function calculateMomentumZones(inputBars, lookbackDays = LOOKBACK_DAYS, history
     formulaVersion: MOMENTUM_FORMULA_VERSION,
     zone4Active,
     zone5Active,
-    zones: buildMomentumZones(referencePeak, zone4Active, zone5Active, lifecycle),
+    zone6Active,
+    zone7Active,
+    zones: buildMomentumZones(referencePeak, zone4Active, zone5Active, lifecycle, zone6Active, zone7Active),
     zoneEvents,
     archivedCycles: archivedCycles.slice(-ARCHIVED_CYCLE_LIMIT)
   };

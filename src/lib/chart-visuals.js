@@ -23,6 +23,7 @@ export function chartVisualDefaults(theme = "light") {
     downColor: "#dc2626",
     wickVisible: true,
     borderVisible: true,
+    watermarkVisible: true,
     sma: {
       fast: { ...SMA_SLOT_DEFAULTS.fast },
       slow: { ...SMA_SLOT_DEFAULTS.slow },
@@ -70,6 +71,7 @@ export function sanitizeChartPreferences(value, theme = "light") {
     downColor: cleanColor(source.downColor, defaults.downColor),
     wickVisible: source.wickVisible !== false,
     borderVisible: source.borderVisible !== false,
+    watermarkVisible: source.watermarkVisible !== false,
     sma: {
       fast: cleanSma(source.sma?.fast, defaults.sma.fast),
       slow: cleanSma(source.sma?.slow, defaults.sma.slow),

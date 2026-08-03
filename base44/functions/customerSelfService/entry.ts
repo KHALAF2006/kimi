@@ -43,6 +43,7 @@ function cleanChartPreferences(value) {
     downColor: chartColor(source.downColor, "#dc2626"),
     wickVisible: source.wickVisible !== false,
     borderVisible: source.borderVisible !== false,
+    watermarkVisible: source.watermarkVisible !== false,
     sma: {
       fast: chartSma(source.sma?.fast, fast),
       slow: chartSma(source.sma?.slow, slow)

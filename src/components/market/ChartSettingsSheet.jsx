@@ -92,6 +92,7 @@ export default function ChartSettingsSheet({ open, onOpenChange, preferences, on
             <ColorField label={isArabic ? "لون النص والمقاييس" : "Text and scales"} value={draft.textColor} onChange={(textColor) => patch({ textColor, backgroundMode: "custom" })} />
             <ColorField label={isArabic ? "لون الشبكة" : "Grid color"} value={draft.gridColor} onChange={(gridColor) => patch({ gridColor, backgroundMode: "custom" })} />
             <label className="chart-setting-check"><input type="checkbox" checked={draft.gridVisible} onChange={(event) => patch({ gridVisible: event.target.checked })} /><span><Grid2X2 size={15} />{isArabic ? "إظهار خطوط الشبكة" : "Show grid lines"}</span></label>
+            <label className="chart-setting-check"><input type="checkbox" checked={draft.watermarkVisible} onChange={(event) => patch({ watermarkVisible: event.target.checked })} /><span>{isArabic ? "إظهار اسم الشركة ورمزها كعلامة مائية" : "Show company identity watermark"}</span></label>
           </div>
         </section>
 

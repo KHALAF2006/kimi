@@ -1,10 +1,12 @@
-export const MOMENTUM_FORMULA_VERSION = "momentum-zones-v2-role-reversal";
+export const MOMENTUM_FORMULA_VERSION = "momentum-zones-v3-deep-cycle";
 export const MOMENTUM_ZONE_DEFINITIONS = [
   { key: "zone1", nameAr: "منطقة الارتداد", nameEn: "Rebound zone", resistanceNameAr: "مقاومة الارتداد", resistanceNameEn: "Rebound resistance", reclaimedNameAr: "دعم ارتداد مستعاد", reclaimedNameEn: "Reclaimed rebound support", colorNameAr: "أخضر", colorNameEn: "Green", light: "#16a34a", dark: "#16a34a", topPercent: 0.075, bottomPercent: 0.10 },
   { key: "zone2", nameAr: "قاع أسبوعي / شهري", nameEn: "Weekly / monthly base", resistanceNameAr: "مقاومة أسبوعية / شهرية", resistanceNameEn: "Weekly / monthly resistance", reclaimedNameAr: "دعم أسبوعي / شهري مستعاد", reclaimedNameEn: "Reclaimed weekly / monthly support", colorNameAr: "برتقالي", colorNameEn: "Orange", light: "#d97706", dark: "#f59e0b", topPercent: 0.20, bottomPercent: 0.24 },
   { key: "zone3", nameAr: "استثمار منخفض المخاطر", nameEn: "Low-risk investment", resistanceNameAr: "مقاومة منخفضة المخاطر", resistanceNameEn: "Low-risk resistance", reclaimedNameAr: "دعم منخفض المخاطر مستعاد", reclaimedNameEn: "Reclaimed low-risk support", colorNameAr: "أزرق", colorNameEn: "Blue", light: "#2563eb", dark: "#60a5fa", topPercent: 0.32, bottomPercent: 0.36 },
   { key: "zone4", nameAr: "استثمار ربع سنوي", nameEn: "Quarterly investment", resistanceNameAr: "مقاومة ربع سنوية", resistanceNameEn: "Quarterly resistance", reclaimedNameAr: "دعم ربع سنوي مستعاد", reclaimedNameEn: "Reclaimed quarterly support", colorNameAr: "بنفسجي", colorNameEn: "Purple", light: "#7c3aed", dark: "#a78bfa", topPercent: 0.48, bottomPercent: 0.52 },
   { key: "zone5", nameAr: "استثمار سنوي", nameEn: "Annual investment", resistanceNameAr: "مقاومة سنوية", resistanceNameEn: "Annual resistance", reclaimedNameAr: "دعم سنوي مستعاد", reclaimedNameEn: "Reclaimed annual support", colorNameAr: "فيروزي", colorNameEn: "Teal", light: "#0d9488", dark: "#2dd4bf", topPercent: 0.58, bottomPercent: 0.65 },
+  { key: "zone6", nameAr: "قاع ثلاث سنوات", nameEn: "Three-year base", resistanceNameAr: "مقاومة ثلاث سنوات", resistanceNameEn: "Three-year resistance", reclaimedNameAr: "دعم ثلاث سنوات مستعاد", reclaimedNameEn: "Reclaimed three-year support", colorNameAr: "وردي", colorNameEn: "Rose", light: "#e11d48", dark: "#fb7185", topPercent: 0.75, bottomPercent: 0.80 },
+  { key: "zone7", nameAr: "منطقة خمس سنوات", nameEn: "Five-year zone", resistanceNameAr: "مقاومة خمس سنوات", resistanceNameEn: "Five-year resistance", reclaimedNameAr: "دعم خمس سنوات مستعاد", reclaimedNameEn: "Reclaimed five-year support", colorNameAr: "كهرماني", colorNameEn: "Amber", light: "#b45309", dark: "#fbbf24", topPercent: 0.85, bottomPercent: 0.90 },
 ];
 
 const CHART_INTERVALS = new Set(["15m", "1h", "2h", "3h", "4h", "1d", "1wk", "1mo"]);
@@ -36,7 +38,7 @@ function momentumLifecycleName(definition, state) {
   return { displayNameAr: definition.nameAr, displayNameEn: definition.nameEn };
 }
 
-export function buildMomentumZones(referencePeak, zone4Active = false, zone5Active = false, theme = "light", lifecycle = {}) {
+export function buildMomentumZones(referencePeak, zone4Active = false, zone5Active = false, theme = "light", lifecycle = {}, zone6Active = false, zone7Active = false) {
   return MOMENTUM_ZONE_DEFINITIONS.map((definition, index) => {
     const top = referencePeak * (1 - definition.topPercent);
     const bottom = referencePeak * (1 - definition.bottomPercent);
@@ -58,7 +60,7 @@ export function buildMomentumZones(referencePeak, zone4Active = false, zone5Acti
       retestedAt: state.retestedAt,
       reclaimCandidateAt: state.reclaimCandidateAt,
       reclaimedAt: state.reclaimedAt,
-      active: index < 3 || (index === 3 && zone4Active) || (index === 4 && zone5Active),
+      active: index < 3 || (index === 3 && zone4Active) || (index === 4 && zone5Active) || (index === 5 && zone6Active) || (index === 6 && zone7Active),
     };
   });
 }
@@ -80,7 +82,7 @@ export function normalizeMomentum(snapshot, theme = "light") {
   }
   const peak = Number(values.referencePeak || values.reference_peak);
   if (!Number.isFinite(peak) || peak <= 0) return null;
-  return { ...snapshot, ...values, zones: buildMomentumZones(peak, Boolean(values.zone4Active || values.zone4_active), Boolean(values.zone5Active || values.zone5_active), theme) };
+  return { ...snapshot, ...values, zones: buildMomentumZones(peak, Boolean(values.zone4Active || values.zone4_active), Boolean(values.zone5Active || values.zone5_active), theme, {}, Boolean(values.zone6Active || values.zone6_active), Boolean(values.zone7Active || values.zone7_active)) };
 }
 
 function marketTime(value) {
@@ -163,6 +165,8 @@ export function calculateMomentumSnapshot(inputBars = [], lookbackDays = 20, his
   let lastBrokenPeak = null;
   let zone4Active = false;
   let zone5Active = false;
+  let zone6Active = false;
+  let zone7Active = false;
   let previousClose = null;
   let lifecycle = {};
   let zoneEvents = [];
@@ -188,12 +192,14 @@ export function calculateMomentumSnapshot(inputBars = [], lookbackDays = 20, his
 
     const bar = bars[index];
     if (referencePeak !== null && bar.high > referencePeak) {
-      archivedCycles.push({ referencePeak, referenceTime, endedAt: bar.time, reason: "new_reference_peak", zone4Active, zone5Active, zones: buildMomentumZones(referencePeak, zone4Active, zone5Active, theme, lifecycle), events: zoneEvents });
+      archivedCycles.push({ referencePeak, referenceTime, endedAt: bar.time, reason: "new_reference_peak", zone4Active, zone5Active, zone6Active, zone7Active, zones: buildMomentumZones(referencePeak, zone4Active, zone5Active, theme, lifecycle, zone6Active, zone7Active), events: zoneEvents });
       lastBrokenPeak = referencePeak;
       referencePeak = null;
       referenceTime = null;
       zone4Active = false;
       zone5Active = false;
+      zone6Active = false;
+      zone7Active = false;
       lifecycle = {};
       zoneEvents = [];
     }
@@ -202,12 +208,14 @@ export function calculateMomentumSnapshot(inputBars = [], lookbackDays = 20, his
       referenceTime = candidateTime;
       zone4Active = false;
       zone5Active = false;
+      zone6Active = false;
+      zone7Active = false;
       lifecycle = freshLifecycle(referencePeak);
       zoneEvents = [];
     }
 
     if (referencePeak !== null) {
-      let zones = buildMomentumZones(referencePeak, zone4Active, zone5Active, theme, lifecycle);
+      let zones = buildMomentumZones(referencePeak, zone4Active, zone5Active, theme, lifecycle, zone6Active, zone7Active);
       for (const zone of zones) {
         if (!zone.active) continue;
         const state = lifecycle[zone.key];
@@ -222,6 +230,8 @@ export function calculateMomentumSnapshot(inputBars = [], lookbackDays = 20, his
           addEvent(zone.key, "stop_broken", bar.time, bar.close, { previousRole: "support", nextRole: "resistance", stop: state.currentStop });
           if (zone.key === "zone3") zone4Active = true;
           if (zone.key === "zone4") zone5Active = true;
+          if (zone.key === "zone5") zone6Active = true;
+          if (zone.key === "zone6") zone7Active = true;
           continue;
         }
         if (state.role !== "resistance" || state.brokenAt === bar.time) continue;
@@ -255,9 +265,11 @@ export function calculateMomentumSnapshot(inputBars = [], lookbackDays = 20, his
           addEvent(zone.key, "resistance_confirmed", bar.time, bar.close, { reason: "retest_rejection" });
         }
       }
-      zones = buildMomentumZones(referencePeak, zone4Active, zone5Active, theme, lifecycle);
+      zones = buildMomentumZones(referencePeak, zone4Active, zone5Active, theme, lifecycle, zone6Active, zone7Active);
       if (zones[2].role === "resistance") zone4Active = true;
       if (zones[3].active && zones[3].role === "resistance") zone5Active = true;
+      if (zones[4].active && zones[4].role === "resistance") zone6Active = true;
+      if (zones[5].active && zones[5].role === "resistance") zone7Active = true;
     }
     previousClose = bar.close;
   }
@@ -271,7 +283,9 @@ export function calculateMomentumSnapshot(inputBars = [], lookbackDays = 20, his
     formulaVersion: MOMENTUM_FORMULA_VERSION,
     zone4Active,
     zone5Active,
-    zones: buildMomentumZones(referencePeak, zone4Active, zone5Active, theme, lifecycle),
+    zone6Active,
+    zone7Active,
+    zones: buildMomentumZones(referencePeak, zone4Active, zone5Active, theme, lifecycle, zone6Active, zone7Active),
     zoneEvents,
     archivedCycles: archivedCycles.slice(-20),
   };
