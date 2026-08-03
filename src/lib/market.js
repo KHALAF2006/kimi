@@ -69,16 +69,40 @@ export function normalizeMomentum(snapshot, theme = "light") {
   if (!snapshot) return null;
   const values = snapshot.values || snapshot;
   if (Array.isArray(values.zones)) {
-    return { ...snapshot, ...values, zones: values.zones.map((zone, index) => ({
-      ...MOMENTUM_ZONE_DEFINITIONS[index], ...zone,
-      displayNameAr: zone.displayNameAr || zone.nameAr || MOMENTUM_ZONE_DEFINITIONS[index]?.nameAr,
-      displayNameEn: zone.displayNameEn || zone.nameEn || MOMENTUM_ZONE_DEFINITIONS[index]?.nameEn,
-      role: zone.role || "support",
-      lifecycleStatus: zone.lifecycleStatus || "support_active",
-      displayStop: zone.displayStop === null ? null : Number(zone.displayStop ?? zone.stop),
-      stopVisible: zone.stopVisible !== false && (zone.role || "support") === "support",
-      color: theme === "dark" ? MOMENTUM_ZONE_DEFINITIONS[index]?.dark : MOMENTUM_ZONE_DEFINITIONS[index]?.light,
-    })) };
+    const firstStoredZone = values.zones.find((zone) => Number(zone?.top) > 0);
+    const firstDefinition = MOMENTUM_ZONE_DEFINITIONS.find((definition) => definition.key === (firstStoredZone?.key || "zone1")) || MOMENTUM_ZONE_DEFINITIONS[0];
+    const inferredPeak = firstStoredZone ? Number(firstStoredZone.top) / (1 - firstDefinition.topPercent) : null;
+    const peak = Number(values.referencePeak || values.reference_peak || snapshot.referencePeak || snapshot.reference_peak || inferredPeak);
+    const calculated = Number.isFinite(peak) && peak > 0
+      ? buildMomentumZones(
+        peak,
+        Boolean(values.zone4Active || values.zone4_active),
+        Boolean(values.zone5Active || values.zone5_active),
+        theme,
+        {},
+        Boolean(values.zone6Active || values.zone6_active),
+        Boolean(values.zone7Active || values.zone7_active),
+      )
+      : [];
+    const storedByKey = new Map(values.zones.map((zone, index) => [zone?.key || MOMENTUM_ZONE_DEFINITIONS[index]?.key, zone]));
+    const zones = MOMENTUM_ZONE_DEFINITIONS.map((definition, index) => {
+      const stored = storedByKey.get(definition.key);
+      const fallback = calculated[index];
+      if (!stored && !fallback) return null;
+      const zone = { ...definition, ...fallback, ...stored };
+      const role = zone.role || "support";
+      return {
+        ...zone,
+        displayNameAr: zone.displayNameAr || zone.nameAr || definition.nameAr,
+        displayNameEn: zone.displayNameEn || zone.nameEn || definition.nameEn,
+        role,
+        lifecycleStatus: zone.lifecycleStatus || "support_active",
+        displayStop: zone.displayStop === null ? null : Number(zone.displayStop ?? zone.stop),
+        stopVisible: zone.stopVisible !== false && role === "support",
+        color: theme === "dark" ? definition.dark : definition.light,
+      };
+    }).filter(Boolean);
+    return { ...snapshot, ...values, zones };
   }
   const peak = Number(values.referencePeak || values.reference_peak);
   if (!Number.isFinite(peak) || peak <= 0) return null;

@@ -74,9 +74,14 @@ Deno.serve(async (req) => {
     }
     if (body.action === "save_chart_preferences") {
       const preferences = cleanChartPreferences(body.preferences);
-      const updated = await base44.asServiceRole.entities.CustomerProfile.update(profile.id, { chart_preferences: preferences });
+      await base44.asServiceRole.entities.CustomerProfile.update(profile.id, { chart_preferences: preferences });
+      const confirmed = await base44.asServiceRole.entities.CustomerProfile.get(profile.id);
+      const persisted = cleanChartPreferences(confirmed?.chart_preferences);
+      if (persisted.watermarkVisible !== preferences.watermarkVisible) {
+        throw Object.assign(new Error("Chart preferences were not persisted"), { status: 500, code: "CHART_PREFERENCES_PERSISTENCE_FAILED" });
+      }
       await audit(base44, user.id, "chart.preferences.update", "CustomerProfile", profile.id, "success", "", profile.chart_preferences || null, preferences);
-      return Response.json({ preferences: updated.chart_preferences || preferences });
+      return Response.json({ preferences: persisted });
     }
     if (body.action === "alerts") {
       const rules = await base44.asServiceRole.entities.AlertRule.filter({ customer_id: profile.id });

@@ -233,14 +233,19 @@ assert.match(companyChart, /axisDoubleClickReset:\s*\{\s*time:\s*true,\s*price:\
 assert.match(companyChart, /toggleAllIndicators/, "the chart must expose one action for all indicators");
 assert.match(companyChart, /toggleAllChartObjects/, "the chart must expose one action for drawings and indicators together");
 assert.match(companyChart, /function resetChartView\(\)[\s\S]*panes\[0\]\?\.setHeight\(mainPaneTarget\)/, "resetting the chart must restore the responsive main price pane height");
-assert.match(companyChart, /if \(showVolume\) panes\[1\]\?\.setHeight\(92\)/, "resetting the compact chart must restore the volume pane height");
-assert.match(companyChart, /if \(showRsi\) panes\[showVolume \? 2 : 1\]\?\.setHeight\(124\)/, "resetting the compact chart must restore the RSI pane height");
+assert.match(companyChart, /if \(showVolume\) panes\[1\]\?\.setHeight\(volumePaneTarget\)/, "resetting the chart must restore the responsive volume pane height");
+assert.match(companyChart, /if \(showRsi\) panes\[showVolume \? 2 : 1\]\?\.setHeight\(rsiPaneTarget\)/, "resetting the chart must restore the responsive RSI pane height");
+assert.match(companyChart, /chart\.resize\(hostWidth, chartHeight, true\)/, "chart height changes must use the official resize API");
+assert.match(companyChart, /ref=\{canvasWrapRef\}/, "fullscreen chart sizing must measure the actual chart host");
 
 const chartStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
 assert.match(chartStyles, /\.indicator-hub-popover\[dir="rtl"\]\s*\{\s*right:\s*0;\s*left:\s*auto;/, "the Arabic indicator menu must open inward from the right viewport edge");
 assert.match(chartStyles, /\.indicator-hub-popover\[dir="ltr"\]\s*\{\s*right:\s*auto;\s*left:\s*0;/, "the English indicator menu must open inward from the left viewport edge");
 assert.match(chartStyles, /@media\s*\(max-width:\s*480px\)\s*\{[\s\S]*?\.indicator-hub-popover\s*\{\s*width:\s*calc\(100vw\s*-\s*48px\);/, "the indicator menu must stay inside narrow mobile viewports");
 assert.match(chartStyles, /\.indicator-hub-toggle > span:nth-child\(2\)\s*\{[^}]*whitespace-normal[^}]*break-words/, "indicator names must remain readable instead of being clipped to icons");
+assert.doesNotMatch(chartStyles, /\.chart-shell:fullscreen \.chart-company-navigation\s*\{[^}]*hidden/, "fullscreen must never hide previous/next company navigation");
+assert.match(chartStyles, /\.chart-shell:fullscreen \.chart-company-navigation > button:not\(\.secondary-button\)\s*\{[^}]*min-h-8/, "fullscreen company navigation must remain present in a compact form");
+assert.match(chartStyles, /\.chart-shell:fullscreen \.chart-canvas-wrap\s*\{[^}]*flex-1/, "fullscreen chart must consume the remaining viewport instead of leaving dead space");
 
 const chartDrawingsFunction = await readFile(new URL("../base44/functions/chartDrawings/entry.ts", import.meta.url), "utf8");
 assert.match(chartDrawingsFunction, /requireActiveSession\(base44, profile, body\.session_id\)/, "drawing storage must require the verified KMY session");
@@ -475,7 +480,8 @@ assert.match(legacySchemaBridge, /QuoteObservation:\s*"quote-observation"/, "the
 assert.match(legacySchemaBridge, /official_exists/, "the schema audit must distinguish missing official schemas from empty schemas");
 assert.match(legacySchemaBridge, /count_capped/, "the schema audit must disclose bounded-count results");
 
-const { calculateRsiSeries, calculateMomentumSnapshot, companyDashboardPath, selectMomentumSnapshot } = await import(new URL("../src/lib/market.js", import.meta.url));
+const { calculateRsiSeries, calculateMomentumSnapshot, companyDashboardPath, normalizeMomentum, selectMomentumSnapshot } = await import(new URL("../src/lib/market.js", import.meta.url));
+const { chartPreferencePayload, sanitizeChartPreferences } = await import(new URL("../src/lib/chart-visuals.js", import.meta.url));
 const { CHART_REPLAY_SPEEDS, nextReplayCursor, replayCandles, replayStartIndex } = await import(new URL("../src/lib/chart-replay.js", import.meta.url));
 assert.equal(companyDashboardPath("1010", "1wk"), "/dashboard?company=1010&timeframe=1wk", "strategy links must preserve weekly context");
 assert.equal(companyDashboardPath("1010", "invalid"), "/dashboard?company=1010", "invalid chart intervals must not enter company URLs");
@@ -501,6 +507,13 @@ assert.ok(momentumSnapshot?.zones?.length === 7, "momentum port must return the 
 assert.ok(momentumSnapshot.zones.every((zone) => zone.top > zone.bottom && zone.bottom > zone.stop), "momentum zone price ordering must remain strict");
 assert.deepEqual(momentumSnapshot.zones.slice(5).map((zone) => zone.displayNameAr), ["قاع ثلاث سنوات", "منطقة خمس سنوات"], "deep recurrence zones must keep their approved Arabic identities");
 assert.notEqual(momentumSnapshot.zones[5].color, momentumSnapshot.zones[6].color, "deep recurrence zones must use distinct colors");
+const upgradedLegacyMomentum = normalizeMomentum({
+  zones: momentumSnapshot.zones.slice(0, 5),
+}, "light");
+assert.equal(upgradedLegacyMomentum.zones.length, 7, "legacy five-zone snapshots must be upgraded for every chart and zone card");
+assert.deepEqual(upgradedLegacyMomentum.zones.slice(5).map((zone) => zone.active), [false, false], "new deep zones must remain waiting until their sequential activation conditions are proven");
+const hiddenWatermark = chartPreferencePayload({ ...sanitizeChartPreferences({}), watermarkVisible: false });
+assert.equal(hiddenWatermark.watermarkVisible, false, "watermark opt-out must survive the exact persisted chart-preference payload");
 assert.deepEqual(CHART_REPLAY_SPEEDS.map((speed) => speed.value), [10, 3000, 5000, 10000], "bar replay must implement the approved milliseconds-per-candle presets exactly");
 assert.equal(replayStartIndex(risingBars, risingBars[8].time), 8, "bar replay must resolve the selected historical candle deterministically");
 assert.equal(replayCandles(risingBars, 8).length, 9, "bar replay must hide every candle after the current replay cursor");

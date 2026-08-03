@@ -26,7 +26,7 @@ function SmaEditor({ title, value, onChange, isArabic }) {
   </section>;
 }
 
-export default function ChartSettingsSheet({ open, onOpenChange, preferences, onApply, theme, isArabic, saving = false }) {
+export default function ChartSettingsSheet({ open, onOpenChange, preferences, onApply, theme, isArabic, saving = false, saveError = "" }) {
   const [draft, setDraft] = useState(() => sanitizeChartPreferences(preferences, theme));
   const dialogRef = useRef(null);
 
@@ -101,6 +101,7 @@ export default function ChartSettingsSheet({ open, onOpenChange, preferences, on
       </div>
 
       <footer className="chart-settings-footer">
+        {saveError && <p className="chart-settings-save-error" role="alert">{saveError}</p>}
         <button type="button" className="secondary-button" onClick={() => setDraft(chartVisualDefaults(theme))}><RotateCcw size={15} />{isArabic ? "الافتراضي" : "Defaults"}</button>
         <button type="button" className="primary-button" disabled={saving} onClick={() => onApply(sanitizeChartPreferences(draft, theme))}><Save size={15} />{saving ? (isArabic ? "جارٍ الحفظ…" : "Saving…") : (isArabic ? "حفظ الإعدادات" : "Save settings")}</button>
       </footer>

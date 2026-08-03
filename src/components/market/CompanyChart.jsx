@@ -145,6 +145,7 @@ function sameZoneGeometry(current, next) {
 export default function CompanyChart({ symbol = "", companyNameAr = "", companyNameEn = "", sector = "", marketCode = "SA_MAIN", momentum: rawMomentum = null, requestedInterval = "", onMomentumChange = (_momentum, _interval) => {}, previousCompany = null, nextCompany = null, onSelectCompany = (_symbol) => {}, onResetWidth = () => {} }) {
   const { language, isArabic, theme } = usePreferences();
   const containerRef = useRef(null);
+  const canvasWrapRef = useRef(null);
   const wrapperRef = useRef(null);
   const chartRef = useRef(null);
   const candleSeriesRef = useRef(null);
@@ -180,7 +181,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const [candleTypeMenuOpen, setCandleTypeMenuOpen] = useState(false);
   const [chartSettingsOpen, setChartSettingsOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight);
+  const [chartHostHeight, setChartHostHeight] = useState(0);
   const [replayLineX, setReplayLineX] = useState(null);
   const [replayState, setReplayState] = useState(() => ({
     mode: "idle",
@@ -189,6 +190,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     speedMs: normalizeReplaySpeed(localStorage.getItem("kmy_chart_replay_speed")),
   }));
   const [savingChartSettings, setSavingChartSettings] = useState(false);
+  const [chartSettingsError, setChartSettingsError] = useState("");
   const [chartPreferences, setChartPreferences] = useState(() => sanitizeChartPreferences({
     ...storedObject("kmy_chart_preferences_v2", chartVisualDefaults(theme)),
     sma: storedObject("kmy_chart_preferences_v2", chartVisualDefaults(theme)).sma || {
@@ -266,9 +268,11 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const fallbackMomentum = useMemo(() => normalizeMomentum(rawMomentum, theme), [rawMomentum, theme]);
   const replayMomentum = useMemo(() => replayActive ? calculateMomentumSnapshot(visibleOrderedCandles, momentumSettings.peakLookbackDays, Number.POSITIVE_INFINITY, theme) : null, [replayActive, visibleOrderedCandles, momentumSettings.peakLookbackDays, theme]);
   const momentum = replayActive ? replayMomentum : backendMomentum || fallbackMomentum;
-  const auxiliaryPaneHeight = (showVolume ? 92 : 0) + (showRsi ? 124 : 0);
-  const mainPaneTarget = fullscreen ? Math.max(260, viewportHeight - auxiliaryPaneHeight - 178) : 470;
-  const chartHeight = mainPaneTarget + auxiliaryPaneHeight;
+  const volumePaneTarget = fullscreen ? 76 : 92;
+  const rsiPaneTarget = fullscreen ? 104 : 124;
+  const auxiliaryPaneHeight = (showVolume ? volumePaneTarget : 0) + (showRsi ? rsiPaneTarget : 0);
+  const chartHeight = fullscreen ? Math.max(320, chartHostHeight || 480) : 470 + auxiliaryPaneHeight;
+  const mainPaneTarget = Math.max(fullscreen ? 220 : 260, chartHeight - auxiliaryPaneHeight);
   const investorZoneLabel = isArabic
     ? { "15m": "مناطق المستثمر لفاصل 15 دقيقة", "1h": "مناطق المستثمر الساعية", "2h": "مناطق المستثمر لساعتين", "3h": "مناطق المستثمر لثلاث ساعات", "4h": "مناطق المستثمر لأربع ساعات", "1d": "مناطق المستثمر اليومية", "1wk": "مناطق المستثمر الأسبوعية", "1mo": "مناطق المستثمر الشهرية" }[interval]
     : { "15m": "15-minute investor zones", "1h": "Hourly investor zones", "2h": "2-hour investor zones", "3h": "3-hour investor zones", "4h": "4-hour investor zones", "1d": "Daily investor zones", "1wk": "Weekly investor zones", "1mo": "Monthly investor zones" }[interval];
@@ -287,7 +291,6 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   useEffect(() => {
     const updateViewport = () => {
       setFullscreen(document.fullscreenElement === wrapperRef.current);
-      setViewportHeight(window.innerHeight);
     };
     document.addEventListener("fullscreenchange", updateViewport);
     window.addEventListener("resize", updateViewport);
@@ -433,14 +436,16 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   async function saveChartPreferences(preferences) {
     const clean = sanitizeChartPreferences(preferences, theme);
     setChartPreferences(clean);
+    setChartSettingsError("");
     setSavingChartSettings(true);
     try {
       const data = await persistChartPreferences(clean);
-      if (data?.preferences) setChartPreferences(sanitizeChartPreferences(data.preferences, theme));
+      const persisted = sanitizeChartPreferences(data?.preferences || clean, theme);
+      if (persisted.watermarkVisible !== clean.watermarkVisible) throw new Error("chart_preferences_persistence_mismatch");
+      setChartPreferences(persisted);
       setChartSettingsOpen(false);
     } catch {
-      // The local copy is intentionally retained; the next explicit save retries the protected backend.
-      setChartSettingsOpen(false);
+      setChartSettingsError(isArabic ? "تعذر حفظ إعدادات الشارت في الحساب. بقي التغيير محلياً، أعد المحاولة." : "Chart settings could not be saved to your account. The local change was kept; please retry.");
     } finally {
       setSavingChartSettings(false);
     }
@@ -512,10 +517,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       visible: chartPreferences.watermarkVisible,
       horzAlign: "center",
       vertAlign: "center",
-      lines: [
+      lines: chartPreferences.watermarkVisible ? [
         { text: symbol || (isArabic ? "مؤشر القطاع" : "Sector index"), color: colorWithOpacity(visual.textColor, 0.10), fontSize: 46, fontStyle: "bold", fontFamily: "Tajawal" },
         { text: identityName || "", color: colorWithOpacity(visual.textColor, 0.10), fontSize: 22, fontStyle: "bold", fontFamily: "Tajawal" },
-      ].filter((line) => line.text),
+      ].filter((line) => line.text) : [],
     });
     candlesSeries.setData(displayCandlesRef.current.map(({ volume: _volume, sourceOpen: _sourceOpen, sourceHigh: _sourceHigh, sourceLow: _sourceLow, sourceClose: _sourceClose, ...candle }) => candle));
     const scheduleOverlayUpdate = () => {
@@ -551,11 +556,14 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     const visibleHandler = scheduleOverlayUpdate;
     chart.timeScale().subscribeVisibleLogicalRangeChange(visibleHandler);
     const resizeObserver = new ResizeObserver((entries) => {
-      const width = Math.max(320, Math.floor(entries[0]?.contentRect?.width || containerRef.current?.clientWidth || 320));
-      chart.resize(width, chartHeight);
+      const host = canvasWrapRef.current;
+      const width = Math.max(320, Math.floor(entries[0]?.contentRect?.width || host?.clientWidth || 320));
+      const height = Math.max(260, Math.floor(entries[0]?.contentRect?.height || host?.clientHeight || chartHeight));
+      chart.resize(width, height, true);
+      setChartHostHeight((current) => current === height ? current : height);
       scheduleOverlayUpdate();
     });
-    resizeObserver.observe(containerRef.current);
+    resizeObserver.observe(canvasWrapRef.current || containerRef.current);
     const interactionEvents = ["wheel", "pointermove", "pointerdown", "pointerup", "touchmove", "dblclick"];
     interactionEvents.forEach((eventName) => containerRef.current?.addEventListener(eventName, scheduleOverlayUpdate, { passive: true }));
 
@@ -666,10 +674,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     });
     watermarkRef.current?.applyOptions({
       visible: chartPreferences.watermarkVisible,
-      lines: [
+      lines: chartPreferences.watermarkVisible ? [
         { text: symbol || (isArabic ? "مؤشر القطاع" : "Sector index"), color: colorWithOpacity(resolvedVisuals.textColor, 0.10), fontSize: fullscreen ? 56 : 46, fontStyle: "bold", fontFamily: "Tajawal" },
         { text: identityName || "", color: colorWithOpacity(resolvedVisuals.textColor, 0.10), fontSize: fullscreen ? 26 : 22, fontStyle: "bold", fontFamily: "Tajawal" },
-      ].filter((line) => line.text),
+      ].filter((line) => line.text) : [],
     });
   }, [resolvedVisuals, chartPreferences.candleType, chartPreferences.watermarkVisible, isArabic, symbol, identityName, fullscreen]);
 
@@ -710,16 +718,17 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       rsiSeriesRef.current.createPriceLine({ price: Number(rsiSettings.lower), color: rsiSettings.lowerColor, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: isArabic ? "تشبع بيعي" : "Oversold" });
     }
 
-    chart.applyOptions({ height: chartHeight });
+    const hostWidth = Math.max(320, Math.floor(canvasWrapRef.current?.clientWidth || containerRef.current?.clientWidth || 320));
+    chart.resize(hostWidth, chartHeight, true);
     window.requestAnimationFrame(() => {
       const panes = chart.panes();
       panes[0]?.setHeight(mainPaneTarget);
-      if (showVolume) panes[1]?.setHeight(92);
-      if (showRsi) panes[showVolume ? 2 : 1]?.setHeight(124);
+      if (showVolume) panes[1]?.setHeight(volumePaneTarget);
+      if (showRsi) panes[showVolume ? 2 : 1]?.setHeight(rsiPaneTarget);
       if (visibleRange) chart.timeScale().setVisibleLogicalRange(visibleRange);
       overlayUpdateRef.current();
     });
-  }, [showVolume, showRsi, rsiSettings.lineColor, rsiSettings.lineWidth, rsiSettings.upper, rsiSettings.lower, rsiSettings.upperColor, rsiSettings.lowerColor, chartHeight, mainPaneTarget, theme, language, interval, isArabic]);
+  }, [showVolume, showRsi, rsiSettings.lineColor, rsiSettings.lineWidth, rsiSettings.upper, rsiSettings.lower, rsiSettings.upperColor, rsiSettings.lowerColor, chartHeight, mainPaneTarget, volumePaneTarget, rsiPaneTarget, theme, language, interval, isArabic]);
 
   useEffect(() => {
     candleSeriesRef.current?.setData(displayCandles.map(({ volume: _volume, sourceOpen: _sourceOpen, sourceHigh: _sourceHigh, sourceLow: _sourceLow, sourceClose: _sourceClose, ...candle }) => candle));
@@ -845,8 +854,8 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     window.requestAnimationFrame(() => {
       const panes = chart.panes();
       panes[0]?.setHeight(mainPaneTarget);
-      if (showVolume) panes[1]?.setHeight(92);
-      if (showRsi) panes[showVolume ? 2 : 1]?.setHeight(124);
+      if (showVolume) panes[1]?.setHeight(volumePaneTarget);
+      if (showRsi) panes[showVolume ? 2 : 1]?.setHeight(rsiPaneTarget);
       overlayUpdateRef.current();
     });
   }
@@ -1107,7 +1116,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     {!loading && !error && !candles.length && <div className="chart-message">{isArabic ? "لا توجد شموع موثقة لهذا النطاق." : "No verified candles for this range."}</div>}
     {!loading && !error && range === "max" && historyMeta?.history_complete === false && <div className="chart-history-status" role="status">{isArabic ? "السجل التاريخي لهذا السهم غير مكتمل بعد؛ المعروض هو الجزء المحفوظ فقط." : "This instrument's historical archive is not complete yet; only stored candles are shown."}</div>}
 
-    <div className={candles.length ? "chart-canvas-wrap" : "h-0"} style={candles.length ? { height: chartHeight } : undefined}>
+    <div ref={canvasWrapRef} className={candles.length ? "chart-canvas-wrap" : "h-0"} style={candles.length && !fullscreen ? { height: chartHeight } : undefined}>
       <div ref={containerRef} className="absolute inset-0" />
       {Number.isFinite(Number(replayLineX)) && <div className="chart-replay-start-line" style={{ left: Number(replayLineX), height: mainPaneHeight }} aria-hidden="true"><span>{isArabic ? "البداية" : "Start"}</span></div>}
       {replayState.mode === "selecting" && <div className="chart-replay-selection-hint" aria-hidden="true"><History size={15} />{isArabic ? "اختر شمعة البداية" : "Select the starting bar"}</div>}
@@ -1123,6 +1132,6 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         })}</>}
       </div>}
     </div>
-    <ChartSettingsSheet open={chartSettingsOpen} onOpenChange={setChartSettingsOpen} preferences={chartPreferences} onApply={saveChartPreferences} theme={theme} isArabic={isArabic} saving={savingChartSettings} />
+    <ChartSettingsSheet open={chartSettingsOpen} onOpenChange={setChartSettingsOpen} preferences={chartPreferences} onApply={saveChartPreferences} theme={theme} isArabic={isArabic} saving={savingChartSettings} saveError={chartSettingsError} />
   </div>;
 }
