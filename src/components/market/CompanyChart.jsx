@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as Popover from "@radix-ui/react-popover";
 import { CandlestickSeries, ColorType, createChart, createTextWatermark, HistogramSeries, LineSeries, LineStyle } from "lightweight-charts";
 import { BarChart3, ChartCandlestick, ChevronLeft, ChevronRight, Eye, EyeOff, Flame, History, Layers3, Maximize2, Minus, Pause, Play, Plus, RotateCcw, Settings2, SkipBack, SkipForward, SlidersHorizontal, TrendingUp, Waves, X } from "lucide-react";
-import { invokeAppFunction } from "@/services/marketService";
+import { invokeAppFunction, readMarketChart } from "@/services/marketService";
 import { calculateMomentumSnapshot, calculateRsiSeries, formatNumber, MOMENTUM_ZONE_DEFINITIONS, normalizeMomentum } from "@/lib/market";
 import { calculateSmaSeries, reversalPatternMap } from "@/lib/technical-signals";
 import { buildDisplayCandles, chartPreferencePayload, chartVisualDefaults, resolvedChartColors, sanitizeChartPreferences } from "@/lib/chart-visuals";
@@ -9,6 +10,7 @@ import { usePreferences } from "@/lib/preferences";
 import ChartDrawingTools from "@/components/market/ChartDrawingTools";
 import ChartSettingsSheet from "@/components/market/ChartSettingsSheet";
 import { CHART_REPLAY_SPEEDS, nextReplayCursor, normalizeReplaySpeed, replayCandles, replayStartIndex } from "@/lib/chart-replay";
+import { chartControlTransition } from "@/lib/chart-controls";
 
 const intervalOptions = [
   { value: "15m", ar: "15 د", en: "15m", defaultRange: "5d" },
@@ -29,6 +31,25 @@ const rangeOptions = [
   { value: "5y", ar: "5 سنوات", en: "5Y", intervals: ["1d", "1wk", "1mo"] },
   { value: "max", ar: "تاريخي", en: "History", intervals: ["1d", "1wk", "1mo"] },
 ];
+
+function ChartControlPopover({ open, onOpenChange, trigger, className, isArabic, children }) {
+  return <Popover.Root open={open} onOpenChange={onOpenChange} modal={false}>
+    <Popover.Trigger asChild>{trigger}</Popover.Trigger>
+    <Popover.Portal>
+      <Popover.Content
+        className={className}
+        dir={isArabic ? "rtl" : "ltr"}
+        side="bottom"
+        align={isArabic ? "end" : "start"}
+        sideOffset={8}
+        collisionPadding={12}
+        avoidCollisions
+      >
+        {children}
+      </Popover.Content>
+    </Popover.Portal>
+  </Popover.Root>;
+}
 
 function initialChartInterval(requestedInterval = "") {
   if (intervalOptions.some((item) => item.value === requestedInterval)) return requestedInterval;
@@ -142,6 +163,13 @@ function sameZoneGeometry(current, next) {
   });
 }
 
+function sameHoveredCandle(current, next) {
+  if (current === next) return true;
+  if (!current || !next) return false;
+  return ["time", "open", "high", "low", "close", "volume", "rsi"]
+    .every((key) => current[key] === next[key]);
+}
+
 export default function CompanyChart({ symbol = "", companyNameAr = "", companyNameEn = "", sector = "", marketCode = "SA_MAIN", momentum: rawMomentum = null, requestedInterval = "", onMomentumChange = (_momentum, _interval) => {}, previousCompany = null, nextCompany = null, onSelectCompany = (_symbol) => {}, onResetWidth = () => {} }) {
   const { language, isArabic, theme } = usePreferences();
   const containerRef = useRef(null);
@@ -160,6 +188,9 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const momentumLinesRef = useRef([]);
   const overlayUpdateRef = useRef(() => {});
   const overlayFrameRef = useRef(0);
+  const hoverFrameRef = useRef(0);
+  const hoveredRef = useRef(null);
+  const pendingHoveredRef = useRef(null);
   const replayModeRef = useRef("idle");
   const replayStartTimeRef = useRef(null);
   const replayTimerRef = useRef(0);
@@ -175,10 +206,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const [showMomentumCard, setShowMomentumCard] = useState(() => localStorage.getItem("kmy_show_momentum_card") !== "false");
   const [showVolume, setShowVolume] = useState(() => localStorage.getItem("kmy_show_volume") !== "false");
   const [showRsi, setShowRsi] = useState(() => localStorage.getItem("kmy_show_rsi") !== "false");
-  const [settingsPanel, setSettingsPanel] = useState("");
-  const [indicatorMenuOpen, setIndicatorMenuOpen] = useState(false);
-  const [reversalMenuOpen, setReversalMenuOpen] = useState(false);
-  const [candleTypeMenuOpen, setCandleTypeMenuOpen] = useState(false);
+  const [chartControls, setChartControls] = useState(/** @type {{ menu: string, panel: string }} */ ({ menu: "", panel: "" }));
+  const dispatchChartControl = useCallback((action) => {
+    setChartControls((current) => chartControlTransition(current, action));
+  }, []);
   const [chartSettingsOpen, setChartSettingsOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [chartHostHeight, setChartHostHeight] = useState(0);
@@ -210,6 +241,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       }])),
     };
   });
+  const [requestedPeakLookbackDays, setRequestedPeakLookbackDays] = useState(momentumSettings.peakLookbackDays);
   const [zoneGeometry, setZoneGeometry] = useState([]);
   const [mainPaneHeight, setMainPaneHeight] = useState(470);
   mainPaneHeightRef.current = mainPaneHeight;
@@ -228,10 +260,23 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const orderedCandles = useMemo(() => normalizeCandles(candles), [candles]);
   const replayActive = replayState.mode !== "idle" && Number.isInteger(replayState.cursor);
   const visibleOrderedCandles = useMemo(() => replayActive ? replayCandles(orderedCandles, replayState.cursor) : orderedCandles, [orderedCandles, replayActive, replayState.cursor]);
-  const resolvedVisuals = useMemo(() => resolvedChartColors(chartPreferences, theme), [chartPreferences, theme]);
+  const surfacePreferences = useMemo(() => ({
+    candleType: chartPreferences.candleType,
+    backgroundMode: chartPreferences.backgroundMode,
+    backgroundColor: chartPreferences.backgroundColor,
+    textColor: chartPreferences.textColor,
+    gridVisible: chartPreferences.gridVisible,
+    gridColor: chartPreferences.gridColor,
+    upColor: chartPreferences.upColor,
+    downColor: chartPreferences.downColor,
+    wickVisible: chartPreferences.wickVisible,
+    borderVisible: chartPreferences.borderVisible,
+    watermarkVisible: chartPreferences.watermarkVisible,
+  }), [chartPreferences.candleType, chartPreferences.backgroundMode, chartPreferences.backgroundColor, chartPreferences.textColor, chartPreferences.gridVisible, chartPreferences.gridColor, chartPreferences.upColor, chartPreferences.downColor, chartPreferences.wickVisible, chartPreferences.borderVisible, chartPreferences.watermarkVisible]);
+  const resolvedVisuals = useMemo(() => resolvedChartColors(surfacePreferences, theme), [surfacePreferences, theme]);
   const reversalPatterns = useMemo(() => reversalPatternMap(visibleOrderedCandles, { limitPerType: 3 }), [visibleOrderedCandles]);
   const displayCandles = useMemo(() => {
-    const display = buildDisplayCandles(visibleOrderedCandles, chartPreferences, theme);
+    const display = buildDisplayCandles(visibleOrderedCandles, surfacePreferences, theme);
     return display.map((candle) => {
       const pattern = reversalPatterns.get(candle.time);
       const color = pattern?.engulfingDirection && chartPreferences.reversal.engulfing.enabled
@@ -241,7 +286,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
           : null;
       return color ? { ...candle, color, borderColor: color, wickColor: color } : candle;
     });
-  }, [visibleOrderedCandles, chartPreferences, theme, reversalPatterns]);
+  }, [visibleOrderedCandles, surfacePreferences, theme, reversalPatterns, chartPreferences.reversal]);
   const showSma20 = chartPreferences.sma.fast.enabled;
   const showSma50 = chartPreferences.sma.slow.enabled;
   const setShowSma20 = useCallback((next) => setChartPreferences((current) => sanitizeChartPreferences({
@@ -274,11 +319,23 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const chartHeight = fullscreen ? Math.max(320, chartHostHeight || 480) : 470 + auxiliaryPaneHeight;
   const mainPaneTarget = Math.max(fullscreen ? 220 : 260, chartHeight - auxiliaryPaneHeight);
   const investorZoneLabel = isArabic
-    ? { "15m": "مناطق المستثمر لفاصل 15 دقيقة", "1h": "مناطق المستثمر الساعية", "2h": "مناطق المستثمر لساعتين", "3h": "مناطق المستثمر لثلاث ساعات", "4h": "مناطق المستثمر لأربع ساعات", "1d": "مناطق المستثمر اليومية", "1wk": "مناطق المستثمر الأسبوعية", "1mo": "مناطق المستثمر الشهرية" }[interval]
-    : { "15m": "15-minute investor zones", "1h": "Hourly investor zones", "2h": "2-hour investor zones", "3h": "3-hour investor zones", "4h": "4-hour investor zones", "1d": "Daily investor zones", "1wk": "Weekly investor zones", "1mo": "Monthly investor zones" }[interval];
+    ? { "15m": "مناطق المستثمر لفاصل 15 دقيقة", "1h": "مناطق المستثمر الساعية", "2h": "مناطق المستثمر لساعتين", "3h": "مناطق المستثمر لثلاث ساعات", "4h": "مناطق المستثمر لأربع ساعات", "1d": "مناطق المستثمر", "1wk": "مناطق المستثمر الأسبوعية", "1mo": "مناطق المستثمر الشهرية" }[interval]
+    : { "15m": "15-minute investor zones", "1h": "Hourly investor zones", "2h": "2-hour investor zones", "3h": "3-hour investor zones", "4h": "4-hour investor zones", "1d": "Investor zones", "1wk": "Weekly investor zones", "1mo": "Monthly investor zones" }[interval];
   const anyIndicatorVisible = showVolume || showMomentum || showRsi || showSma20 || showSma50;
   const anyReversalVisible = chartPreferences.reversal.pinBar.enabled || chartPreferences.reversal.engulfing.enabled;
   const onDrawingVisibilityChange = useCallback((visible) => setDrawingsVisible(visible), []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setRequestedPeakLookbackDays(momentumSettings.peakLookbackDays), 250);
+    return () => window.clearTimeout(timer);
+  }, [momentumSettings.peakLookbackDays]);
+
+  useEffect(() => {
+    dispatchChartControl({ type: "close-all" });
+    pendingHoveredRef.current = null;
+    hoveredRef.current = null;
+    setHovered(null);
+  }, [chartTarget, interval, range, dispatchChartControl]);
 
   useEffect(() => {
     if (!requestedInterval || !intervalOptions.some((item) => item.value === requestedInterval)) return;
@@ -342,13 +399,16 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     let active = true;
     setLoading(true);
     setError("");
-    invokeAppFunction("marketRead", sector
-      ? { action: "sector_chart", sector, market_code: marketCode, interval, range }
-      : { action: "chart", symbol, interval, range })
+    const request = sector
+      ? { action: "sector_chart", sector, market_code: marketCode, interval, range, lookback_days: requestedPeakLookbackDays }
+      : { action: "chart", symbol, interval, range, lookback_days: requestedPeakLookbackDays };
+    setIndicatorState({ key: indicatorKey, momentum: null });
+    readMarketChart(request)
       .then((data) => {
         if (!active) return;
         setCandles(Array.isArray(data.candles) ? data.candles : []);
         setHistoryMeta(data.data_meta || null);
+        setIndicatorState({ key: indicatorKey, momentum: data.momentum_indicator || null });
       })
       .catch((reason) => {
         if (!active) return;
@@ -360,20 +420,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     localStorage.setItem("kmy_chart_interval", interval);
     localStorage.setItem("kmy_chart_range", range);
     return () => { active = false; };
-  }, [chartTarget, sector, symbol, marketCode, interval, range]);
-
-  useEffect(() => {
-    if (!chartTarget) return;
-    let active = true;
-    const indicatorRange = interval === "15m" ? "1mo" : ["1h", "2h", "3h", "4h"].includes(interval) ? "1y" : "max";
-    setIndicatorState({ key: indicatorKey, momentum: null });
-    invokeAppFunction("marketRead", sector
-      ? { action: "sector_chart", sector, market_code: marketCode, interval, range: indicatorRange, lookback_days: momentumSettings.peakLookbackDays }
-      : { action: "chart", symbol, interval, range: indicatorRange, lookback_days: momentumSettings.peakLookbackDays })
-      .then((data) => active && setIndicatorState({ key: indicatorKey, momentum: data.momentum_indicator || null }))
-      .catch(() => active && setIndicatorState({ key: indicatorKey, momentum: null }));
-    return () => { active = false; };
-  }, [chartTarget, sector, symbol, marketCode, interval, indicatorKey, momentumSettings.peakLookbackDays]);
+  }, [chartTarget, sector, symbol, marketCode, interval, range, indicatorKey, requestedPeakLookbackDays]);
 
   useEffect(() => {
     onMomentumChange(momentum, interval);
@@ -391,22 +438,6 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   useEffect(() => { localStorage.setItem("kmy_rsi_settings", JSON.stringify(rsiSettings)); }, [rsiSettings]);
   useEffect(() => { localStorage.setItem("kmy_momentum_settings", JSON.stringify(momentumSettings)); }, [momentumSettings]);
   useEffect(() => { localStorage.setItem("kmy_chart_preferences_v2", JSON.stringify(chartPreferencePayload(chartPreferences, theme))); }, [chartPreferences, theme]);
-
-  useEffect(() => {
-    const closeMenus = (event) => {
-      if (event.type === "keydown" && event.key !== "Escape") return;
-      if (event.type === "pointerdown" && event.target.closest?.(".chart-menu-anchor")) return;
-      setIndicatorMenuOpen(false);
-      setReversalMenuOpen(false);
-      setCandleTypeMenuOpen(false);
-    };
-    document.addEventListener("pointerdown", closeMenus);
-    document.addEventListener("keydown", closeMenus);
-    return () => {
-      document.removeEventListener("pointerdown", closeMenus);
-      document.removeEventListener("keydown", closeMenus);
-    };
-  }, []);
 
   useEffect(() => {
     chartRef.current?.applyOptions({
@@ -526,17 +557,22 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     const scheduleOverlayUpdate = () => {
       if (overlayFrameRef.current) window.cancelAnimationFrame(overlayFrameRef.current);
       overlayFrameRef.current = window.requestAnimationFrame(() => {
-        overlayFrameRef.current = window.requestAnimationFrame(() => {
-          overlayFrameRef.current = 0;
-          overlayUpdateRef.current();
-        });
+        overlayFrameRef.current = 0;
+        overlayUpdateRef.current();
       });
     };
     chart.subscribeCrosshairMove((param) => {
       const candle = /** @type {any} */ (param.seriesData.get(candlesSeries));
       const volume = volumeSeriesRef.current ? /** @type {any} */ (param.seriesData.get(volumeSeriesRef.current)) : null;
       const rsi = rsiSeriesRef.current ? /** @type {any} */ (param.seriesData.get(rsiSeriesRef.current)) : null;
-      setHovered(candle && typeof candle.open === "number" ? { ...candle, time: param.time, volume: volume?.value, rsi: rsi?.value } : null);
+      pendingHoveredRef.current = candle && typeof candle.open === "number" ? { ...candle, time: param.time, volume: volume?.value, rsi: rsi?.value } : null;
+      if (!hoverFrameRef.current) hoverFrameRef.current = window.requestAnimationFrame(() => {
+        hoverFrameRef.current = 0;
+        const next = pendingHoveredRef.current;
+        if (sameHoveredCandle(hoveredRef.current, next)) return;
+        hoveredRef.current = next;
+        setHovered(next);
+      });
       scheduleOverlayUpdate();
     });
     const doubleClickHandler = (param) => {
@@ -564,7 +600,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       scheduleOverlayUpdate();
     });
     resizeObserver.observe(canvasWrapRef.current || containerRef.current);
-    const interactionEvents = ["wheel", "pointermove", "pointerdown", "pointerup", "touchmove", "dblclick"];
+    const interactionEvents = ["wheel", "pointerdown", "pointerup", "touchmove", "dblclick"];
     interactionEvents.forEach((eventName) => containerRef.current?.addEventListener(eventName, scheduleOverlayUpdate, { passive: true }));
 
     chartRef.current = chart;
@@ -611,6 +647,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       resizeObserver.disconnect();
       interactionEvents.forEach((eventName) => containerRef.current?.removeEventListener(eventName, scheduleOverlayUpdate));
       if (overlayFrameRef.current) window.cancelAnimationFrame(overlayFrameRef.current);
+      if (hoverFrameRef.current) window.cancelAnimationFrame(hoverFrameRef.current);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleHandler);
       chart.unsubscribeDblClick(doubleClickHandler);
       chart.unsubscribeClick(replayClickHandler);
@@ -732,17 +769,21 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
 
   useEffect(() => {
     candleSeriesRef.current?.setData(displayCandles.map(({ volume: _volume, sourceOpen: _sourceOpen, sourceHigh: _sourceHigh, sourceLow: _sourceLow, sourceClose: _sourceClose, ...candle }) => candle));
+  }, [displayCandles]);
+
+  useEffect(() => {
     volumeSeriesRef.current?.setData(visibleOrderedCandles.map((candle) => ({ time: candle.time, value: candle.volume, color: candle.close >= candle.open ? "#16a34acc" : "#dc2626cc" })));
-    rsiSeriesRef.current?.setData(rsiData);
-    sma20SeriesRef.current?.setData(sma20Data);
-    sma50SeriesRef.current?.setData(sma50Data);
     actualPriceSeriesRef.current?.setData(visibleOrderedCandles.map((candle) => ({ time: candle.time, value: candle.close })));
     if (visibleOrderedCandles.length) {
       if (replayActive) chartRef.current?.timeScale().scrollToRealTime();
       else chartRef.current?.timeScale().fitContent();
     }
     window.requestAnimationFrame(() => overlayUpdateRef.current());
-  }, [visibleOrderedCandles, displayCandles, rsiData, sma20Data, sma50Data, replayActive]);
+  }, [visibleOrderedCandles, replayActive]);
+
+  useEffect(() => { rsiSeriesRef.current?.setData(rsiData); }, [rsiData]);
+  useEffect(() => { sma20SeriesRef.current?.setData(sma20Data); }, [sma20Data]);
+  useEffect(() => { sma50SeriesRef.current?.setData(sma50Data); }, [sma50Data]);
 
   useEffect(() => {
     const series = candleSeriesRef.current;
@@ -909,7 +950,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     setShowSma20(visible);
     setShowSma50(visible);
     setShowMomentumCard(visible);
-    if (!visible) setSettingsPanel("");
+    if (!visible) dispatchChartControl({ type: "close-panel" });
   }
 
   function toggleAllIndicators() {
@@ -934,8 +975,12 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   function selectCandleType(candleType) {
     const next = sanitizeChartPreferences({ ...chartPreferences, candleType }, theme);
     setChartPreferences(next);
-    setCandleTypeMenuOpen(false);
+    dispatchChartControl({ type: "close-menu", menu: "candle-type" });
     persistChartPreferences(next).catch(() => {});
+  }
+
+  function changeChartMenu(menu, open) {
+    dispatchChartControl({ type: open ? "toggle-menu" : "close-menu", menu });
   }
 
   function toggleSmaSlot(slot) {
@@ -975,6 +1020,48 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     ["ohlc4", isArabic ? "متوسط الشمعة" : "OHLC4"],
   ];
 
+  const candleTypeContent = <>
+    <b>{isArabic ? "نوع عرض الشموع" : "Candle display"}</b>
+    <p>{isArabic ? "اختر نوعاً واحداً؛ وتبقى المؤشرات مستقلة." : "Choose one type; indicators remain independent."}</p>
+    {[
+      ["candles", isArabic ? "شموع عادية" : "Candles"],
+      ["hollow", isArabic ? "شموع مفرغة" : "Hollow candles"],
+      ["heikin_ashi", isArabic ? "هايكن آشي" : "Heikin Ashi"],
+    ].map(([value, label]) => <button type="button" key={value} className={chartPreferences.candleType === value ? "active" : ""} onClick={() => selectCandleType(value)} aria-pressed={chartPreferences.candleType === value}><ChartCandlestick size={17} /><span>{label}</span>{chartPreferences.candleType === value && <span aria-hidden="true">✓</span>}</button>)}
+  </>;
+
+  const indicatorMenuContent = <>
+    <header><div><b>{isArabic ? "المؤشرات" : "Indicators"}</b><p>{isArabic ? "إغلاق هذه القائمة لا يخفي المؤشرات المفعلة." : "Closing this menu keeps active indicators visible."}</p></div><button type="button" data-action="toggle-all-indicators" onClick={toggleAllIndicators}>{anyIndicatorVisible ? <EyeOff size={15} /> : <Eye size={15} />}{anyIndicatorVisible ? (isArabic ? "إخفاء الكل" : "Hide all") : (isArabic ? "إظهار الكل" : "Show all")}</button></header>
+    {[
+      { key: "volume", label: isArabic ? "أحجام التداول" : "Volume", icon: BarChart3, active: showVolume, toggle: () => setShowVolume((value) => !value) },
+      { key: "momentum", label: investorZoneLabel, icon: Layers3, active: showMomentum, toggle: () => setShowMomentum((value) => !value), settings: () => dispatchChartControl({ type: "toggle-panel", panel: "momentum" }) },
+      { key: "rsi", label: isArabic ? "مؤشر القوة النسبية" : "RSI", icon: Waves, active: showRsi, toggle: () => setShowRsi((value) => !value), settings: () => dispatchChartControl({ type: "toggle-panel", panel: "rsi" }) },
+      { key: "sma-fast", label: isArabic ? `المتوسط البسيط ${chartPreferences.sma.fast.length}` : `SMA ${chartPreferences.sma.fast.length}`, icon: TrendingUp, active: showSma20, color: chartPreferences.sma.fast.color, toggle: () => toggleSmaSlot("fast"), settings: () => { dispatchChartControl({ type: "close-all" }); setChartSettingsOpen(true); } },
+      { key: "sma-slow", label: isArabic ? `المتوسط البسيط ${chartPreferences.sma.slow.length}` : `SMA ${chartPreferences.sma.slow.length}`, icon: TrendingUp, active: showSma50, color: chartPreferences.sma.slow.color, toggle: () => toggleSmaSlot("slow"), settings: () => { dispatchChartControl({ type: "close-all" }); setChartSettingsOpen(true); } },
+    ].map((item) => {
+      const Icon = item.icon;
+      return <div key={item.key} className={"indicator-hub-row " + (item.active ? "active" : "")}>
+        <button type="button" className="indicator-hub-toggle" onClick={item.toggle} aria-pressed={item.active}><span className="indicator-hub-icon" style={item.color ? { color: item.color } : undefined}><Icon size={16} /></span><span>{item.label}</span>{item.active ? <Eye size={15} /> : <EyeOff size={15} />}</button>
+        {item.settings && <button type="button" className="indicator-hub-settings" onClick={item.settings} aria-label={(isArabic ? "إعدادات " : "Settings for ") + item.label}><Settings2 size={15} /></button>}
+      </div>;
+    })}
+    {symbol && <button type="button" className="indicator-everything-button" data-action="toggle-all-chart-objects" onClick={toggleAllChartObjects}>{anyIndicatorVisible || anyReversalVisible || drawingsVisible ? <EyeOff size={15} /> : <Eye size={15} />}{anyIndicatorVisible || anyReversalVisible || drawingsVisible ? (isArabic ? "إخفاء الرسومات والمؤشرات" : "Hide drawings and indicators") : (isArabic ? "إظهار الرسومات والمؤشرات" : "Show drawings and indicators")}</button>}
+  </>;
+
+  const reversalMenuContent = <>
+    <header><div><b>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</b><p>{["1d", "1wk", "1mo"].includes(interval) ? (isArabic ? "تحسب من شموع الافتتاح والأعلى والأدنى والإغلاق الأصلية، لا من شكل العرض." : "Calculated from canonical OHLC, never from the display style.") : (isArabic ? "تظهر العلامات على الفواصل اليومية والأسبوعية والشهرية المكتملة." : "Pattern coloring is available on completed daily, weekly, and monthly intervals.")}</p></div></header>
+    {[["pinBar", isArabic ? "بن بار" : "Pin bar"], ["engulfing", isArabic ? "شمعة بالعة" : "Engulfing candle"]].map(([key, label]) => {
+      const value = chartPreferences.reversal[key];
+      return <div key={key} className={"reversal-pattern-row " + (value.enabled ? "active" : "")}>
+        <button type="button" onClick={() => updateReversalPattern(key, { enabled: !value.enabled })} aria-pressed={value.enabled}><span className="reversal-direction-dots"><i style={{ backgroundColor: value.bullishColor }} /><i style={{ backgroundColor: value.bearishColor }} /></span><span>{label}</span>{value.enabled ? <Eye size={15} /> : <EyeOff size={15} />}</button>
+        <div className="reversal-direction-colors">
+          <label title={isArabic ? `لون ${label} الشرائي` : `${label} bullish color`}><span>{isArabic ? "شرائي" : "Bullish"}</span><input type="color" value={value.bullishColor} onChange={(event) => updateReversalPattern(key, { bullishColor: event.target.value })} /></label>
+          <label title={isArabic ? `لون ${label} البيعي` : `${label} bearish color`}><span>{isArabic ? "بيعي" : "Bearish"}</span><input type="color" value={value.bearishColor} onChange={(event) => updateReversalPattern(key, { bearishColor: event.target.value })} /></label>
+        </div>
+      </div>;
+    })}
+  </>;
+
   return <div ref={wrapperRef} className="chart-shell">
     <div className="chart-header-row">
       <div className="chart-title-block">
@@ -986,19 +1073,28 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         <button className="secondary-button" onClick={onResetWidth}><RotateCcw size={14} />{isArabic ? "الحجم الطبيعي" : "Reset size"}</button>
         <button type="button" disabled={!nextCompany} onClick={() => nextCompany && onSelectCompany?.(nextCompany.symbol)} title={isArabic ? "الشركة التالية حسب القائمة الحالية" : "Next company in current list"}><span><small>{isArabic ? "التالي" : "Next"}</small><b>{nextCompany ? (isArabic ? nextCompany.name_ar : nextCompany.name_en) : "—"}</b></span><ChevronLeft size={16} /></button>
       </div>}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="chart-menu-anchor">
-          <button type="button" className="chart-type-button" onClick={() => { setIndicatorMenuOpen(false); setReversalMenuOpen(false); setCandleTypeMenuOpen((value) => !value); }} title={isArabic ? "تغيير نوع الشموع" : "Change candle type"} aria-expanded={candleTypeMenuOpen} aria-label={isArabic ? `نوع الشموع: ${candleTypeLabel}` : `Candle type: ${candleTypeLabel}`}><ChartCandlestick size={17} /><span>{candleTypeLabel}</span><ChevronLeft size={14} /></button>
-          {candleTypeMenuOpen && <div role="menu" className="chart-type-popover" dir={isArabic ? "rtl" : "ltr"}>
-            <b>{isArabic ? "نوع عرض الشموع" : "Candle display"}</b>
-            <p>{isArabic ? "اختر نوعاً واحداً؛ وتبقى المؤشرات مستقلة." : "Choose one type; indicators remain independent."}</p>
-            {[
-              ["candles", isArabic ? "شموع عادية" : "Candles"],
-              ["hollow", isArabic ? "شموع مفرغة" : "Hollow candles"],
-              ["heikin_ashi", isArabic ? "هايكن آشي" : "Heikin Ashi"],
-            ].map(([value, label]) => <button type="button" key={value} className={chartPreferences.candleType === value ? "active" : ""} onClick={() => selectCandleType(value)} aria-pressed={chartPreferences.candleType === value}><ChartCandlestick size={17} /><span>{label}</span>{chartPreferences.candleType === value && <span aria-hidden="true">✓</span>}</button>)}
-          </div>}
-        </div>
+      <div className="chart-primary-actions">
+        <ChartControlPopover
+          open={chartControls.menu === "candle-type"}
+          onOpenChange={(open) => changeChartMenu("candle-type", open)}
+          isArabic={isArabic}
+          className="chart-type-popover chart-control-popover"
+          trigger={<button type="button" className="chart-type-button" title={isArabic ? "تغيير نوع الشموع" : "Change candle type"} aria-label={isArabic ? `نوع الشموع: ${candleTypeLabel}` : `Candle type: ${candleTypeLabel}`}><ChartCandlestick size={17} /><span>{candleTypeLabel}</span><ChevronLeft size={14} /></button>}
+        >{candleTypeContent}</ChartControlPopover>
+        <ChartControlPopover
+          open={chartControls.menu === "indicators"}
+          onOpenChange={(open) => changeChartMenu("indicators", open)}
+          isArabic={isArabic}
+          className="indicator-hub-popover chart-control-popover"
+          trigger={<button type="button" className={"indicator-hub-button " + (anyIndicatorVisible || chartControls.panel ? "active" : "")}><SlidersHorizontal size={17} /><span>{isArabic ? "المؤشرات" : "Indicators"}</span><small>{[showVolume, showMomentum, showRsi, showSma20, showSma50].filter(Boolean).length}</small></button>}
+        >{indicatorMenuContent}</ChartControlPopover>
+        <ChartControlPopover
+          open={chartControls.menu === "reversals"}
+          onOpenChange={(open) => changeChartMenu("reversals", open)}
+          isArabic={isArabic}
+          className="indicator-hub-popover reversal-hub-popover chart-control-popover"
+          trigger={<button type="button" className={"indicator-hub-button reversal-hub-button " + (anyReversalVisible ? "active" : "")}><Flame size={17} /><span>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</span><small>{[chartPreferences.reversal.pinBar.enabled, chartPreferences.reversal.engulfing.enabled].filter(Boolean).length}</small></button>}
+        >{reversalMenuContent}</ChartControlPopover>
         <button type="button" className={"icon-button " + (replayState.mode !== "idle" ? "active" : "")} onClick={replayState.mode === "idle" ? beginReplaySelection : exitReplay} title={isArabic ? "إعادة تشغيل الشموع التاريخية" : "Historical bar replay"} aria-label={isArabic ? "فتح إعادة تشغيل الشموع" : "Open bar replay"}><History size={17} /></button>
         <button type="button" className="icon-button" onClick={() => setChartSettingsOpen(true)} title={isArabic ? "إعدادات الشارت" : "Chart settings"} aria-label={isArabic ? "فتح إعدادات الشارت" : "Open chart settings"}><Settings2 size={17} /></button>
         <button className="icon-button" onClick={() => zoom(0.75)} title={isArabic ? "تكبير" : "Zoom in"}><Plus size={17} /></button>
@@ -1033,47 +1129,8 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       })}</div></div>
     </div>
 
-    <div className="indicator-toolbar indicator-toolbar-compact">
-      <div className="chart-menu-anchor">
-        <button type="button" className={"indicator-hub-button " + (anyIndicatorVisible ? "active" : "")} onClick={() => { setCandleTypeMenuOpen(false); setReversalMenuOpen(false); setIndicatorMenuOpen((value) => !value); }} aria-expanded={indicatorMenuOpen}><SlidersHorizontal size={17} /><span>{isArabic ? "المؤشرات" : "Indicators"}</span><small>{[showVolume, showMomentum, showRsi, showSma20, showSma50].filter(Boolean).length}</small></button>
-        {indicatorMenuOpen && <div role="menu" className="indicator-hub-popover" dir={isArabic ? "rtl" : "ltr"}>
-          <header><div><b>{isArabic ? "المؤشرات" : "Indicators"}</b><p>{isArabic ? "إغلاق هذه القائمة لا يخفي المؤشرات المفعلة." : "Closing this menu keeps active indicators visible."}</p></div><button type="button" data-action="toggle-all-indicators" onClick={toggleAllIndicators}>{anyIndicatorVisible ? <EyeOff size={15} /> : <Eye size={15} />}{anyIndicatorVisible ? (isArabic ? "إخفاء الكل" : "Hide all") : (isArabic ? "إظهار الكل" : "Show all")}</button></header>
-          {[
-            { key: "volume", label: isArabic ? "أحجام التداول" : "Volume", icon: BarChart3, active: showVolume, toggle: () => setShowVolume((value) => !value) },
-            { key: "momentum", label: investorZoneLabel, icon: Layers3, active: showMomentum, toggle: () => setShowMomentum((value) => !value), settings: () => { setSettingsPanel((value) => value === "momentum" ? "" : "momentum"); setIndicatorMenuOpen(false); } },
-            { key: "rsi", label: isArabic ? "مؤشر القوة النسبية" : "RSI", icon: Waves, active: showRsi, toggle: () => setShowRsi((value) => !value), settings: () => { setSettingsPanel((value) => value === "rsi" ? "" : "rsi"); setIndicatorMenuOpen(false); } },
-            { key: "sma-fast", label: isArabic ? `المتوسط البسيط ${chartPreferences.sma.fast.length}` : `SMA ${chartPreferences.sma.fast.length}`, icon: TrendingUp, active: showSma20, color: chartPreferences.sma.fast.color, toggle: () => toggleSmaSlot("fast"), settings: () => { setIndicatorMenuOpen(false); setChartSettingsOpen(true); } },
-            { key: "sma-slow", label: isArabic ? `المتوسط البسيط ${chartPreferences.sma.slow.length}` : `SMA ${chartPreferences.sma.slow.length}`, icon: TrendingUp, active: showSma50, color: chartPreferences.sma.slow.color, toggle: () => toggleSmaSlot("slow"), settings: () => { setIndicatorMenuOpen(false); setChartSettingsOpen(true); } },
-          ].map((item) => {
-            const Icon = item.icon;
-            return <div key={item.key} className={"indicator-hub-row " + (item.active ? "active" : "")}>
-              <button type="button" className="indicator-hub-toggle" onClick={item.toggle} aria-pressed={item.active}><span className="indicator-hub-icon" style={item.color ? { color: item.color } : undefined}><Icon size={16} /></span><span>{item.label}</span>{item.active ? <Eye size={15} /> : <EyeOff size={15} />}</button>
-              {item.settings && <button type="button" className="indicator-hub-settings" onClick={item.settings} aria-label={(isArabic ? "إعدادات " : "Settings for ") + item.label}><Settings2 size={15} /></button>}
-            </div>;
-          })}
-          {symbol && <button type="button" className="indicator-everything-button" data-action="toggle-all-chart-objects" onClick={toggleAllChartObjects}>{anyIndicatorVisible || anyReversalVisible || drawingsVisible ? <EyeOff size={15} /> : <Eye size={15} />}{anyIndicatorVisible || anyReversalVisible || drawingsVisible ? (isArabic ? "إخفاء الرسومات والمؤشرات" : "Hide drawings and indicators") : (isArabic ? "إظهار الرسومات والمؤشرات" : "Show drawings and indicators")}</button>}
-        </div>}
-      </div>
-      <div className="chart-menu-anchor">
-        <button type="button" className={"indicator-hub-button reversal-hub-button " + ((chartPreferences.reversal.pinBar.enabled || chartPreferences.reversal.engulfing.enabled) ? "active" : "")} onClick={() => { setCandleTypeMenuOpen(false); setIndicatorMenuOpen(false); setReversalMenuOpen((value) => !value); }} aria-expanded={reversalMenuOpen}><Flame size={17} /><span>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</span><small>{[chartPreferences.reversal.pinBar.enabled, chartPreferences.reversal.engulfing.enabled].filter(Boolean).length}</small></button>
-        {reversalMenuOpen && <div role="menu" className="indicator-hub-popover reversal-hub-popover" dir={isArabic ? "rtl" : "ltr"}>
-          <header><div><b>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</b><p>{["1d", "1wk", "1mo"].includes(interval) ? (isArabic ? "تحسب من شموع الافتتاح والأعلى والأدنى والإغلاق الأصلية، لا من شكل العرض." : "Calculated from canonical OHLC, never from the display style.") : (isArabic ? "تظهر العلامات على الفواصل اليومية والأسبوعية والشهرية المكتملة." : "Pattern coloring is available on completed daily, weekly, and monthly intervals.")}</p></div></header>
-          {[["pinBar", isArabic ? "بن بار" : "Pin bar"], ["engulfing", isArabic ? "شمعة بالعة" : "Engulfing candle"]].map(([key, label]) => {
-            const value = chartPreferences.reversal[key];
-            return <div key={key} className={"reversal-pattern-row " + (value.enabled ? "active" : "")}>
-              <button type="button" onClick={() => updateReversalPattern(key, { enabled: !value.enabled })} aria-pressed={value.enabled}><span className="reversal-direction-dots"><i style={{ backgroundColor: value.bullishColor }} /><i style={{ backgroundColor: value.bearishColor }} /></span><span>{label}</span>{value.enabled ? <Eye size={15} /> : <EyeOff size={15} />}</button>
-              <div className="reversal-direction-colors">
-                <label title={isArabic ? `لون ${label} الشرائي` : `${label} bullish color`}><span>{isArabic ? "شرائي" : "Bullish"}</span><input type="color" value={value.bullishColor} onChange={(event) => updateReversalPattern(key, { bullishColor: event.target.value })} /></label>
-                <label title={isArabic ? `لون ${label} البيعي` : `${label} bearish color`}><span>{isArabic ? "بيعي" : "Bearish"}</span><input type="color" value={value.bearishColor} onChange={(event) => updateReversalPattern(key, { bearishColor: event.target.value })} /></label>
-              </div>
-            </div>;
-          })}
-        </div>}
-      </div>
-    </div>
-
-    {settingsPanel === "rsi" && <section className="indicator-settings-panel">
-      <div className="indicator-settings-title"><Waves size={17} /><div><b>{isArabic ? "إعدادات مؤشر القوة النسبية" : "RSI settings"}</b><p>{isArabic ? "الحساب بطريقة وايلدر مثل المؤشر القياسي." : "Wilder calculation matching the standard study."}</p></div><button type="button" onClick={() => setRsiSettings(rsiDefaults)}>{isArabic ? "الافتراضي" : "Defaults"}</button></div>
+    {chartControls.panel === "rsi" && <section className="indicator-settings-panel" aria-label={isArabic ? "إعدادات مؤشر القوة النسبية" : "RSI settings"}>
+      <div className="indicator-settings-title"><Waves size={17} /><div><b>{isArabic ? "إعدادات مؤشر القوة النسبية" : "RSI settings"}</b><p>{isArabic ? "الحساب بطريقة وايلدر مثل المؤشر القياسي." : "Wilder calculation matching the standard study."}</p></div><div className="indicator-settings-actions"><button type="button" onClick={() => setRsiSettings(rsiDefaults)}>{isArabic ? "الافتراضي" : "Defaults"}</button><button type="button" onClick={() => dispatchChartControl({ type: "close-panel" })} aria-label={isArabic ? "إغلاق إعدادات المؤشر" : "Close indicator settings"}><X size={15} /></button></div></div>
       <div className="settings-grid">
         <label><span>{isArabic ? "الفترة" : "Length"}</span><input type="number" min="2" max="100" value={rsiSettings.length} onChange={(event) => setRsiSettings((value) => ({ ...value, length: Math.min(100, Math.max(2, Number(event.target.value) || 14)) }))} /></label>
         <label><span>{isArabic ? "المصدر" : "Source"}</span><select value={rsiSettings.source} onChange={(event) => setRsiSettings((value) => ({ ...value, source: event.target.value }))}>{sourceOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -1086,8 +1143,8 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       </div>
     </section>}
 
-    {settingsPanel === "momentum" && <section className="indicator-settings-panel">
-      <div className="indicator-settings-title"><Layers3 size={17} /><div><b>{isArabic ? `إعدادات ${investorZoneLabel}` : `${investorZoneLabel} settings`}</b><p>{isArabic ? "حساب المناطق من شموع الفاصل المعروض وفق صيغة ثابتة الإصدار." : "Zones calculated from the selected interval using a versioned formula."}</p></div><button type="button" onClick={() => setMomentumSettings(momentumDefaults)}>{isArabic ? "الافتراضي" : "Defaults"}</button></div>
+    {chartControls.panel === "momentum" && <section className="indicator-settings-panel" aria-label={isArabic ? `إعدادات ${investorZoneLabel}` : `${investorZoneLabel} settings`}>
+      <div className="indicator-settings-title"><Layers3 size={17} /><div><b>{isArabic ? `إعدادات ${investorZoneLabel}` : `${investorZoneLabel} settings`}</b><p>{isArabic ? "حساب المناطق من شموع الفاصل المعروض وفق صيغة ثابتة الإصدار." : "Zones calculated from the selected interval using a versioned formula."}</p></div><div className="indicator-settings-actions"><button type="button" onClick={() => setMomentumSettings(momentumDefaults)}>{isArabic ? "الافتراضي" : "Defaults"}</button><button type="button" onClick={() => dispatchChartControl({ type: "close-panel" })} aria-label={isArabic ? "إغلاق إعدادات المناطق" : "Close zone settings"}><X size={15} /></button></div></div>
       <div className="settings-grid">
         <label><span>{isArabic ? "أيام البحث عن القمة" : "Peak lookback days"}</span><input type="number" min="6" max="30" value={momentumSettings.peakLookbackDays} onChange={(event) => setMomentumSettings((value) => ({ ...value, peakLookbackDays: Math.min(30, Math.max(6, Number(event.target.value) || 20)) }))} /></label>
         <label><span>{isArabic ? "شفافية المناطق" : "Zone opacity"}</span><input type="range" min="0" max="95" value={momentumSettings.zoneOpacity} onChange={(event) => setMomentumSettings((value) => ({ ...value, zoneOpacity: Number(event.target.value) }))} /></label>

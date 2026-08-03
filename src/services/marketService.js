@@ -4,6 +4,16 @@ const configuredReferenceApi = String(import.meta.env.VITE_KMY_REFERENCE_API || 
 const localBrowserHosts = new Set(["localhost", "127.0.0.1", "::1"]);
 const isLocalBrowser = typeof window !== "undefined" && localBrowserHosts.has(window.location.hostname);
 const referenceApi = isLocalBrowser ? (configuredReferenceApi || "/reference-api") : "";
+const chartRequestCache = new Map();
+const chartRequestInflight = new Map();
+const CHART_CACHE_MAX_AGE_MS = 60_000;
+const CHART_CACHE_MAX_ENTRIES = 80;
+
+function stableRequestKey(payload) {
+  const sessionId = localStorage.getItem("kmy_session_id") || "anonymous";
+  const values = Object.entries(payload || {}).sort(([left], [right]) => left.localeCompare(right));
+  return `${sessionId}:${JSON.stringify(Object.fromEntries(values))}`;
+}
 
 function quoteFromReference(company) {
   const asOf = company.quoteTime || null;
@@ -208,4 +218,24 @@ export async function invokeAppFunction(functionName, payload = {}) {
 
 export function isReferencePreview() {
   return Boolean(referenceApi);
+}
+
+export async function readMarketChart(payload, { maxAgeMs = CHART_CACHE_MAX_AGE_MS } = {}) {
+  const key = stableRequestKey(payload);
+  const cached = chartRequestCache.get(key);
+  if (cached && Date.now() - cached.receivedAt <= maxAgeMs) return cached.data;
+  if (chartRequestInflight.has(key)) return chartRequestInflight.get(key);
+
+  const request = invokeAppFunction("marketRead", payload)
+    .then((data) => {
+      if (chartRequestCache.size >= CHART_CACHE_MAX_ENTRIES) {
+        const oldestKey = chartRequestCache.keys().next().value;
+        if (oldestKey) chartRequestCache.delete(oldestKey);
+      }
+      chartRequestCache.set(key, { data, receivedAt: Date.now() });
+      return data;
+    })
+    .finally(() => chartRequestInflight.delete(key));
+  chartRequestInflight.set(key, request);
+  return request;
 }

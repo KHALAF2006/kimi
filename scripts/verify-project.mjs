@@ -4,6 +4,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { chartControlTransition, closedChartControls } from "../src/lib/chart-controls.js";
 
 const root = new URL("../", import.meta.url);
 const catalogPath = new URL("../base44/data/official-main-market-catalog-2026-07-21.json", import.meta.url);
@@ -218,12 +219,18 @@ assert.match(companyChart, /subscribeDblClick/, "double-clicking the chart plot 
 assert.match(companyChart, /ChartSettingsSheet/, "chart settings must use the professional settings sheet");
 assert.match(companyChart, /buildDisplayCandles/, "the chart must switch one exclusive candle representation at a time");
 assert.match(companyChart, /indicator-hub-button/, "indicators must be grouped under one compact menu");
+assert.equal((companyChart.match(/readMarketChart\(request\)/g) || []).length, 1, "each chart state must use one combined candle and investor-zone request");
+assert.doesNotMatch(companyChart, /indicatorRange/, "the chart must not issue a second full-history request for investor zones");
+assert.match(marketService, /chartRequestInflight\.has\(key\)/, "identical in-flight chart reads must be deduplicated");
+assert.match(marketService, /CHART_CACHE_MAX_ENTRIES/, "the short chart cache must remain bounded");
 assert.match(companyChart, /save_chart_preferences/, "chart preferences must persist through the protected backend");
 assert.match(companyChart, /axisLabelVisible:\s*false,\s*title:\s*""/, "investor-zone boundaries must not crowd the price axis with repeated labels");
 assert.match(companyChart, /rsiSettings\.lineColor/);
 assert.match(companyChart, /momentumSettings\.zones/);
 assert.match(companyChart, /className=\{["']ohlc-strip ["'] \+ \(hovered \? ["']["'] : ["']invisible["']\)\}/, "the OHLC strip must reserve its height so pane hover cannot shake the chart");
-assert.match(companyChart, /interactionEvents = \[[^\]]*["']wheel["'][^\]]*["']pointermove["']/, "zone geometry must follow price-scale wheel and drag interactions");
+assert.match(companyChart, /subscribeCrosshairMove[\s\S]*scheduleOverlayUpdate\(\)/, "zone geometry must follow crosshair movement without a duplicate pointermove listener");
+assert.doesNotMatch(companyChart, /interactionEvents = \[[^\]]*["']pointermove["']/, "chart movement must not schedule duplicate overlay work from both the chart and DOM pointer events");
+assert.match(companyChart, /sameHoveredCandle\(hoveredRef\.current, next\)/, "crosshair state must skip React renders while the hovered candle is unchanged");
 assert.match(companyChart, /sameZoneGeometry\(current, zones\)/, "zone synchronization must avoid redundant React layout updates");
 assert.match(companyChart, /showMomentumCard/, "momentum price card must have its own visibility state");
 assert.match(companyChart, /showMomentum\s*&&\s*momentum\?\.zones/, "hiding all indicators must also hide the investor-zone price card");
@@ -239,13 +246,20 @@ assert.match(companyChart, /chart\.resize\(hostWidth, chartHeight, true\)/, "cha
 assert.match(companyChart, /ref=\{canvasWrapRef\}/, "fullscreen chart sizing must measure the actual chart host");
 
 const chartStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
-assert.match(chartStyles, /\.indicator-hub-popover\[dir="rtl"\]\s*\{\s*right:\s*0;\s*left:\s*auto;/, "the Arabic indicator menu must open inward from the right viewport edge");
-assert.match(chartStyles, /\.indicator-hub-popover\[dir="ltr"\]\s*\{\s*right:\s*auto;\s*left:\s*0;/, "the English indicator menu must open inward from the left viewport edge");
+assert.match(companyChart, /Popover\.Portal/, "chart control popovers must render above chart controls in a portal");
+assert.match(companyChart, /collisionPadding=\{12\}/, "chart control popovers must avoid viewport collisions");
+assert.match(chartStyles, /\.chart-control-popover\s*\{[^}]*z-index:\s*140/, "chart control popovers must have one deterministic layer above every chart toolbar");
+assert.doesNotMatch(chartStyles, /\.chart-type-popover\s*\{[^}]*absolute/, "the candle chooser must rely on collision-aware positioning instead of a competing local absolute layer");
 assert.match(chartStyles, /@media\s*\(max-width:\s*480px\)\s*\{[\s\S]*?\.indicator-hub-popover\s*\{\s*width:\s*calc\(100vw\s*-\s*48px\);/, "the indicator menu must stay inside narrow mobile viewports");
 assert.match(chartStyles, /\.indicator-hub-toggle > span:nth-child\(2\)\s*\{[^}]*whitespace-normal[^}]*break-words/, "indicator names must remain readable instead of being clipped to icons");
 assert.doesNotMatch(chartStyles, /\.chart-shell:fullscreen \.chart-company-navigation\s*\{[^}]*hidden/, "fullscreen must never hide previous/next company navigation");
 assert.match(chartStyles, /\.chart-shell:fullscreen \.chart-company-navigation > button:not\(\.secondary-button\)\s*\{[^}]*min-h-8/, "fullscreen company navigation must remain present in a compact form");
 assert.match(chartStyles, /\.chart-shell:fullscreen \.chart-canvas-wrap\s*\{[^}]*flex-1/, "fullscreen chart must consume the remaining viewport instead of leaving dead space");
+
+assert.deepEqual(chartControlTransition(closedChartControls, { type: "toggle-menu", menu: "candle-type" }), { menu: "candle-type", panel: "" }, "candle menu must open from the shared control state");
+assert.deepEqual(chartControlTransition({ menu: "candle-type", panel: "" }, { type: "toggle-menu", menu: "indicators" }), { menu: "indicators", panel: "" }, "opening indicators must close the candle chooser");
+assert.deepEqual(chartControlTransition({ menu: "", panel: "momentum" }, { type: "toggle-menu", menu: "indicators" }), closedChartControls, "pressing indicators again must close its inline settings");
+assert.deepEqual(chartControlTransition({ menu: "indicators", panel: "" }, { type: "toggle-panel", panel: "momentum" }), { menu: "", panel: "momentum" }, "opening zone settings must close the indicator popover");
 
 const chartDrawingsFunction = await readFile(new URL("../base44/functions/chartDrawings/entry.ts", import.meta.url), "utf8");
 assert.match(chartDrawingsFunction, /requireActiveSession\(base44, profile, body\.session_id\)/, "drawing storage must require the verified KMY session");
@@ -403,7 +417,7 @@ assert.match(historicalCompanyChart, /value:\s*"max",\s*ar:\s*"تاريخي"/, "
 assert.match(historicalCompanyChart, /rangeOptions\.map/, "all chart ranges must remain visible instead of disappearing with the selected interval");
 assert.match(historicalCompanyChart, /if \(!option\.intervals\.includes\(interval\)\) setInterval\("1d"\)/, "long history ranges must switch incompatible intraday views to daily candles");
 assert.match(historicalCompanyChart, /history_complete/, "the chart must disclose an incomplete historical archive");
-assert.match(historicalCompanyChart, /className="chart-type-popover"/, "the candle-type chooser must stay anchored to its compact chart control");
+assert.match(historicalCompanyChart, /className="chart-type-popover chart-control-popover"/, "the candle-type chooser must use the shared collision-aware chart control layer");
 assert.match(historicalCompanyChart, /requestFullscreen\(\)/, "fullscreen mode must target the chart shell instead of the entire company page");
 assert.match(historicalCompanyChart, /createTextWatermark/, "the chart must render the instrument identity with the chart engine watermark primitive");
 assert.match(historicalCompanyChart, /chartPreferences\.watermarkVisible/, "the company watermark must be user-hideable");
