@@ -109,6 +109,7 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === "add_note") {
+      await requirePermission(base44, body.session_id, "customers.notes.manage");
       const reason = reasonFrom(body.reason);
       const customer = await base44.asServiceRole.entities.CustomerProfile.get(String(body.id || ""));
       if (!customer) bad("Customer not found", "CUSTOMER_NOT_FOUND", 404);
