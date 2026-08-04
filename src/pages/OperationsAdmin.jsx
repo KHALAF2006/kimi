@@ -14,7 +14,7 @@ function dateTime(value) {
 export default function OperationsAdmin() {
   const { can } = useAuthorization();
   const { marketCode, market, availableMarkets, setMarketCode } = useActiveMarket();
-  const [state, setState] = useState({ loading: true, data: null, error: "", running: false });
+  const [state, setState] = useState({ loading: true, data: null, error: "", running: false, progress: "" });
   const [reason, setReason] = useState("");
 
   const load = useCallback(async () => {
@@ -22,7 +22,7 @@ export default function OperationsAdmin() {
     setState((value) => ({ ...value, loading: true, error: "" }));
     try {
       const data = await invokeAppFunction("adminMarketData", { action: "health", market_code: marketCode });
-      setState({ loading: false, data, error: "", running: false });
+      setState({ loading: false, data, error: "", running: false, progress: "" });
     } catch (error) {
       setState((value) => ({ ...value, loading: false, error: error?.response?.data?.error || error?.message || "تعذر تحميل حالة السوق", running: false }));
     }
@@ -35,9 +35,20 @@ export default function OperationsAdmin() {
       setState((value) => ({ ...value, error: "اكتب سبباً واضحاً من 10 أحرف على الأقل قبل التشغيل اليدوي." }));
       return;
     }
-    setState((value) => ({ ...value, running: true, error: "" }));
+    setState((value) => ({ ...value, running: true, error: "", progress: "" }));
     try {
-      await invokeAppFunction("adminMarketData", { action, reason, market_code: marketCode });
+      if (action === "refresh_signals" && marketCode === "US_OPTIONS") {
+        let batchIndex = 0;
+        let batchCount = 1;
+        do {
+          setState((value) => ({ ...value, progress: `حساب دفعة الإشارات ${batchIndex + 1} من ${batchCount}` }));
+          const result = await invokeAppFunction("adminMarketData", { action, reason, market_code: marketCode, batch_index: batchIndex });
+          batchCount = Math.max(1, Number(result?.batch_count) || 1);
+          batchIndex += 1;
+        } while (batchIndex < batchCount);
+      } else {
+        await invokeAppFunction("adminMarketData", { action, reason, market_code: marketCode });
+      }
       setReason("");
       await load();
     } catch (error) {
@@ -90,7 +101,7 @@ export default function OperationsAdmin() {
           <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#0d192a]"><h2 className="font-black">آخر تشغيل</h2><dl className="mt-4 grid grid-cols-2 gap-3 text-sm"><dt className="text-slate-500">الحالة</dt><dd>{data.latest_run?.status || "—"}</dd><dt className="text-slate-500">بدأ</dt><dd>{dateTime(data.latest_run?.started_at)}</dd><dt className="text-slate-500">التغطية</dt><dd>{data.latest_run?.coverage_percent == null ? "—" : `${Number(data.latest_run.coverage_percent).toFixed(1)}%`}</dd><dt className="text-slate-500">المحاولات</dt><dd>{data.latest_run?.attempt_count || "—"}</dd></dl></div>
         </section>
 
-        {can("data.ingestion.run") && <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#0d192a]"><h2 className="font-black">تشغيل يدوي مراقب</h2><p className="mt-2 text-sm text-slate-500">كل محاولة وسببها تسجل في سجل التدقيق، ولا تستبدل آخر بيانات سليمة عند الفشل.</p><textarea className="form-input mt-4 min-h-24 w-full" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="سبب إعادة التشغيل أو مطابقة الإغلاق…" maxLength={500} /><div className="mt-3 flex flex-wrap gap-2"><button className="primary-button" type="button" onClick={() => run("retry_slot")} disabled={state.running}>إعادة دورة الربع ساعة</button><button className="secondary-button" type="button" onClick={() => run("reconcile_close")} disabled={state.running}>مطابقة الإغلاق النهائي</button><button className="secondary-button" type="button" onClick={() => run("refresh_signals")} disabled={state.running}>تثبيت الشموع والإشارات</button><button className="secondary-button" type="button" onClick={() => run("backfill_history")} disabled={state.running || data.historical_archive?.complete}>تحميل السجل التاريخي الناقص</button>{data.company_intelligence && <button className="secondary-button" type="button" onClick={() => run("refresh_company_intelligence")} disabled={state.running || data.company_intelligence.complete}>تحديث معلومات الشركات</button>}</div></section>}
+        {can("data.ingestion.run") && <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#0d192a]"><h2 className="font-black">تشغيل يدوي مراقب</h2><p className="mt-2 text-sm text-slate-500">كل محاولة وسببها تسجل في سجل التدقيق، ولا تستبدل آخر بيانات سليمة عند الفشل.</p>{state.progress && <p className="mt-3 text-sm font-bold text-sky-600 dark:text-sky-300" role="status">{state.progress}</p>}<textarea className="form-input mt-4 min-h-24 w-full" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="سبب إعادة التشغيل أو مطابقة الإغلاق…" maxLength={500} /><div className="mt-3 flex flex-wrap gap-2"><button className="primary-button" type="button" onClick={() => run("retry_slot")} disabled={state.running}>إعادة دورة الربع ساعة</button><button className="secondary-button" type="button" onClick={() => run("reconcile_close")} disabled={state.running}>مطابقة الإغلاق النهائي</button><button className="secondary-button" type="button" onClick={() => run("refresh_signals")} disabled={state.running}>تثبيت الشموع والإشارات</button><button className="secondary-button" type="button" onClick={() => run("backfill_history")} disabled={state.running || data.historical_archive?.complete}>تحميل السجل التاريخي الناقص</button>{data.company_intelligence && <button className="secondary-button" type="button" onClick={() => run("refresh_company_intelligence")} disabled={state.running || data.company_intelligence.complete}>تحديث معلومات الشركات</button>}</div></section>}
       </>}
     </div>
   </>;

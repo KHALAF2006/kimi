@@ -5557,8 +5557,7 @@ function cleanSectorName(value) {
 async function sectorInstruments(base44, body) {
   const requestedMarket = String(body.market_code || "SA_MAIN");
   const sector = cleanSectorName(body.sector);
-  const instruments = entityRows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
-    .filter((item) => item.market_code === requestedMarket)
+  const instruments = entityRows(await base44.asServiceRole.entities.Instrument.filter({ market_code: requestedMarket }, "symbol", 500))
     .filter((item) => item.sector_ar === sector || item.sector_en === sector);
   if (!instruments.length) throw Object.assign(new Error("Sector not found"), { status: 404, code: "SECTOR_NOT_FOUND" });
   return { requestedMarket, sector, instruments };
@@ -5634,7 +5633,7 @@ async function sectorSummaries(base44, instruments, quoteByInstrument) {
 }
 async function sectorResponse(base44, body, sourceById) {
   const { requestedMarket, sector, instruments } = await sectorInstruments(base44, body);
-  const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
+  const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((instrument) => instrument.id) } }, "-quote_time", 1000));
   const quoteByInstrument = new Map();
   for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
   const weights = sectorWeights(instruments, quoteByInstrument);
@@ -5680,7 +5679,7 @@ async function sectorChartResponse(base44, body) {
   if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range)) {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
-  const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
+  const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((instrument) => instrument.id) } }, "-quote_time", 1000));
   const quoteByInstrument = new Map();
   for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
   const weights = sectorWeights(instruments, quoteByInstrument);
@@ -5769,13 +5768,13 @@ Deno.serve(async (req) => {
       if (query.length < 1 || query.length > 120) throw Object.assign(new Error("Search query must be 1-120 characters"), { status: 400 });
       const limit = Math.min(Math.max(Number(body.limit || 12), 1), 25);
       const requestedMarket = String(body.market_code || "").toUpperCase();
-      const [storedInstruments, aliases, quotes] = await Promise.all([
-        base44.asServiceRole.entities.Instrument.list("symbol", 500),
-        optionalRows(() => base44.asServiceRole.entities.InstrumentAlias.filter({ market_code: requestedMarket, active: true }, "alias", 5e3), "instrument aliases"),
-        base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500)
+      const [storedInstruments, aliases] = await Promise.all([
+        base44.asServiceRole.entities.Instrument.filter({ market_code: requestedMarket }, "symbol", 500),
+        optionalRows(() => base44.asServiceRole.entities.InstrumentAlias.filter({ market_code: requestedMarket, active: true }, "alias", 5e3), "instrument aliases")
       ]);
       const instruments = entityRows(storedInstruments)
-        .filter((item) => item.market_code === requestedMarket && item.status !== "delisted");
+        .filter((item) => item.status !== "delisted");
+      const quotes = await base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((item) => item.id) } }, "-quote_time", 1000);
       const aliasesByInstrument = new Map();
       for (const alias of entityRows(aliases)) {
         if (!aliasesByInstrument.has(alias.instrument_id)) aliasesByInstrument.set(alias.instrument_id, []);
@@ -5926,8 +5925,7 @@ Deno.serve(async (req) => {
     }
     const limit = Math.min(Math.max(Number(body.limit || 500), 1), 500);
     const requestedMarket = String(body.market_code || "").toUpperCase();
-    const instruments = entityRows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
-      .filter((item) => item.market_code === requestedMarket)
+    const instruments = entityRows(await base44.asServiceRole.entities.Instrument.filter({ market_code: requestedMarket }, "symbol", 500))
       .filter((item) => requestedMarket !== "SA_MAIN" || MAIN_MARKET_SYMBOLS.has(item.symbol));
     if (requestedMarket === US_OPTIONS_MARKET_CODE && instruments.some((item) => !US_OPTIONS_SYMBOLS.has(item.symbol))) {
       throw Object.assign(new Error("U.S. options catalog contains an out-of-scope instrument"), { status: 503, code: "CATALOG_ISOLATION_FAILED" });

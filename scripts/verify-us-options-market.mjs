@@ -159,7 +159,13 @@ assert.match(adminMarketData, /monthlyRuns: 756/);
 
 const signals = await source("base44/functions/usOptionsSignalRefresh/source.ts");
 assert.match(signals, /dedupeDailyBars/);
-assert.match(signals, /instrument_id: \{ \$in: idBatch \}/);
+assert.match(signals, /const PROJECTION_BATCH_SIZE = 10/);
+assert.match(signals, /body\.mode === "projection_batch"/);
+assert.match(signals, /run_type: "technical_projection_batch"/);
+assert.match(signals, /instrument_id: idQuery, market_code: US_OPTIONS_MARKET_CODE, interval: "1d"/);
+assert.match(signals, /Promise\.allSettled\(group\.map/);
+assert.match(signals, /projectInstrumentBatch\(base44, instrumentIds, sessionDate, source\.id, run\.id\)/);
+assert.doesNotMatch(signals, /fetch\(/, "signal projection must read the stored candle archive instead of downloading history again");
 assert.match(signals, /aggregateTechnicalBars\(daily, "1wk", MARKET_OPTIONS\)/);
 assert.match(signals, /aggregateTechnicalBars\(daily, "1mo", MARKET_OPTIONS\)/);
 assert.match(signals, /indicator_key: "technical_signals"/);

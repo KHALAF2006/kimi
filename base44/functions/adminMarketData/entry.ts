@@ -186,6 +186,8 @@ Deno.serve(async (req) => {
         market_code: MARKET_CODE,
         force: true,
         reason,
+        mode: MARKET_CODE === US_OPTIONS_MARKET_CODE ? "projection_batch" : undefined,
+        batch_index: MARKET_CODE === US_OPTIONS_MARKET_CODE ? Number(body.batch_index) : undefined,
       })
       : await base44.functions.invoke(ingestionFunction, {
         source: action === "reconcile_close" ? "manual_close_reconciliation" : "manual_retry",
