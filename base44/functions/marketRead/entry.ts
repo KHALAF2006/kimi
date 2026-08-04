@@ -5932,10 +5932,18 @@ Deno.serve(async (req) => {
     if (requestedMarket === US_OPTIONS_MARKET_CODE && instruments.some((item) => !US_OPTIONS_SYMBOLS.has(item.symbol))) {
       throw Object.assign(new Error("U.S. options catalog contains an out-of-scope instrument"), { status: 503, code: "CATALOG_ISOLATION_FAILED" });
     }
-    const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
-    const [indicators, losses] = await Promise.all([
-      body.mode === "screener" ? optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.list("-source_as_of", 5000), "indicator-snapshot") : Promise.resolve([]),
-      optionalRows(() => base44.asServiceRole.entities.LossClassification.list("-as_of", 500), "loss-classification")
+    const instrumentIds = instruments.map((item) => item.id);
+    const screenerTimeframe = ["1d", "1wk", "1mo"].includes(String(body.timeframe || "1d")) ? String(body.timeframe || "1d") : "1d";
+    const [quotes, indicators, losses] = await Promise.all([
+      base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instrumentIds } }, "-quote_time", 1000),
+      body.mode === "screener"
+        ? optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.filter({
+          instrument_id: { $in: instrumentIds },
+          indicator_key: "technical_signals",
+          timeframe: screenerTimeframe,
+        }, "-source_as_of", 1000), "indicator-snapshot")
+        : Promise.resolve([]),
+      optionalRows(() => base44.asServiceRole.entities.LossClassification.filter({ instrument_id: { $in: instrumentIds } }, "-as_of", 500), "loss-classification")
     ]);
     if (requestedMarket === "SA_MAIN" && instruments.length !== MAIN_MARKET_SYMBOLS.size) {
       throw Object.assign(new Error(`Main-market catalog mismatch: ${instruments.length}/${MAIN_MARKET_SYMBOLS.size}`), { status: 503 });
@@ -5945,7 +5953,9 @@ Deno.serve(async (req) => {
     }
     const quoteByInstrument = /* @__PURE__ */ new Map();
     for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
-    const sectorSummaryRows = await optionalRows(() => sectorSummaries(base44, instruments, quoteByInstrument), "sector summaries");
+    const sectorSummaryRows = body.mode === "screener"
+      ? []
+      : await optionalRows(() => sectorSummaries(base44, instruments, quoteByInstrument), "sector summaries");
     const indicatorsByInstrument = new Map();
     for (const item of indicators) {
       if (!indicatorsByInstrument.has(item.instrument_id)) indicatorsByInstrument.set(item.instrument_id, []);
