@@ -45,6 +45,7 @@ export default function OperationsAdmin() {
           const result = await invokeAppFunction("adminMarketData", { action, reason, market_code: marketCode, batch_index: batchIndex });
           batchCount = Math.max(1, Number(result?.batch_count) || 1);
           batchIndex += 1;
+          if (batchIndex < batchCount) await new Promise((resolve) => setTimeout(resolve, 350));
         } while (batchIndex < batchCount);
       } else {
         await invokeAppFunction("adminMarketData", { action, reason, market_code: marketCode });

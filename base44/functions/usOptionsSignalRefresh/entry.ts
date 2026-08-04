@@ -2121,7 +2121,7 @@ var US_OPTIONS_SYMBOLS = new Set(US_OPTIONS_CATALOG.companies.map((company) => c
 
 // base44/functions/usOptionsSignalRefresh/source.ts
 var MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
-var PROJECTION_BATCH_SIZE = 10;
+var PROJECTION_BATCH_SIZE = 2;
 var PROJECTION_CONCURRENCY = 2;
 function rows(value) {
   if (Array.isArray(value)) return value;

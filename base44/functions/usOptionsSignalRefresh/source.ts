@@ -5,7 +5,7 @@ import { aggregateTechnicalBars, calculateTechnicalSignals, normalizeTechnicalBa
 import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE, US_OPTIONS_SYMBOLS } from "../../shared/us-options-catalog.ts";
 
 const MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
-const PROJECTION_BATCH_SIZE = 10;
+const PROJECTION_BATCH_SIZE = 2;
 const PROJECTION_CONCURRENCY = 2;
 
 function rows(value) {

@@ -159,7 +159,7 @@ assert.match(adminMarketData, /monthlyRuns: 756/);
 
 const signals = await source("base44/functions/usOptionsSignalRefresh/source.ts");
 assert.match(signals, /dedupeDailyBars/);
-assert.match(signals, /const PROJECTION_BATCH_SIZE = 10/);
+assert.match(signals, /const PROJECTION_BATCH_SIZE = 2/);
 assert.match(signals, /body\.mode === "projection_batch"/);
 assert.match(signals, /run_type: "technical_projection_batch"/);
 assert.match(signals, /instrument_id: idQuery, market_code: US_OPTIONS_MARKET_CODE, interval: "1d"/);
