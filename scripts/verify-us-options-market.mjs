@@ -84,6 +84,8 @@ assert.match(security, /entitlementGroups\.forEach/);
 assert.match(security, /if \(codes\.has\("market\.us\.options"\)\) marketCodes\.add\("US_OPTIONS"\)/);
 assert.match(security, /never infer U\.S\. access from a legacy subscription/);
 assert.match(security, /MARKET_SUBSCRIPTION_REQUIRED/);
+assert.match(security, /authorizationContext[\s\S]*ensureAdministrativeProfile\(base44, user\)/, "an existing Base44 administrator must be reconciled at the authorization boundary without requiring a fresh login");
+assert.match(security, /if \(user\?\.role !== "admin"\) return profile/, "administrative reconciliation must never promote a normal customer");
 
 const permissions = await source("base44/shared/permissions.ts");
 assert.match(permissions, /"market\.us\.options"/);

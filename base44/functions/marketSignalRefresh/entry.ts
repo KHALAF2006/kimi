@@ -213,6 +213,46 @@ function hasTrustedOwnerMarker(user, profile) {
 function resolvedRole(user, profile) {
   return hasTrustedOwnerMarker(user, profile) ? "owner" : profile?.role || user?.role;
 }
+function normalizedEmail(user) {
+  return String(user?.email || "").trim().toLowerCase();
+}
+function administrativeName(user) {
+  const fullName = String(user?.full_name || "").trim();
+  if (fullName) return fullName;
+  return normalizedEmail(user).split("@")[0];
+}
+async function ensureAdministrativeProfile(base44, user) {
+  let profile = await profileFor(base44, user);
+  if (user?.role !== "admin") return profile;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  if (!profile) {
+    profile = await base44.asServiceRole.entities.CustomerProfile.create({
+      customer_number: `KMY-ADMIN-${String(user.id).slice(-8).toUpperCase()}`,
+      auth_user_id: user.id,
+      email_normalized: normalizedEmail(user),
+      full_name: administrativeName(user),
+      preferred_language: "ar",
+      account_status: "active",
+      role: "admin",
+      tags: ["base44_admin_bootstrap"],
+      email_verified_at: now,
+      last_seen_at: now
+    });
+    await audit(base44, user.id, "customer.admin_bootstrapped", "CustomerProfile", profile.id, "success");
+    return profile;
+  }
+  const owner = hasTrustedOwnerMarker(user, profile) || profile.role === "owner";
+  if (!["admin", "owner"].includes(profile.role) || profile.account_status === "pending_verification" || owner && profile.role !== "owner") {
+    profile = await base44.asServiceRole.entities.CustomerProfile.update(profile.id, {
+      role: owner ? "owner" : "admin",
+      account_status: "active",
+      email_verified_at: profile.email_verified_at || now,
+      last_seen_at: now
+    });
+    await audit(base44, user.id, "customer.admin_reconciled", "CustomerProfile", profile.id, "success");
+  }
+  return profile;
+}
 async function requireActiveSession(base44, profile, sessionId) {
   if (!profile || !sessionId) throw Object.assign(new Error("Active device session required"), { status: 403 });
   const token = parseSessionToken(sessionId);
@@ -345,7 +385,7 @@ async function subscriptionContext(base44, profile, account) {
 }
 async function authorizationContext(base44, sessionId) {
   const user = await requireUser(base44);
-  const profile = await profileFor(base44, user);
+  const profile = await ensureAdministrativeProfile(base44, user);
   if (!profile) throw Object.assign(new Error("Profile not found"), { status: 404, code: "PROFILE_NOT_FOUND" });
   await requireActiveSession(base44, profile, sessionId);
   const role = resolvedRole(user, profile);

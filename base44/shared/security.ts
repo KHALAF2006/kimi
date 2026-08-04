@@ -318,7 +318,11 @@ export function requireMarketEntitlement(context, requestedMarketCode) {
 
 export async function authorizationContext(base44, sessionId) {
   const user = await requireUser(base44);
-  const profile = await profileFor(base44, user);
+  // Existing Base44 administrators can hold a stale customer role from before
+  // the administration model was deployed. Reconcile that trusted platform
+  // identity on every authorization boundary so an already-open session does
+  // not lose owner operations or market visibility until the next login.
+  const profile = await ensureAdministrativeProfile(base44, user);
   if (!profile) throw Object.assign(new Error("Profile not found"), { status: 404, code: "PROFILE_NOT_FOUND" });
   await requireActiveSession(base44, profile, sessionId);
   const role = resolvedRole(user, profile);
