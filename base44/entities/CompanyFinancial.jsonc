@@ -5,6 +5,8 @@
     "instrument_id": {
       "type": "string"
     },
+    "market_code": { "type": "string" },
+    "symbol": { "type": "string" },
     "period": {
       "type": "string"
     },

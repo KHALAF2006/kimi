@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { authorizationContext, readJsonBody, replyError } from "../../shared/security.ts";
+import { authorizationContext, marketAccessForContext, readJsonBody, replyError } from "../../shared/security.ts";
 
 Deno.serve(async (req) => {
   try {
@@ -39,6 +39,19 @@ Deno.serve(async (req) => {
           name_en: context.plan.name_en,
         } : null,
       } : null,
+      subscriptions: (context.subscriptions || []).map((subscription) => ({
+        id: subscription.id,
+        status: subscription.status,
+        starts_at: subscription.starts_at,
+        ends_at: subscription.ends_at,
+        plan: context.plans?.find((plan) => plan.id === subscription.plan_id) ? {
+          id: subscription.plan_id,
+          code: context.plans.find((plan) => plan.id === subscription.plan_id).code,
+          name_ar: context.plans.find((plan) => plan.id === subscription.plan_id).name_ar,
+          name_en: context.plans.find((plan) => plan.id === subscription.plan_id).name_en,
+        } : null,
+      })),
+      market_access: marketAccessForContext(context),
       entitlements: context.entitlements.map((item) => ({
         code: item.code,
         enabled: item.enabled,

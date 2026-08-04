@@ -1,0 +1,17 @@
+{
+  "name": "usOptionsMarketIngestion",
+  "entry": "entry.ts",
+  "automations": [
+    {
+      "type": "scheduled",
+      "name": "us_options_t15_cycles",
+      "description": "ربع ساعة أمريكي شامل نافذتي EDT وEST؛ تتحقق الوظيفة داخليًا من جلسة نيويورك والعطلات وتمنع التكرار.",
+      "function_args": { "market_code": "US_OPTIONS", "source": "scheduled_t15" },
+      "is_active": true,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "0,15,30,45 14-21 * * 1-5",
+      "ends_type": "never"
+    }
+  ]
+}

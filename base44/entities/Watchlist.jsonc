@@ -5,6 +5,7 @@
     "customer_id": {
       "type": "string"
     },
+    "market_code": { "type": "string" },
     "name": {
       "type": "string"
     }

@@ -176,25 +176,42 @@ export function groupRowsByKey(rows, keyFor) {
   return [...grouped.values()];
 }
 
-function candleBucket(value, interval) {
+const SAUDI_CANDLE_OPTIONS = Object.freeze({ timeZone: "Asia/Riyadh", sessionStartMinutes: 600, weekStartsOn: 0 });
+
+function marketClockParts(value, timeZone) {
+  return Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(value).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+}
+
+function candleBucket(value, interval, options = SAUDI_CANDLE_OPTIONS) {
   const time = new Date(value).getTime();
   if (!Number.isFinite(time)) return "";
+  const resolved = { ...SAUDI_CANDLE_OPTIONS, ...options };
   if (interval === "15m") return `quarter:${Math.floor(time / (15 * 60 * 1000))}`;
   if (["1h", "2h", "3h", "4h"].includes(interval)) {
     const hours = Number(interval.slice(0, -1));
-    const local = new Date(time + 3 * 60 * 60 * 1000);
-    const dateKey = local.toISOString().slice(0, 10);
-    const minuteOfDay = local.getUTCHours() * 60 + local.getUTCMinutes();
-    const sessionMinute = minuteOfDay - 10 * 60;
+    const parts = marketClockParts(new Date(time), resolved.timeZone);
+    const dateKey = `${parts.year}-${parts.month}-${parts.day}`;
+    const minuteOfDay = (Number(parts.hour) % 24) * 60 + Number(parts.minute);
+    const sessionMinute = minuteOfDay - resolved.sessionStartMinutes;
     if (sessionMinute < 0) return "";
     return `${interval}:${dateKey}:${Math.floor(sessionMinute / (hours * 60))}`;
   }
-  const dateKey = riyadhClock(new Date(time)).date;
+  const parts = marketClockParts(new Date(time), resolved.timeZone);
+  const dateKey = `${parts.year}-${parts.month}-${parts.day}`;
   if (interval === "1d") return `day:${dateKey}`;
   if (interval === "1mo") return `month:${dateKey.slice(0, 7)}`;
   if (interval === "1wk") {
     const start = new Date(`${dateKey}T00:00:00.000Z`);
-    start.setUTCDate(start.getUTCDate() - start.getUTCDay());
+    const daysSinceStart = (start.getUTCDay() - resolved.weekStartsOn + 7) % 7;
+    start.setUTCDate(start.getUTCDate() - daysSinceStart);
     return `week:${start.toISOString().slice(0, 10)}`;
   }
   return "";
@@ -221,7 +238,7 @@ function normalizedCandleBar(bar) {
   };
 }
 
-export function mergeStoredCandleSeries(series, requestedInterval) {
+export function mergeStoredCandleSeries(series, requestedInterval, options = SAUDI_CANDLE_OPTIONS) {
   const intervalPriority = new Map();
   const storedIntervals = [];
   const normalizedSeries = [];
@@ -248,7 +265,7 @@ export function mergeStoredCandleSeries(series, requestedInterval) {
     for (const rawBar of sourceBars) {
       const bar = normalizedCandleBar(rawBar);
       if (!bar) continue;
-      const bucket = candleBucket(bar.time, bucketInterval);
+      const bucket = candleBucket(bar.time, bucketInterval, options);
       if (!bucket) continue;
       const current = grouped.get(bucket);
       if (!current) {
@@ -272,7 +289,7 @@ export function mergeStoredCandleSeries(series, requestedInterval) {
   function mergeByBucket(bars, bucketInterval) {
     const merged = new Map();
     for (const bar of bars) {
-      const bucket = candleBucket(bar.time, bucketInterval);
+      const bucket = candleBucket(bar.time, bucketInterval, options);
       if (!bucket) continue;
       const current = merged.get(bucket);
       const candidateEnd = new Date(bar.source_end).getTime();
@@ -290,7 +307,7 @@ export function mergeStoredCandleSeries(series, requestedInterval) {
   function aggregateMaterialized(bars, bucketInterval) {
     const grouped = new Map();
     for (const bar of bars) {
-      const bucket = candleBucket(bar.time, bucketInterval);
+      const bucket = candleBucket(bar.time, bucketInterval, options);
       if (!bucket) continue;
       const current = grouped.get(bucket);
       if (!current) {

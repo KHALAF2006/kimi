@@ -8,7 +8,7 @@ const typeMeta = {
   market_index: { ar: "مؤشر سوق", en: "Market index", Icon: BarChart3 },
 };
 
-export default function InstrumentSearchInput({ value, onChange, onSelect = undefined, isArabic, label, required = false, disabled = false }) {
+export default function InstrumentSearchInput({ value, onChange, onSelect = undefined, marketCode, isArabic, label, required = false, disabled = false }) {
   const [state, setState] = useState({ loading: false, open: false, rows: [], error: "", activeIndex: -1 });
   const requestRef = useRef(0);
   const suppressNextQueryRef = useRef(false);
@@ -31,7 +31,7 @@ export default function InstrumentSearchInput({ value, onChange, onSelect = unde
     const timer = window.setTimeout(async () => {
       setState((current) => ({ ...current, loading: true, open: true, error: "", activeIndex: -1 }));
       try {
-        const data = await invokeAppFunction("marketRead", { action: "instrument_search", query, limit: 12, market_code: "SA_MAIN" });
+        const data = await invokeAppFunction("marketRead", { action: "instrument_search", query, limit: 12, market_code: marketCode });
         if (requestId !== requestRef.current) return;
         const rows = Array.isArray(data.instruments) ? data.instruments : [];
         setState({ loading: false, open: true, rows, error: "", activeIndex: rows.length ? 0 : -1 });
@@ -41,7 +41,7 @@ export default function InstrumentSearchInput({ value, onChange, onSelect = unde
       }
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [value]);
+  }, [value, marketCode]);
 
   function choose(instrument) {
     if (!instrument) return;
@@ -119,7 +119,7 @@ export default function InstrumentSearchInput({ value, onChange, onSelect = unde
             onClick={() => choose(instrument)}
           >
             <span className="instrument-search-result-main"><TypeIcon size={15} aria-hidden="true" /><b dir="ltr">{instrument.symbol}</b><strong>{isArabic ? instrument.name_ar : instrument.name_en}</strong></span>
-            <small><span className={`instrument-kind instrument-kind-${instrument.instrument_type || "equity"}`}>{isArabic ? meta.ar : meta.en}</span>{isArabic ? instrument.sector_ar : instrument.sector_en}{instrument.quote?.last_price ? ` · ${Number(instrument.quote.last_price).toFixed(2)} ر.س` : ""}</small>
+            <small><span className={`instrument-kind instrument-kind-${instrument.instrument_type || "equity"}`}>{isArabic ? meta.ar : meta.en}</span>{isArabic ? instrument.sector_ar : instrument.sector_en}{instrument.quote?.last_price ? ` · ${Number(instrument.quote.last_price).toFixed(2)} ${marketCode === "US_OPTIONS" ? "$" : "ر.س"}` : ""}</small>
           </button>;
         })
           : !state.loading && <p>{isArabic ? "لا توجد أداة مطابقة في قاعدة البيانات" : "No matching instrument in the database"}</p>}

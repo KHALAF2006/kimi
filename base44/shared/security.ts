@@ -2,6 +2,10 @@ import { LEGACY_ROLE_PERMISSIONS, PERMISSION_CATALOG } from "./permissions.ts";
 
 const MAX_JSON_BODY_BYTES = 256 * 1024;
 const SESSION_TOKEN_PREFIX = "kmy1";
+const MARKET_ACCESS = {
+  SA_MAIN: { entitlement: "market.saudi", name_ar: "السوق السعودية الرئيسية", name_en: "Saudi Main Market", currency: "SAR" },
+  US_OPTIONS: { entitlement: "market.us.options", name_ar: "شركات عقود الخيارات", name_en: "U.S. Optionable Companies", currency: "USD" },
+};
 
 export async function sha256(value) {
   const bytes = new TextEncoder().encode(String(value));
@@ -251,14 +255,65 @@ async function assignedPermissions(base44, membership) {
 
 async function subscriptionContext(base44, profile, account) {
   const accountSubscriptions = await base44.asServiceRole.entities.Subscription.filter({ account_id: account.id, status: "active" });
-  const customerSubscriptions = accountSubscriptions.length ? [] : await base44.asServiceRole.entities.Subscription.filter({ customer_id: profile.id, status: "active" });
+  const customerSubscriptions = await base44.asServiceRole.entities.Subscription.filter({ customer_id: profile.id, status: "active" });
   const now = Date.now();
-  const subscription = [...accountSubscriptions, ...customerSubscriptions]
-    .find((item) => !item.ends_at || new Date(item.ends_at).getTime() > now) || null;
-  if (!subscription) return { subscription: null, plan: null, entitlements: [] };
-  const plan = await base44.asServiceRole.entities.SubscriptionPlan.get(subscription.plan_id);
-  const entitlements = await base44.asServiceRole.entities.PlanEntitlement.filter({ plan_id: subscription.plan_id, enabled: true });
-  return { subscription, plan, entitlements };
+  const subscriptions = [...new Map([...accountSubscriptions, ...customerSubscriptions]
+    .filter((item) => !item.ends_at || new Date(item.ends_at).getTime() > now)
+    .map((item) => [item.id, item])).values()];
+  if (!subscriptions.length) return { subscription: null, subscriptions: [], plan: null, plans: [], entitlements: [], marketAccess: [] };
+  const planIds = [...new Set(subscriptions.map((item) => item.plan_id).filter(Boolean))];
+  const plans = (await Promise.all(planIds.map(async (planId) => {
+    try { return await base44.asServiceRole.entities.SubscriptionPlan.get(planId); } catch { return null; }
+  }))).filter(Boolean);
+  const entitlementGroups = await Promise.all(planIds.map((planId) =>
+    base44.asServiceRole.entities.PlanEntitlement.filter({ plan_id: planId, enabled: true })
+  ));
+  const entitlementsByCode = new Map();
+  entitlementGroups.flat().forEach((item) => {
+    const current = entitlementsByCode.get(item.code);
+    if (!current || Number(item.limit_value || 0) > Number(current.limit_value || 0)) entitlementsByCode.set(item.code, item);
+  });
+  const entitlements = [...entitlementsByCode.values()];
+  const marketCodes = new Set();
+  // Resolve access per subscribed plan, then union the results. This preserves
+  // a legacy Saudi subscription when the same account also buys U.S. access.
+  entitlementGroups.forEach((group) => {
+    const codes = new Set(group.map((item) => item.code));
+    const explicitMarkets = [...codes].filter((code) => code.startsWith("market."));
+    if (codes.has("market.us.options")) marketCodes.add("US_OPTIONS");
+    if ([...codes].some((code) => ["market.saudi", "market.saudi.delayed", "market.saudi.realtime"].includes(code))) marketCodes.add("SA_MAIN");
+    // Existing KMY plans predate market-specific entitlements. Preserve their
+    // Saudi access only; never infer U.S. access from a legacy subscription.
+    if (!explicitMarkets.length) marketCodes.add("SA_MAIN");
+  });
+  const marketAccess = [...marketCodes].map((marketCode) => ({ market_code: marketCode, ...MARKET_ACCESS[marketCode] }));
+  return {
+    subscription: subscriptions[0] || null,
+    subscriptions,
+    plan: plans.find((item) => item.id === subscriptions[0]?.plan_id) || null,
+    plans,
+    entitlements,
+    marketAccess,
+  };
+}
+
+export function marketAccessForContext(context) {
+  if (context?.role === "owner" || context?.permissions?.has?.("data.operations.read")) {
+    return Object.entries(MARKET_ACCESS).map(([market_code, value]) => ({ market_code, ...value }));
+  }
+  return Array.isArray(context?.marketAccess) ? context.marketAccess : [];
+}
+
+export function requireMarketEntitlement(context, requestedMarketCode) {
+  const marketCode = String(requestedMarketCode || "").trim().toUpperCase();
+  if (!MARKET_ACCESS[marketCode]) {
+    throw Object.assign(new Error("Unsupported market"), { status: 400, code: "UNSUPPORTED_MARKET" });
+  }
+  const allowed = marketAccessForContext(context).some((item) => item.market_code === marketCode);
+  if (!allowed) {
+    throw Object.assign(new Error("Market subscription required"), { status: 403, code: "MARKET_SUBSCRIPTION_REQUIRED" });
+  }
+  return marketCode;
 }
 
 export async function authorizationContext(base44, sessionId) {

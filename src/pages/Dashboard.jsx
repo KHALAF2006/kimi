@@ -10,6 +10,7 @@ import MarketTicker from "@/components/market/MarketTicker";
 import { formatCompact, marketSummary } from "@/lib/market";
 import { usePreferences } from "@/lib/preferences";
 import { invokeAppFunction } from "@/services/marketService";
+import { useActiveMarket } from "@/lib/MarketContext";
 
 const SECTOR_GROUPS = [
   { ar: "القطاعات القيادية", en: "Market leaders", sectors: ["البنوك", "المواد الأساسية", "الطاقة", "الاتصالات", "المرافق العامة"] },
@@ -28,7 +29,7 @@ export default function Dashboard() {
   const { language, isArabic, text } = usePreferences();
   const [params, setParams] = useSearchParams();
   const [state, setState] = useState({ loading: true, rows: [], total: 0, sources: [], markets: [], market: null, snapshot: null, sectorSummaries: [], error: "", notice: "" });
-  const [marketCode, setMarketCode] = useState(() => localStorage.getItem("kmy_market_code") || "SA_MAIN");
+  const { marketCode, availableMarkets, setMarketCode } = useActiveMarket();
   const [query, setQuery] = useState("");
   const [sector, setSector] = useState(() => params.get("sector") || "");
   const [directionFilter, setDirectionFilter] = useState("");
@@ -38,21 +39,26 @@ export default function Dashboard() {
   const [maxPrice, setMaxPrice] = useState("");
   const [profileWidth, setProfileWidth] = useState(() => Math.min(760, Math.max(380, Number(localStorage.getItem("kmy_profile_width")) || 500)));
   const resizeRef = useRef(null);
+  const loadRequestRef = useRef(0);
   const selectedSymbol = params.get("company") || "";
   const selectedIndexCode = params.get("index") || "";
   const requestedTimeframe = params.get("timeframe") || "";
   const urlSector = params.get("sector") || "";
 
   async function loadMarket(silent = false) {
-    if (!silent) setState((value) => ({ ...value, loading: true, error: "" }));
+    if (!marketCode) return;
+    const requestId = ++loadRequestRef.current;
+    if (!silent) setState((value) => ({ ...value, loading: true, rows: [], total: 0, sources: [], market: null, snapshot: null, sectorSummaries: [], error: "", notice: "" }));
     try {
       const [data, marketData] = await Promise.all([
         invokeAppFunction("marketRead", { limit: 500, market_code: marketCode, mode: activeTab === "momentum" ? "screener" : undefined }),
-        state.markets.length ? Promise.resolve({ markets: state.markets }) : invokeAppFunction("marketRead", { action: "markets" }),
+        availableMarkets.length ? Promise.resolve({ markets: availableMarkets }) : invokeAppFunction("marketRead", { action: "markets" }),
       ]);
+      if (requestId !== loadRequestRef.current) return;
       const markets = marketData.markets || state.markets;
       setState({ loading: false, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, snapshot: data.snapshot || null, sectorSummaries: data.sector_summaries || [], error: "", notice: data.notice || "" });
     } catch (error) {
+      if (requestId !== loadRequestRef.current) return;
       setState((value) => ({ ...value, loading: false, error: error?.response?.data?.error || error?.message || "market_fetch_failed" }));
     }
   }
@@ -63,7 +69,6 @@ export default function Dashboard() {
     return () => window.clearInterval(timer);
   }, [activeTab === "momentum", marketCode]);
 
-  useEffect(() => { localStorage.setItem("kmy_market_code", marketCode); }, [marketCode]);
   useEffect(() => { setSector(urlSector); }, [urlSector]);
 
   const sectorGroups = useMemo(() => {
@@ -198,11 +203,11 @@ export default function Dashboard() {
   ];
 
   return <div className="dashboard-page">
-    <MarketTicker rows={state.rows} />
+    <MarketTicker rows={state.rows} marketCode={marketCode} />
     <div className="mx-auto max-w-[1800px] space-y-5 px-3 py-5 sm:px-5">
       <section className="flex flex-wrap items-end justify-between gap-4">
         <div><span className="eyebrow"><Activity size={14} />{isArabic ? state.market?.name_ar || "السوق الرئيسية السعودية" : state.market?.name_en || "Saudi Main Market"}</span><h1 className="mt-3 text-3xl font-black">{isArabic ? "لوحة السوق" : "Market dashboard"}</h1><p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{isArabic ? "السوق والشركات والشارت والمؤشرات في مساحة واحدة مترابطة." : "Market, companies, charts and indicators in one connected workspace."}</p></div>
-        <div className="flex flex-wrap gap-2"><select className="form-input" value={marketCode} onChange={(event) => { setMarketCode(event.target.value); setSector(""); setParams({}); }}>{state.markets.map((market) => <option key={market.market_code} value={market.market_code} disabled={!market.active}>{isArabic ? market.name_ar : market.name_en}{!market.active ? (isArabic ? " · قريباً" : " · Soon") : ""}</option>)}</select><button className="secondary-button" onClick={() => loadMarket()} disabled={state.loading}><RefreshCw size={15} className={state.loading ? "animate-spin" : ""} />{isArabic ? "تحديث العرض" : "Refresh view"}</button></div>
+        <div className="flex flex-wrap gap-2"><select className="form-input" value={marketCode} onChange={(event) => { setMarketCode(event.target.value); setSector(""); setParams({}); }}>{availableMarkets.map((market) => <option key={market.market_code} value={market.market_code}>{isArabic ? market.name_ar : market.name_en}</option>)}</select><button className="secondary-button" onClick={() => loadMarket()} disabled={state.loading}><RefreshCw size={15} className={state.loading ? "animate-spin" : ""} />{isArabic ? "تحديث العرض" : "Refresh view"}</button></div>
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -225,18 +230,18 @@ export default function Dashboard() {
 
       <section className="dashboard-grid" style={/** @type {React.CSSProperties} */ ({ "--profile-width": profileWidth + "px" })}>
         <aside id="company-profile" className="min-w-0 scroll-mt-28">{selectedSymbol
-          ? <CompanyPanel symbol={selectedSymbol} requestedTimeframe={requestedTimeframe} onResetWidth={resetWidth} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={selectCompany} />
+          ? <CompanyPanel symbol={selectedSymbol} marketCode={marketCode} requestedTimeframe={requestedTimeframe} onResetWidth={resetWidth} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={selectCompany} />
           : selectedIndexCode
             ? <MarketIndexPanel indexCode={selectedIndexCode} marketCode={marketCode} onResetWidth={resetWidth} />
           : sector
             ? <SectorPanel sector={sector} marketCode={marketCode} onResetWidth={resetWidth} onSelectCompany={selectCompany} />
-            : <CompanyPanel symbol="" onResetWidth={resetWidth} onSelectCompany={selectCompany} />}</aside>
+            : <CompanyPanel symbol="" marketCode={marketCode} onResetWidth={resetWidth} onSelectCompany={selectCompany} />}</aside>
         <button type="button" className="dashboard-resizer" aria-label={isArabic ? "اسحب لتغيير عرض لوحة الشركة" : "Drag to resize company panel"} onPointerDown={beginResize} onPointerMove={resize} onPointerUp={finishResize} onDoubleClick={resetWidth}><GripVertical size={18} /></button>
 
         <div className="min-w-0 space-y-4">
           <section className="content-card p-4">
             <div className="grid gap-4">
-              <InstrumentSearchInput value={query} onChange={setQuery} onSelect={selectInstrument} isArabic={isArabic} label={isArabic ? "ابحث بالرمز أو اسم السهم أو القطاع أو تاسي…" : "Search stocks, sectors, or TASI…"} />
+              <InstrumentSearchInput value={query} onChange={setQuery} onSelect={selectInstrument} marketCode={marketCode} isArabic={isArabic} label={isArabic ? "ابحث بالرمز أو اسم الشركة أو القطاع…" : "Search symbol, company, or sector…"} />
               <div className="sector-groups">
                 <button className={"filter-chip sector-all-chip " + (!sector ? "filter-chip-active" : "")} onClick={() => selectSector("")}>{isArabic ? "جميع القطاعات" : "All sectors"}</button>
                 {sectorGroups.map((group) => <div key={group.ar} className="sector-group"><b>{isArabic ? group.ar : group.en}</b><div>{group.items.map((item) => <button key={item.ar} className={`filter-chip sector-heat-${item.summary?.movement_status || "neutral"} ${sector === item.ar ? "filter-chip-active" : ""}`} onClick={() => selectSector(item.ar)} aria-label={`${isArabic ? item.ar : item.en}، ${item.count} ${isArabic ? "شركة" : "companies"}${Number.isFinite(Number(item.summary?.change_percent)) ? `، ${Number(item.summary.change_percent) > 0 ? "+" : ""}${Number(item.summary.change_percent).toFixed(2)}%` : ""}`}>{isArabic ? item.ar : item.en}<span>{item.count}</span>{Number.isFinite(Number(item.summary?.change_percent)) && <em dir="ltr">{Number(item.summary.change_percent) > 0 ? "+" : ""}{Number(item.summary.change_percent).toFixed(2)}%</em>}</button>)}</div></div>)}
@@ -253,13 +258,13 @@ export default function Dashboard() {
           <div className="tab-bar">{tabs.map(([id, label, Icon]) => <button key={id} onClick={() => setActiveTab(id)} className={activeTab === id ? "active" : ""}><Icon size={16} />{label}</button>)}</div>
 
           {state.loading ? <div className="loading-panel"><RefreshCw className="animate-spin" />{isArabic ? "جارٍ تحميل السوق…" : "Loading market…"}</div> : <>
-            {activeTab === "companies" && <MarketTable rows={orderedCompanies} selectedSymbol={selectedSymbol} onSelect={selectCompany} />}
+            {activeTab === "companies" && <MarketTable rows={orderedCompanies} marketCode={marketCode} selectedSymbol={selectedSymbol} onSelect={selectCompany} />}
             {activeTab === "movers" && <div className="space-y-6">
-              <section><h2 className="list-title market-up">{isArabic ? "الأكثر ارتفاعًا" : "Top gainers"}</h2><MarketTable rows={gainers.slice(0, 20)} selectedSymbol={selectedSymbol} onSelect={selectCompany} /></section>
-              <section><h2 className="list-title market-down">{isArabic ? "الأكثر انخفاضًا" : "Top losers"}</h2><MarketTable rows={losers.slice(0, 20)} selectedSymbol={selectedSymbol} onSelect={selectCompany} /></section>
-              <section><h2 className="list-title">{isArabic ? "الثابتة" : "Unchanged"}</h2><MarketTable rows={unchanged.slice(0, 20)} selectedSymbol={selectedSymbol} onSelect={selectCompany} /></section>
+              <section><h2 className="list-title market-up">{isArabic ? "الأكثر ارتفاعًا" : "Top gainers"}</h2><MarketTable rows={gainers.slice(0, 20)} marketCode={marketCode} selectedSymbol={selectedSymbol} onSelect={selectCompany} /></section>
+              <section><h2 className="list-title market-down">{isArabic ? "الأكثر انخفاضًا" : "Top losers"}</h2><MarketTable rows={losers.slice(0, 20)} marketCode={marketCode} selectedSymbol={selectedSymbol} onSelect={selectCompany} /></section>
+              <section><h2 className="list-title">{isArabic ? "الثابتة" : "Unchanged"}</h2><MarketTable rows={unchanged.slice(0, 20)} marketCode={marketCode} selectedSymbol={selectedSymbol} onSelect={selectCompany} /></section>
             </div>}
-            {activeTab === "momentum" && <MarketTable rows={filtered.filter((row) => row.indicator)} selectedSymbol={selectedSymbol} onSelect={selectCompany} />}
+            {activeTab === "momentum" && <MarketTable rows={filtered.filter((row) => row.indicator)} marketCode={marketCode} selectedSymbol={selectedSymbol} onSelect={selectCompany} />}
             {activeTab === "quality" && <section className="content-card"><h2 className="font-black">{isArabic ? "جودة البيانات" : "Data quality"}</h2><p className="mt-2 text-sm leading-7 text-slate-500">{isArabic ? "تراقب المنصة اكتمال الأسعار وحداثتها وتوضح وقت آخر دورة ونسبة التغطية." : "The platform monitors price completeness and freshness, with the latest cycle time and coverage."}</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="metric-card"><span>{isArabic ? "حالة الفحص" : "Validation"}</span><b>{state.snapshot?.freshness_status === "healthy" ? (isArabic ? "سليم" : "Healthy") : state.snapshot?.freshness_status === "degraded" ? (isArabic ? "تغطية جزئية" : "Degraded") : (isArabic ? "بانتظار الدورة التالية" : "Awaiting next cycle")}</b></div><div className="metric-card"><span>{isArabic ? "نسبة التغطية" : "Coverage"}</span><b>{Number(state.snapshot?.coverage_percent || 0).toFixed(1)}%</b></div></div></section>}
           </>}
         </div>

@@ -2,6 +2,7 @@
   "name": "MarketSession",
   "type": "object",
   "properties": {
+    "market_code": { "type": "string" },
     "session_date": {
       "type": "string",
       "format": "date"

@@ -159,7 +159,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 22, "all 22 backend functions must be present");
+assert.equal(functionNames.length, 26, "all 26 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -265,7 +265,8 @@ assert.deepEqual(chartControlTransition({ menu: "", panel: "momentum" }, { type:
 assert.deepEqual(chartControlTransition({ menu: "indicators", panel: "" }, { type: "toggle-panel", panel: "momentum" }), { menu: "", panel: "momentum" }, "opening zone settings must close the indicator popover");
 
 const chartDrawingsFunction = await readFile(new URL("../base44/functions/chartDrawings/entry.ts", import.meta.url), "utf8");
-assert.match(chartDrawingsFunction, /requireActiveSession\(base44, profile, body\.session_id\)/, "drawing storage must require the verified KMY session");
+assert.match(chartDrawingsFunction, /authorizationContext\(base44, body\.session_id\)/, "drawing storage must require the verified KMY session and authorization context");
+assert.match(chartDrawingsFunction, /requireMarketEntitlement\(context, body\.market_code\)/, "drawing storage must enforce the selected market subscription");
 assert.match(chartDrawingsFunction, /row\.customer_id !== profile\.id/, "drawing mutations must enforce object ownership");
 assert.match(chartDrawingsFunction, /DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED/, "a drawing with an alert must not be deleted without explicit confirmation");
 assert.match(chartDrawingsFunction, /"trend_line", "ray", "horizontal_line"/, "drawing alerts must be restricted to supported line geometry");
@@ -279,7 +280,7 @@ const drawingTools = await readFile(new URL("../src/components/market/ChartDrawi
 for (const tool of ["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "price_range", "date_range", "date_and_price_range"]) {
   assert.match(drawingTools, new RegExp(tool), `drawing tool is missing: ${tool}`);
 }
-assert.match(drawingTools, /deleteChartDrawing\(symbol, current, force\)/, "drawing deletion must wait for persistence and use the protected backend service");
+assert.match(drawingTools, /deleteChartDrawing\(marketCode, symbol, current, force\)/, "drawing deletion must wait for persistence and use the protected market-scoped backend service");
 assert.match(drawingTools, /pendingSavesRef/, "drawing deletion must not race an in-flight save");
 assert.match(drawingTools, /duplicateChartDrawing/, "paste must use the protected backend duplication action");
 assert.match(drawingTools, /offsetPointsForPaste/, "pasted drawings must be visibly offset in chart coordinates");
@@ -329,8 +330,8 @@ assert.match(dashboardPage, /MarketIndexPanel/, "TASI selection must open a dedi
 assert.match(dashboardPage, /sector-heat-/, "sector tiles must consume the backend movement state");
 assert.doesNotMatch(dashboardPage, /MarketDataStatus/, "the removed market-status banner must not be mounted on the dashboard");
 assert.match(marketReadFunction, /fallbackIntervals\(interval\)/, "weekly and monthly chart requests must fall back to stored daily or intraday candles");
-assert.match(marketReadFunction, /storedCandlesForInterval\(base44, instrument\.id, interval\)/, "company and sector charts must share the same candle aggregation path");
-assert.match(marketReadFunction, /mergeStoredCandleSeries\(series, interval\)/, "stored historical and fresh intraday candles must be merged instead of returning the first stale interval");
+assert.match(marketReadFunction, /storedCandlesForInterval\(base44, instrument\.id, interval, body\.market_code\)/, "company and sector charts must share the same market-aware candle aggregation path");
+assert.match(marketReadFunction, /mergeStoredCandleSeries\(series, interval, marketCandleOptions\(marketCode\)\)/, "stored historical and fresh intraday candles must be merged using the active market timezone");
 assert.match(marketReadFunction, /technical_signals/, "market reads must expose persisted technical signals to the screener");
 assert.match(marketReadFunction, /bullish_zone_pin_bar/, "the protected screener must filter bullish pin bars inside investor zones");
 assert.match(marketReadFunction, /bearish_zone_pin_bar/, "the protected screener must filter bearish pin bars inside investor zones");
@@ -351,7 +352,7 @@ assert.doesNotMatch(screenerPage, /\.filter\(\(row\) => row\.signals\?\.\[timefr
 assert.match(screenerPage, /Number\.isFinite\(candleTimestamp\)/, "the screener must not render an invalid candle date");
 assert.match(screenerPage, /آخر 3 شموع محفوظة/, "the screener must tell customers the exact three-candle search window");
 assert.match(screenerPage, /detailsTimeframe=\{timeframe\}/, "strategy results must preserve the selected timeframe when opening a company");
-assert.match(customerMarketTable, /companyDashboardPath\(row\.symbol, detailsTimeframe\)/, "company links must carry an explicit strategy timeframe");
+assert.match(customerMarketTable, /companyDashboardPath\(row\.symbol, detailsTimeframe, marketCode\)/, "company links must carry explicit strategy timeframe and market identity");
 const companyPanel = await readFile(new URL("../src/components/market/CompanyPanel.jsx", import.meta.url), "utf8");
 assert.match(companyChart, /wrapperRef\.current\.requestFullscreen\(\)/, "fullscreen must target only the chart shell so the page itself does not require vertical scrolling");
 assert.match(companyChart, /bullishColor/, "reversal candle rendering must use a distinct bullish color");
@@ -553,7 +554,7 @@ const boundedBodyFunctions = [
   "adminCustomers", "adminMarketData", "adminRoles", "adminSubscriptions", "alertEvaluation",
   "authLogin", "authRegistration", "chartDrawings", "companyIntelligence", "customerSelfService",
   "historicalCandleBackfill", "identityContext", "indicatorEngine", "legacySchemaBridge", "marketIngestion",
-  "marketRead", "marketSignalRefresh", "operationsQuality", "screeningWatchlists", "telegramDelivery", "whatsappDelivery",
+  "marketRead", "marketSignalRefresh", "operationsQuality", "screeningWatchlists", "telegramDelivery", "usOptionsCompanyIntelligence", "whatsappDelivery",
 ];
 for (const functionName of boundedBodyFunctions) {
   const functionSource = await readFile(new URL(`../base44/functions/${functionName}/entry.ts`, import.meta.url), "utf8");
@@ -579,6 +580,7 @@ const { chartPreferencePayload, sanitizeChartPreferences } = await import(new UR
 const { CHART_REPLAY_SPEEDS, nextReplayCursor, replayCandles, replayStartIndex } = await import(new URL("../src/lib/chart-replay.js", import.meta.url));
 assert.equal(companyDashboardPath("1010", "1wk"), "/dashboard?company=1010&timeframe=1wk", "strategy links must preserve weekly context");
 assert.equal(companyDashboardPath("1010", "invalid"), "/dashboard?company=1010", "invalid chart intervals must not enter company URLs");
+assert.equal(companyDashboardPath("NVDA", "1d", "US_OPTIONS"), "/dashboard?company=NVDA&timeframe=1d&market=US_OPTIONS", "cross-tab company links must preserve the active market");
 const selectedMomentum = selectMomentumSnapshot([
   { indicator_key: "technical_signals", source_as_of: "2026-08-02T10:00:00Z", values: { zones: [] } },
   { id: "older", indicator_key: "momentum_zones", source_as_of: "2026-07-30T10:00:00Z" },

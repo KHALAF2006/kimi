@@ -524,6 +524,25 @@ assert.deepEqual([twoHourBars[0].open, twoHourBars[0].close, twoHourBars[0].volu
 assert.equal(mergeStoredCandleSeries([{ interval: "15m", bars: sessionIntradayBars }], "3h").bars.length, 2);
 assert.equal(mergeStoredCandleSeries([{ interval: "15m", bars: sessionIntradayBars }], "4h").bars.length, 2);
 
+const usOptionsCandleOptions = { timeZone: "America/New_York", sessionStartMinutes: 570, weekStartsOn: 1 };
+const usSummerBars = [
+  { time: "2026-07-29T13:30:00.000Z", open: 10, high: 11, low: 9, close: 10.5, volume: 100 },
+  { time: "2026-07-29T14:15:00.000Z", open: 10.5, high: 12, low: 10, close: 11.5, volume: 120 },
+  { time: "2026-07-29T14:30:00.000Z", open: 11.5, high: 13, low: 11, close: 12.5, volume: 130 },
+];
+const usWinterBars = [
+  { time: "2026-01-05T14:30:00.000Z", open: 20, high: 21, low: 19, close: 20.5, volume: 100 },
+  { time: "2026-01-05T15:15:00.000Z", open: 20.5, high: 22, low: 20, close: 21.5, volume: 120 },
+  { time: "2026-01-05T15:30:00.000Z", open: 21.5, high: 23, low: 21, close: 22.5, volume: 130 },
+];
+assert.equal(mergeStoredCandleSeries([{ interval: "15m", bars: usSummerBars }], "1h", usOptionsCandleOptions).bars.length, 2, "U.S. summer buckets must start at 09:30 EDT");
+assert.equal(mergeStoredCandleSeries([{ interval: "15m", bars: usWinterBars }], "1h", usOptionsCandleOptions).bars.length, 2, "U.S. winter buckets must start at 09:30 EST");
+const usWeekBoundary = [
+  { time: "2026-07-31T16:00:00.000Z", open: 10, high: 11, low: 9, close: 10.5, volume: 100 },
+  { time: "2026-08-03T16:00:00.000Z", open: 11, high: 12, low: 10, close: 11.5, volume: 120 },
+];
+assert.equal(mergeStoredCandleSeries([{ interval: "1d", bars: usWeekBoundary }], "1wk", usOptionsCandleOptions).bars.length, 2, "U.S. weeks must roll over on Monday");
+
 const weeklyBoundaryBars = [
   { time: "2026-07-30T07:00:00.000Z", open: 10, high: 11, low: 9, close: 10.5, volume: 100 },
   { time: "2026-08-02T07:00:00.000Z", open: 11, high: 12, low: 10, close: 11.5, volume: 120 },

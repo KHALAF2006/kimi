@@ -2,6 +2,7 @@
   "name": "MarketHoliday",
   "type": "object",
   "properties": {
+    "market_code": { "type": "string" },
     "holiday_date": {
       "type": "string",
       "format": "date"

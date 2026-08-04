@@ -61,7 +61,7 @@ function storedSelectionToolbarLayout() {
 function storedClipboardDrawing() {
   try {
     const value = JSON.parse(localStorage.getItem(DRAWING_CLIPBOARD_STORAGE_KEY) || "null");
-    return value?.drawing ? { ...value.drawing, clipboardSymbol: value.symbol, clipboardInterval: value.interval } : null;
+    return value?.drawing ? { ...value.drawing, clipboardMarket: value.marketCode || "SA_MAIN", clipboardSymbol: value.symbol, clipboardInterval: value.interval } : null;
   } catch {
     return null;
   }
@@ -335,7 +335,7 @@ function renderDrawing(context, drawing, points, width, height, selected, isArab
   context.restore();
 }
 
-export default function ChartDrawingTools({ chart, series, symbol, interval, mainPaneHeight = 470, isArabic, onResetChart, visibilityCommand = null, onDrawingVisibilityChange = (_visible) => {} }) {
+export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN", symbol, interval, mainPaneHeight = 470, isArabic, onResetChart, visibilityCommand = null, onDrawingVisibilityChange = (_visible) => {} }) {
   const instanceRef = useRef(crypto.randomUUID());
   const canvasRef = useRef(null);
   const toolbarRef = useRef(null);
@@ -500,9 +500,9 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     let active = true;
     setSelectedId("");
     setStatus("");
-    loadChartDrawings(symbol, interval).then((values) => active && setDrawings(values)).catch((error) => active && setStatus(displayError(error, isArabic)));
+    loadChartDrawings(marketCode, symbol, interval).then((values) => active && setDrawings(values)).catch((error) => active && setStatus(displayError(error, isArabic)));
     return () => { active = false; };
-  }, [symbol, interval, isArabic]);
+  }, [marketCode, symbol, interval, isArabic]);
 
   useEffect(() => {
     if (!visibilityCommand?.id) return;
@@ -564,7 +564,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
 
   async function persist(drawing) {
     const operation = (async () => {
-      const saved = await saveChartDrawing(symbol, interval, drawing);
+      const saved = await saveChartDrawing(marketCode, symbol, interval, drawing);
       if (saved?.serverId) setDrawings((values) => values.map((item) => item.clientId === saved.clientId ? saved : item));
       setStatus(isArabic ? "تم حفظ الرسم." : "Drawing saved.");
       return saved;
@@ -589,7 +589,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       try {
         const pending = pendingSavesRef.current.get(item.clientId);
         const current = pending ? await pending : item;
-        await deleteChartDrawing(symbol, current, true);
+        await deleteChartDrawing(marketCode, symbol, current, true);
       } catch (error) {
         setStatus(displayError(error, isArabic));
       }
@@ -733,7 +733,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
           return;
         }
       }
-      await deleteChartDrawing(symbol, current, force);
+      await deleteChartDrawing(marketCode, symbol, current, force);
       replaceDrawings(drawingsRef.current.filter((item) => item.clientId !== drawing.clientId));
       setSelectedId((value) => value === drawing.clientId ? "" : value);
       setStatus(isArabic ? "تم حذف الرسم." : "Drawing deleted.");
@@ -754,9 +754,9 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
 
   async function copySelected() {
     if (!selected) return;
-    const drawing = { ...cloneDrawings([selected])[0], clipboardSymbol: symbol, clipboardInterval: interval };
+    const drawing = { ...cloneDrawings([selected])[0], clipboardMarket: marketCode, clipboardSymbol: symbol, clipboardInterval: interval };
     setClipboardDrawing(drawing);
-    const payload = { version: 1, symbol, interval, drawing };
+    const payload = { version: 1, marketCode, symbol, interval, drawing };
     localStorage.setItem(DRAWING_CLIPBOARD_STORAGE_KEY, JSON.stringify(payload));
     try {
       await navigator.clipboard?.writeText(DRAWING_CLIPBOARD_PREFIX + JSON.stringify(payload));
@@ -772,7 +772,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
       const systemValue = await navigator.clipboard?.readText?.();
       if (systemValue?.startsWith(DRAWING_CLIPBOARD_PREFIX)) {
         const payload = JSON.parse(systemValue.slice(DRAWING_CLIPBOARD_PREFIX.length));
-        if (payload?.drawing) source = { ...payload.drawing, clipboardSymbol: payload.symbol, clipboardInterval: payload.interval };
+        if (payload?.drawing) source = { ...payload.drawing, clipboardMarket: payload.marketCode || "SA_MAIN", clipboardSymbol: payload.symbol, clipboardInterval: payload.interval };
       }
     } catch {
       // Browser clipboard access is optional; use the durable in-app clipboard.
@@ -784,14 +784,15 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     try {
       setBusyDrawingId(source.clientId);
       const sourceSymbol = source.clipboardSymbol;
+      const sourceMarket = source.clipboardMarket || "SA_MAIN";
       const pending = pendingSavesRef.current.get(source.clientId);
       if (pending) source = await pending;
       const newClientId = crypto.randomUUID();
-      const canDuplicate = sourceSymbol === symbol && source.serverId;
+      const canDuplicate = sourceMarket === marketCode && sourceSymbol === symbol && source.serverId;
       const pastedPoints = offsetPointsForPaste(source, chart, series, canvasRef.current);
       const copy = canDuplicate
-        ? await duplicateChartDrawing(symbol, source, newClientId, pastedPoints)
-        : await saveChartDrawing(symbol, interval, {
+        ? await duplicateChartDrawing(marketCode, symbol, source, newClientId, pastedPoints)
+        : await saveChartDrawing(marketCode, symbol, interval, {
           ...source,
           clientId: newClientId,
           serverId: null,
@@ -815,7 +816,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   async function setAllVisibility(visible) {
     try {
       setBusyDrawingId("bulk");
-      await setAllChartDrawingsVisibility(symbol, interval, visible);
+      await setAllChartDrawingsVisibility(marketCode, symbol, interval, visible);
       const next = drawingsRef.current.map((drawing) => ({ ...drawing, visible }));
       replaceDrawings(next);
       setStatus(visible
@@ -856,7 +857,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   async function performClearAllDrawings() {
     try {
       setBusyDrawingId("bulk");
-      await deleteAllChartDrawings(symbol, interval, drawingsRef.current.some((drawing) => drawing.alert));
+      await deleteAllChartDrawings(marketCode, symbol, interval, drawingsRef.current.some((drawing) => drawing.alert));
       replaceDrawings([]);
       setSelectedId("");
       setStatus(isArabic ? "تم مسح جميع الرسومات." : "All drawings were deleted.");
@@ -879,8 +880,8 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
     if (!selected) return;
     try {
       let drawing = selected;
-      if (!drawing.serverId && !String(drawing.alert?.id || "").startsWith("local-")) drawing = await saveChartDrawing(symbol, interval, drawing);
-      const alert = await saveDrawingAlert(symbol, drawing, alertForm);
+      if (!drawing.serverId && !String(drawing.alert?.id || "").startsWith("local-")) drawing = await saveChartDrawing(marketCode, symbol, interval, drawing);
+      const alert = await saveDrawingAlert(marketCode, symbol, drawing, alertForm);
       setDrawings((values) => values.map((item) => item.clientId === drawing.clientId ? { ...item, serverId: drawing.serverId, alert } : item));
       setShowAlertEditor(false);
       setStatus(isArabic ? "تم تفعيل تنبيه الرسم." : "Drawing alert enabled.");
@@ -892,7 +893,7 @@ export default function ChartDrawingTools({ chart, series, symbol, interval, mai
   async function removeAlert() {
     if (!selected?.alert) return;
     try {
-      await deleteDrawingAlert(symbol, selected);
+      await deleteDrawingAlert(marketCode, symbol, selected);
       setDrawings((values) => values.map((item) => item.clientId === selected.clientId ? { ...item, alert: null } : item));
       setShowAlertEditor(false);
       setStatus(isArabic ? "تم حذف تنبيه الرسم." : "Drawing alert removed.");

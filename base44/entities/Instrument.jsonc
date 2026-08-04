@@ -44,6 +44,26 @@
       "type": "string",
       "default": "SAR"
     },
+    "exchange_code": { "type": "string" },
+    "country_code": { "type": "string" },
+    "issuer_country": { "type": "string" },
+    "ipo_year": { "type": "string" },
+    "industry_en": { "type": "string" },
+    "profile_source_url": { "type": "string", "format": "uri" },
+    "profile_as_of": { "type": "string", "format": "date" },
+    "company_data_as_of": { "type": "string", "format": "date-time" },
+    "company_data_status": { "type": "string", "enum": ["complete", "partial", "failed"] },
+    "cik": { "type": "string" },
+    "legal_name_en": { "type": "string" },
+    "sic_code": { "type": "string" },
+    "sic_description": { "type": "string" },
+    "fiscal_year_end": { "type": "string" },
+    "state_of_incorporation": { "type": "string" },
+    "phone": { "type": "string" },
+    "website_url": { "type": "string", "format": "uri" },
+    "sec_filing_url": { "type": "string", "format": "uri" },
+    "optionable": { "type": "boolean", "default": false },
+    "catalog_as_of": { "type": "string", "format": "date" },
     "status": {
       "type": "string",
       "enum": [
@@ -64,7 +84,10 @@
     "name_en",
     "sector_ar",
     "sector_en",
-    "official_url"
+    "official_url",
+    "market_code",
+    "instrument_code",
+    "composite_key"
   ],
   "rls": {
     "create": false,

@@ -401,7 +401,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     setError("");
     const request = sector
       ? { action: "sector_chart", sector, market_code: marketCode, interval, range, lookback_days: requestedPeakLookbackDays }
-      : { action: "chart", symbol, interval, range, lookback_days: requestedPeakLookbackDays };
+      : { action: "chart", symbol, market_code: marketCode, interval, range, lookback_days: requestedPeakLookbackDays };
     setIndicatorState({ key: indicatorKey, momentum: null });
     readMarketChart(request)
       .then((data) => {
@@ -1186,7 +1186,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       {Number.isFinite(Number(replayLineX)) && <div className="chart-replay-start-line" style={{ left: Number(replayLineX), height: mainPaneHeight }} aria-hidden="true"><span>{isArabic ? "البداية" : "Start"}</span></div>}
       {replayState.mode === "selecting" && <div className="chart-replay-selection-hint" aria-hidden="true"><History size={15} />{isArabic ? "اختر شمعة البداية" : "Select the starting bar"}</div>}
       <div className="momentum-zone-overlay" aria-hidden="true">{zoneGeometry.map((zone) => <div key={zone.key} className="momentum-zone-box" style={{ left: zone.left, width: zone.width, top: zone.top, height: zone.height, borderColor: zone.color, backgroundColor: colorWithOpacity(zone.color, Math.max(0.05, (100 - momentumSettings.zoneOpacity) / 100)) }}><span style={{ backgroundColor: zone.color }}>{zone.name}</span></div>)}</div>
-      {symbol && chartRef.current && candleSeriesRef.current && <ChartDrawingTools chart={chartRef.current} series={candleSeriesRef.current} symbol={symbol} interval={interval} mainPaneHeight={mainPaneHeight} isArabic={isArabic} onResetChart={resetChartView} visibilityCommand={drawingVisibilityCommand} onDrawingVisibilityChange={onDrawingVisibilityChange} />}
+      {symbol && chartRef.current && candleSeriesRef.current && <ChartDrawingTools chart={chartRef.current} series={candleSeriesRef.current} marketCode={marketCode} symbol={symbol} interval={interval} mainPaneHeight={mainPaneHeight} isArabic={isArabic} onResetChart={resetChartView} visibilityCommand={drawingVisibilityCommand} onDrawingVisibilityChange={onDrawingVisibilityChange} />}
       {showMomentum && momentum?.zones?.length > 0 && <div className={"momentum-price-panel " + (!showMomentumCard ? "momentum-price-panel-collapsed" : "")}>
         <button type="button" className="momentum-card-eye" onClick={() => setShowMomentumCard((value) => !value)} title={showMomentumCard ? (isArabic ? "إخفاء بطاقة أسعار المناطق" : "Hide zone price card") : (isArabic ? "إظهار بطاقة أسعار المناطق" : "Show zone price card")} aria-expanded={showMomentumCard}>{showMomentumCard ? <EyeOff size={14} /> : <Eye size={14} />}<span>{investorZoneLabel}</span></button>
         {showMomentumCard && <><div className="momentum-price-head"><span>{isArabic ? "المنطقة / الدور" : "Zone / role"}</span><span>{isArabic ? "من" : "From"}</span><span>{isArabic ? "إلى" : "To"}</span><span>{isArabic ? "الوقف" : "Stop"}</span></div>

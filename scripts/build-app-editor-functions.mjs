@@ -8,7 +8,14 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const sourceRoot = join(root, "base44", "functions");
 const checkOnly = process.argv.includes("--check");
 
-const generatedFunctions = ["historicalCandleBackfill", "marketSignalRefresh"];
+const generatedFunctions = [
+  "historicalCandleBackfill",
+  "marketSignalRefresh",
+  "usOptionsCompanyIntelligence",
+  "usOptionsHistoricalBackfill",
+  "usOptionsMarketIngestion",
+  "usOptionsSignalRefresh",
+];
 
 for (const functionName of generatedFunctions) {
   const sourcePoint = join(sourceRoot, functionName, "source.ts");
@@ -42,7 +49,7 @@ const sourceEntries = (await readdir(sourceRoot, { withFileTypes: true }))
   .map((item) => item.name)
   .sort();
 
-assert.equal(sourceEntries.length, 22, "expected 22 Base44 backend functions");
+assert.equal(sourceEntries.length, 26, "expected 26 Base44 backend functions");
 
 for (const functionName of sourceEntries) {
   const entryPoint = join(sourceRoot, functionName, "entry.ts");

@@ -45,6 +45,8 @@
   .app-nav a.active { @apply bg-slate-950 text-white shadow-sm dark:bg-white dark:text-slate-950; }
   .icon-button { @apply inline-flex h-9 min-w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-sky-400 hover:text-slate-950 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-400 dark:hover:text-white; }
   .language-switch { @apply text-sm font-black; }
+  .market-account-switcher { @apply inline-flex h-10 max-w-56 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-2 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200; }
+  .market-account-switcher select { @apply min-w-0 max-w-44 bg-transparent text-xs font-black outline-none; }
   .primary-button { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-black text-white shadow-lg shadow-sky-500/20 transition hover:-translate-y-0.5 hover:bg-sky-400; }
   .secondary-button { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 transition hover:border-sky-400 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-400 dark:hover:text-white; }
   .form-input { @apply min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-400/15 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100; }

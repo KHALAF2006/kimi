@@ -43,7 +43,9 @@ export function AuthorizationProvider({ children }) {
           roles: [],
           permissions: REFERENCE_OWNER_PERMISSIONS,
           subscription: null,
+          subscriptions: [],
           entitlements: [],
+          market_access: [{ market_code: "SA_MAIN", name_ar: "السوق السعودية الرئيسية", name_en: "Saudi Main Market", currency: "SAR" }],
         },
       });
       return;

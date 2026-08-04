@@ -4,7 +4,8 @@
   "properties": {
     "customer_id": { "type": "string" },
     "instrument_id": { "type": "string" },
-    "symbol": { "type": "string", "pattern": "^[0-9]{4}$" },
+    "market_code": { "type": "string" },
+    "symbol": { "type": "string", "pattern": "^[A-Z0-9.-]{1,15}$" },
     "client_id": { "type": "string" },
     "interval_scope": { "type": "string" },
     "drawing_type": { "type": "string", "enum": ["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure", "price_range", "date_range", "date_and_price_range"] },

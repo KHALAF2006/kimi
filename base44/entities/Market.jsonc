@@ -3,7 +3,7 @@
   "type": "object",
   "properties": {
     "market_code": { "type": "string" },
-    "country_code": { "type": "string", "enum": ["SA", "AE", "KW", "QA", "BH", "OM"] },
+    "country_code": { "type": "string", "enum": ["SA", "US", "AE", "KW", "QA", "BH", "OM"] },
     "name_ar": { "type": "string" },
     "name_en": { "type": "string" },
     "currency": { "type": "string" },

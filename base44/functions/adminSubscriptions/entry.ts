@@ -174,11 +174,16 @@ Deno.serve(async (req) => {
           : {}),
       };
       const after = await base44.asServiceRole.entities.Subscription.update(before.id, patch);
-      if (["suspended", "expired", "banned"].includes(status)) {
+      const otherActiveSubscriptions = (await base44.asServiceRole.entities.Subscription.filter({ customer_id: before.customer_id, status: "active" }))
+        .filter((item) => item.id !== before.id && new Date(item.ends_at).getTime() > Date.now());
+      // Subscription state is plan-scoped. Account-wide bans belong to adminCustomers;
+      // never revoke a valid session while another market subscription is still active.
+      const revokeSessions = ["suspended", "expired", "banned"].includes(status) && otherActiveSubscriptions.length === 0;
+      if (revokeSessions) {
         await base44.asServiceRole.entities.ActiveDeviceSession.updateMany({ customer_id: before.customer_id, revoked_at: null }, { $set: { revoked_at: timestamp } });
       }
       await audit(base44, context.user.id, "subscription.transition", "Subscription", before.id, "success", reason, before, after);
-      return Response.json({ subscription: after, sessions_revoked: ["suspended", "expired", "banned"].includes(status) });
+      return Response.json({ subscription: after, sessions_revoked: revokeSessions, remaining_active_subscriptions: otherActiveSubscriptions.length });
     }
 
     return Response.json({ error: "Unsupported action" }, { status: 400 });

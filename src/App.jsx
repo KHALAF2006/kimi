@@ -10,6 +10,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import KmyLayout from '@/components/KmyLayout';
 import { PreferencesProvider } from '@/lib/preferences';
 import { AuthorizationProvider } from '@/lib/AuthorizationContext';
+import { ActiveMarketProvider } from '@/lib/MarketContext';
 import PermissionGate from '@/components/PermissionGate';
 
 import { lazy, Suspense } from 'react';
@@ -104,11 +105,13 @@ function App() {
       <AuthProvider>
         <QueryClientProvider client={queryClientInstance}>
           <AuthorizationProvider>
-            <Router>
-              <ScrollToTop />
-              <AuthenticatedApp />
-            </Router>
-            <Toaster />
+            <ActiveMarketProvider>
+              <Router>
+                <ScrollToTop />
+                <AuthenticatedApp />
+              </Router>
+              <Toaster />
+            </ActiveMarketProvider>
           </AuthorizationProvider>
         </QueryClientProvider>
       </AuthProvider>

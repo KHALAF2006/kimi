@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, authorizationContext, readJsonBody, replyError } from "../../shared/security.ts";
+import { audit, authorizationContext, readJsonBody, replyError, requireMarketEntitlement } from "../../shared/security.ts";
 function text(value, field, min = 1, max = 80) {
   const result = String(value || "").trim();
   if (result.length < min || result.length > max) throw Object.assign(new Error(`${field} must be ${min}-${max} characters`), { status: 400 });
@@ -63,7 +63,8 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req);
-    const { user, profile } = await authorizationContext(base44, body.session_id);
+    const context = await authorizationContext(base44, body.session_id);
+    const { user, profile } = context;
     if (body.action === "read") {
       const sessions = await base44.asServiceRole.entities.ActiveDeviceSession.filter({ customer_id: profile.id });
       const consents = await base44.asServiceRole.entities.CustomerConsent.filter({ customer_id: profile.id });
@@ -84,26 +85,29 @@ Deno.serve(async (req) => {
       return Response.json({ preferences: persisted });
     }
     if (body.action === "alerts") {
-      const rules = await base44.asServiceRole.entities.AlertRule.filter({ customer_id: profile.id });
+      const marketCode = requireMarketEntitlement(context, body.market_code);
+      const allRules = await base44.asServiceRole.entities.AlertRule.filter({ customer_id: profile.id });
+      const rules = allRules.filter((rule) => (rule.market_code || "SA_MAIN") === marketCode);
       const destinations = await base44.asServiceRole.entities.AlertDestination.filter({ customer_id: profile.id });
       const groups = await base44.asServiceRole.entities.RecipientGroup.filter({ customer_id: profile.id });
       const groupIds = new Set(groups.map((row) => row.id));
       const recipients = (await base44.asServiceRole.entities.Recipient.list("-updated_date", 5e3)).filter((row) => groupIds.has(row.group_id)).map(({ phone_e164: _phone, ...row }) => row);
       const instrumentIds = new Set(rules.map((rule) => rule.instrument_id));
       const [instruments, quotes] = await Promise.all([
-        base44.asServiceRole.entities.Instrument.list("symbol", 500),
+        base44.asServiceRole.entities.Instrument.filter({ market_code: marketCode }),
         base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500),
       ]);
       const instrumentById = new Map(instruments.filter((item) => instrumentIds.has(item.id)).map((item) => [item.id, item]));
       const quoteByInstrument = new Map();
-      for (const quote of quotes) if (instrumentIds.has(quote.instrument_id) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
-      return Response.json({ rules: rules.map((rule) => ({ ...rule, interval: rule.interval || "15m", instrument: instrumentById.get(rule.instrument_id) || null, quote: quoteByInstrument.get(rule.instrument_id) || null })), destinations: destinations.map(({ secret_ref: _secret, ...row }) => row), groups, recipients });
+      for (const quote of quotes) if (quote.market_code === marketCode && instrumentIds.has(quote.instrument_id) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
+      return Response.json({ market_code: marketCode, rules: rules.map((rule) => ({ ...rule, market_code: marketCode, interval: rule.interval || "15m", instrument: instrumentById.get(rule.instrument_id) || null, quote: quoteByInstrument.get(rule.instrument_id) || null })), destinations: destinations.map(({ secret_ref: _secret, ...row }) => row), groups, recipients });
     }
     if (body.action === "create_alert") {
-      const symbol = String(body.symbol || "").trim();
-      if (!/^\d{4}$/.test(symbol)) return Response.json({ error: "Valid four-digit symbol required" }, { status: 400 });
-      const instruments = await base44.asServiceRole.entities.Instrument.filter({ symbol, market_code: "SA_MAIN" });
-      if (!instruments[0] || instruments[0].status === "delisted") return Response.json({ error: "Instrument not found" }, { status: 404 });
+      const marketCode = requireMarketEntitlement(context, body.market_code);
+      const symbol = String(body.symbol || "").trim().toUpperCase();
+      if (!/^[A-Z0-9.-]{1,16}$/.test(symbol)) return Response.json({ error: "Valid market symbol required" }, { status: 400 });
+      const instruments = await base44.asServiceRole.entities.Instrument.filter({ symbol, market_code: marketCode });
+      if (!instruments[0] || instruments[0].status === "delisted") return Response.json({ error: "Instrument not found in the active market" }, { status: 404 });
       const intervals = new Set(["15m", "1h", "2h", "3h", "4h", "1d", "1wk", "1mo"]);
       const interval = intervals.has(String(body.interval)) ? String(body.interval) : "15m";
       const conditions = /* @__PURE__ */ new Set(["crosses_above", "crosses_below", "enters_zone", "exits_zone"]);
@@ -115,6 +119,7 @@ Deno.serve(async (req) => {
       const rule = await base44.asServiceRole.entities.AlertRule.create({
         customer_id: profile.id,
         instrument_id: instruments[0].id,
+        market_code: marketCode,
         symbol,
         interval,
         indicator_key: body.indicator_key ? text(body.indicator_key, "indicator_key", 1, 80) : void 0,
@@ -125,17 +130,21 @@ Deno.serve(async (req) => {
         cooldown_minutes: Math.max(15, Math.min(10080, Number(body.cooldown_minutes || 15))),
         enabled: true
       });
-      await audit(base44, user.id, "alert.create", "AlertRule", rule.id, "success");
+      await audit(base44, user.id, "alert.create", "AlertRule", rule.id, "success", `market:${marketCode}`);
       return Response.json({ rule: { ...rule, instrument: instruments[0] } });
     }
     if (body.action === "toggle_alert") {
+      const marketCode = requireMarketEntitlement(context, body.market_code);
       const rule = await owned(base44, "AlertRule", body.rule_id, profile);
+      if ((rule.market_code || "SA_MAIN") !== marketCode) throw Object.assign(new Error("Alert not found"), { status: 404 });
       const updated = await base44.asServiceRole.entities.AlertRule.update(rule.id, { enabled: Boolean(body.enabled) });
       await audit(base44, user.id, "alert.toggle", "AlertRule", rule.id, "success", Boolean(body.enabled) ? "enabled" : "disabled", { enabled: rule.enabled }, { enabled: updated.enabled });
       return Response.json({ rule: updated });
     }
     if (body.action === "delete_alert") {
+      const marketCode = requireMarketEntitlement(context, body.market_code);
       const rule = await owned(base44, "AlertRule", body.rule_id, profile);
+      if ((rule.market_code || "SA_MAIN") !== marketCode) throw Object.assign(new Error("Alert not found"), { status: 404 });
       await base44.asServiceRole.entities.AlertRule.delete(rule.id);
       await audit(base44, user.id, "alert.delete", "AlertRule", rule.id, "success");
       return Response.json({ removed: true });

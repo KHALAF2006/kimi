@@ -3,7 +3,8 @@
   "type": "object",
   "properties": {
     "instrument_id": { "type": "string" },
-    "symbol": { "type": "string", "pattern": "^[0-9]{4}$" },
+    "market_code": { "type": "string" },
+    "symbol": { "type": "string", "pattern": "^[A-Z0-9.:-]{1,24}$" },
     "announcement_id": { "type": "string" },
     "title_ar": { "type": "string" },
     "title_en": { "type": "string" },

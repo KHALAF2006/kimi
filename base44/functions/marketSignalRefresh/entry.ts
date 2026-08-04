@@ -17,6 +17,7 @@ var MARKET_AUTOMATION_SPECS = Object.freeze([
   { name: "saudi_session_final_1536_riyadh", cron: "36 12 * * 0-4", slotKind: "session_final", active: false }
 ]);
 var RIYADH_TIMEZONE = "Asia/Riyadh";
+var SAUDI_CANDLE_OPTIONS = Object.freeze({ timeZone: "Asia/Riyadh", sessionStartMinutes: 600, weekStartsOn: 0 });
 function normalizedCandleBar(bar) {
   const time = new Date(bar?.time).getTime();
   const open = positiveNumber(bar?.open);
@@ -135,6 +136,10 @@ var LEGACY_ROLE_PERMISSIONS = {
 // base44/shared/security.ts
 var MAX_JSON_BODY_BYTES = 256 * 1024;
 var SESSION_TOKEN_PREFIX = "kmy1";
+var MARKET_ACCESS = {
+  SA_MAIN: { entitlement: "market.saudi", name_ar: "\u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629", name_en: "Saudi Main Market", currency: "SAR" },
+  US_OPTIONS: { entitlement: "market.us.options", name_ar: "\u0634\u0631\u0643\u0627\u062A \u0639\u0642\u0648\u062F \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A", name_en: "U.S. Optionable Companies", currency: "USD" }
+};
 async function sha256(value) {
   const bytes = new TextEncoder().encode(String(value));
   const digest2 = await crypto.subtle.digest("SHA-256", bytes);
@@ -299,13 +304,44 @@ async function assignedPermissions(base44, membership) {
 }
 async function subscriptionContext(base44, profile, account) {
   const accountSubscriptions = await base44.asServiceRole.entities.Subscription.filter({ account_id: account.id, status: "active" });
-  const customerSubscriptions = accountSubscriptions.length ? [] : await base44.asServiceRole.entities.Subscription.filter({ customer_id: profile.id, status: "active" });
+  const customerSubscriptions = await base44.asServiceRole.entities.Subscription.filter({ customer_id: profile.id, status: "active" });
   const now = Date.now();
-  const subscription = [...accountSubscriptions, ...customerSubscriptions].find((item) => !item.ends_at || new Date(item.ends_at).getTime() > now) || null;
-  if (!subscription) return { subscription: null, plan: null, entitlements: [] };
-  const plan = await base44.asServiceRole.entities.SubscriptionPlan.get(subscription.plan_id);
-  const entitlements = await base44.asServiceRole.entities.PlanEntitlement.filter({ plan_id: subscription.plan_id, enabled: true });
-  return { subscription, plan, entitlements };
+  const subscriptions = [...new Map([...accountSubscriptions, ...customerSubscriptions].filter((item) => !item.ends_at || new Date(item.ends_at).getTime() > now).map((item) => [item.id, item])).values()];
+  if (!subscriptions.length) return { subscription: null, subscriptions: [], plan: null, plans: [], entitlements: [], marketAccess: [] };
+  const planIds = [...new Set(subscriptions.map((item) => item.plan_id).filter(Boolean))];
+  const plans = (await Promise.all(planIds.map(async (planId) => {
+    try {
+      return await base44.asServiceRole.entities.SubscriptionPlan.get(planId);
+    } catch {
+      return null;
+    }
+  }))).filter(Boolean);
+  const entitlementGroups = await Promise.all(planIds.map(
+    (planId) => base44.asServiceRole.entities.PlanEntitlement.filter({ plan_id: planId, enabled: true })
+  ));
+  const entitlementsByCode = /* @__PURE__ */ new Map();
+  entitlementGroups.flat().forEach((item) => {
+    const current = entitlementsByCode.get(item.code);
+    if (!current || Number(item.limit_value || 0) > Number(current.limit_value || 0)) entitlementsByCode.set(item.code, item);
+  });
+  const entitlements = [...entitlementsByCode.values()];
+  const marketCodes = /* @__PURE__ */ new Set();
+  entitlementGroups.forEach((group) => {
+    const codes = new Set(group.map((item) => item.code));
+    const explicitMarkets = [...codes].filter((code) => code.startsWith("market."));
+    if (codes.has("market.us.options")) marketCodes.add("US_OPTIONS");
+    if ([...codes].some((code) => ["market.saudi", "market.saudi.delayed", "market.saudi.realtime"].includes(code))) marketCodes.add("SA_MAIN");
+    if (!explicitMarkets.length) marketCodes.add("SA_MAIN");
+  });
+  const marketAccess = [...marketCodes].map((marketCode) => ({ market_code: marketCode, ...MARKET_ACCESS[marketCode] }));
+  return {
+    subscription: subscriptions[0] || null,
+    subscriptions,
+    plan: plans.find((item) => item.id === subscriptions[0]?.plan_id) || null,
+    plans,
+    entitlements,
+    marketAccess
+  };
 }
 async function authorizationContext(base44, sessionId) {
   const user = await requireUser(base44);
@@ -550,9 +586,9 @@ var TECHNICAL_SIGNAL_WINDOW_SIZE = 3;
 function rounded(value) {
   return Number(value.toFixed(8));
 }
-function riyadhDate(value) {
+function marketDate(value, timeZone = "Asia/Riyadh") {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Riyadh",
+    timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
@@ -574,21 +610,22 @@ function normalizeTechnicalBars(inputBars) {
   }
   return [...byTime.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time));
 }
-function sundayWeekKey(dateString) {
+function weekKey(dateString, weekStartsOn = 0) {
   const date = /* @__PURE__ */ new Date(`${dateString}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() - date.getUTCDay());
+  const delta = (date.getUTCDay() - weekStartsOn + 7) % 7;
+  date.setUTCDate(date.getUTCDate() - delta);
   return date.toISOString().slice(0, 10);
 }
-function bucketKeyForInterval(time, interval) {
-  const date = riyadhDate(time);
-  if (interval === "1wk") return sundayWeekKey(date);
+function bucketKeyForInterval(time, interval, options = {}) {
+  const date = marketDate(time, options.timeZone || "Asia/Riyadh");
+  if (interval === "1wk") return weekKey(date, Number.isInteger(options.weekStartsOn) ? Number(options.weekStartsOn) : 0);
   if (interval === "1mo") return date.slice(0, 7);
   return date;
 }
-function aggregateTechnicalBars(inputBars, interval) {
+function aggregateTechnicalBars(inputBars, interval, options = {}) {
   const groups = /* @__PURE__ */ new Map();
   for (const bar of normalizeTechnicalBars(inputBars)) {
-    const key = bucketKeyForInterval(bar.time, interval);
+    const key = bucketKeyForInterval(bar.time, interval, options);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)?.push(bar);
   }
@@ -792,7 +829,7 @@ function entityRows(value) {
   if (Array.isArray(value?.data)) return value.data;
   return [];
 }
-function riyadhDate2(value = /* @__PURE__ */ new Date()) {
+function riyadhDate(value = /* @__PURE__ */ new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Riyadh",
     year: "numeric",
@@ -1060,9 +1097,9 @@ Deno.serve(async (req) => {
     if (body.mode === "projection_batch") {
       const instrumentIds = Array.isArray(body.instrument_ids) ? body.instrument_ids.map(String).filter(Boolean).slice(0, PROJECTION_BATCH_SIZE) : [];
       if (!instrumentIds.length) throw Object.assign(new Error("instrument_ids are required"), { status: 400 });
-      return Response.json(await projectInstrumentBatch(base44, instrumentIds, String(body.session_date || riyadhDate2())));
+      return Response.json(await projectInstrumentBatch(base44, instrumentIds, String(body.session_date || riyadhDate())));
     }
-    const sessionDate = String(body.session_date || riyadhDate2());
+    const sessionDate = String(body.session_date || riyadhDate());
     const slotKey = `technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
     const existingRuns = entityRows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
     const completedRun = existingRuns.filter((item) => ["success", "partial"].includes(item.status)).sort((left, right) => Date.parse(right.finished_at || right.updated_date || 0) - Date.parse(left.finished_at || left.updated_date || 0))[0];

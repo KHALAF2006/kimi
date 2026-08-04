@@ -1,0 +1,17 @@
+{
+  "name": "usOptionsCompanyIntelligence",
+  "entry": "entry.ts",
+  "automations": [
+    {
+      "type": "scheduled",
+      "name": "refresh_us_options_company_intelligence",
+      "description": "Refreshes a bounded rotating batch of U.S. optionable-company filings, financials, actions and institutional ownership.",
+      "function_args": { "market_code": "US_OPTIONS", "batch_size": 10 },
+      "is_active": true,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "30 7 * * *",
+      "ends_type": "never"
+    }
+  ]
+}

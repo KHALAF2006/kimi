@@ -11,9 +11,10 @@ export const MOMENTUM_ZONE_DEFINITIONS = [
 
 const CHART_INTERVALS = new Set(["15m", "1h", "2h", "3h", "4h", "1d", "1wk", "1mo"]);
 
-export function companyDashboardPath(symbol, timeframe = "") {
+export function companyDashboardPath(symbol, timeframe = "", marketCode = "") {
   const params = new URLSearchParams({ company: String(symbol || "") });
   if (CHART_INTERVALS.has(String(timeframe))) params.set("timeframe", String(timeframe));
+  if (marketCode) params.set("market", String(marketCode));
   return `/dashboard?${params.toString()}`;
 }
 

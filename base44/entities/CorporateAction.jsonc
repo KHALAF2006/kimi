@@ -5,6 +5,8 @@
     "instrument_id": {
       "type": "string"
     },
+    "market_code": { "type": "string" },
+    "symbol": { "type": "string" },
     "event_type": {
       "type": "string",
       "enum": [
@@ -70,9 +72,7 @@
   "required": [
     "instrument_id",
     "event_type",
-    "announce_date",
     "ex_date",
-    "record_date",
     "status",
     "description_ar",
     "description_en",

@@ -19,7 +19,10 @@ export default function SubscriptionsAdmin() {
   const [entitlementEditor, setEntitlementEditor] = useState({ plan_id: "", expected_revision: 1, reason: "", entitlements: [] });
 
   const entitlementCatalog = [
+    ["market.saudi", "السوق السعودي"],
+    ["market.saudi.delayed", "السوق السعودي المتأخر"],
     ["market.saudi.realtime", "السوق السعودي اللحظي"],
+    ["market.us.options", "شركات عقود الخيارات الأمريكية"],
     ["market.gcc.delayed", "أسواق الخليج المتأخرة"],
     ["charts.drawings", "أدوات الرسم"],
     ["charts.saved_layouts", "حفظ تخطيطات الرسم"],

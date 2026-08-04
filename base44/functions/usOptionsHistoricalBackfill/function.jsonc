@@ -1,0 +1,18 @@
+{
+  "name": "usOptionsHistoricalBackfill",
+  "entry": "entry.ts",
+  "automations": [
+    {
+      "type": "scheduled",
+      "name": "us_options_historical_bootstrap",
+      "description": "دفعة يومية مؤقتة تكمل الأرشيف التاريخي المحفوظ مرة واحدة ثم تتوقف تلقائيًا.",
+      "function_args": { "market_code": "US_OPTIONS", "batch_size": 15 },
+      "is_active": true,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "0 7 * * *",
+      "ends_type": "after",
+      "ends_after_count": 12
+    }
+  ]
+}

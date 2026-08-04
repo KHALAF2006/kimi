@@ -1,10 +1,10 @@
 import React from "react";
 import { SessionLink } from "@/components/SessionLink";
 import LossFlagBadge from "@/components/market/LossFlagBadge";
-import { formatNumber, quoteDirection } from "@/lib/market";
+import { companyDashboardPath, formatNumber, quoteDirection } from "@/lib/market";
 import { usePreferences } from "@/lib/preferences";
 
-export default function MarketTicker({ rows = [] }) {
+export default function MarketTicker({ rows = [], marketCode = "" }) {
   const { language } = usePreferences();
   const ticker = rows.filter((row) => row.quote).slice(0, 80);
   if (!ticker.length) return null;
@@ -15,10 +15,10 @@ export default function MarketTicker({ rows = [] }) {
         const direction = quoteDirection(row.quote?.change_percent);
         const stateLabel = row.quote?.is_final === true
           ? (language === "ar" ? "إغلاق نهائي" : "Final close")
-          : row.quote?.freshness_status === "healthy" || row.quote?.freshness_status === "degraded"
+          : ["fresh", "healthy", "degraded"].includes(row.quote?.freshness_status)
             ? (language === "ar" ? "متأخرة 15 دقيقة" : "Delayed 15 minutes")
             : (language === "ar" ? "آخر بيانات متاحة" : "Latest available data");
-        return <SessionLink key={row.symbol + "-" + index} to={"/dashboard?company=" + row.symbol} className="market-ticker-item" title={(language === "ar" ? "افتح " + row.name_ar : "Open " + row.name_en) + (stateLabel ? " · " + stateLabel : "")}>
+        return <SessionLink key={row.symbol + "-" + index} to={companyDashboardPath(row.symbol, "", marketCode)} className="market-ticker-item" title={(language === "ar" ? "افتح " + row.name_ar : "Open " + row.name_en) + (stateLabel ? " · " + stateLabel : "")}>
           <span className="font-black">{row.symbol}</span>
           <span>{language === "ar" ? row.name_ar : row.name_en}</span>
           <b className={"market-" + direction} dir="ltr">{formatNumber(row.quote?.last_price, "en")}</b>

@@ -4,6 +4,7 @@ import ServicePage from "@/components/ServicePage";
 import MarketTable from "@/components/market/MarketTable";
 import { formatNumber } from "@/lib/market";
 import { usePreferences } from "@/lib/preferences";
+import { useActiveMarket } from "@/lib/MarketContext";
 
 const signalOptions = [
   { value: "", ar: "كل الإشارات", en: "All signals", icon: Activity },
@@ -45,10 +46,11 @@ function SignalEvidence({ row, timeframe, language, isArabic }) {
 
 export default function Screener() {
   const { language, isArabic } = usePreferences();
+  const { marketCode } = useActiveMarket();
   const [signal, setSignal] = useState("");
   const [timeframe, setTimeframe] = useState("1d");
   const [query, setQuery] = useState("");
-  const payload = useMemo(() => ({ limit: 500, mode: "screener", signal, timeframe }), [signal, timeframe]);
+  const payload = useMemo(() => ({ limit: 500, mode: "screener", signal, timeframe, market_code: marketCode }), [signal, timeframe, marketCode]);
 
   return <ServicePage
     title={isArabic ? "ماسح الاستراتيجيات" : "Strategy screener"}
@@ -108,7 +110,7 @@ export default function Screener() {
         {!!rows.length && <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {rows.slice(0, 9).map((row) => <SignalEvidence key={row.id || row.symbol} row={row} timeframe={timeframe} language={language} isArabic={isArabic} />)}
         </div>}
-        <MarketTable rows={rows} detailsTimeframe={timeframe} />
+        <MarketTable rows={rows} marketCode={marketCode} detailsTimeframe={timeframe} />
       </div>;
     }}
   </ServicePage>;

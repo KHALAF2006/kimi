@@ -2,7 +2,8 @@
 
 // base44/functions/marketRead/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { authorizationContext, readJsonBody, replyError } from "../../shared/security.ts";
+import { authorizationContext, marketAccessForContext, readJsonBody, replyError, requireMarketEntitlement } from "../../shared/security.ts";
+import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE, US_OPTIONS_SYMBOLS } from "../../shared/us-options-catalog.ts";
 import {
   COVERAGE_FAILED_PERCENT,
   COVERAGE_HEALTHY_PERCENT,
@@ -5164,6 +5165,7 @@ var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_defaul
 var TASI_SYMBOL = "TASI";
 var MARKET_CATALOG = [
   { market_code: "SA_MAIN", country_code: "SA", name_ar: "\u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629", name_en: "Saudi Main Market", currency: "SAR", timezone: "Asia/Riyadh", quote_mode: "delayed", delay_seconds: 900, license_status: "pending", active: true },
+  US_OPTIONS_CATALOG.market,
   { market_code: "AE_ADX", country_code: "AE", name_ar: "\u0633\u0648\u0642 \u0623\u0628\u0648\u0638\u0628\u064A", name_en: "Abu Dhabi Securities Exchange", currency: "AED", timezone: "Asia/Dubai", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
   { market_code: "AE_DFM", country_code: "AE", name_ar: "\u0633\u0648\u0642 \u062F\u0628\u064A", name_en: "Dubai Financial Market", currency: "AED", timezone: "Asia/Dubai", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
   { market_code: "KW_BK", country_code: "KW", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0627\u0644\u0643\u0648\u064A\u062A", name_en: "Boursa Kuwait", currency: "KWD", timezone: "Asia/Kuwait", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
@@ -5225,16 +5227,8 @@ async function optionalRows(operation, label) {
 }
 function stateFor(value, source, now = Date.now(), options = {}) {
   const age = value ? now - new Date(value).getTime() : Number.POSITIVE_INFINITY;
-  const licensed = source?.source_type === "licensed" && source?.license_status === "approved" && source?.public_enabled === true;
   const final = options.isFinal === true;
   const explicitlyStale = options.freshnessStatus === "stale";
-  if (!licensed) {
-    return {
-      label: "\u0622\u062E\u0631 \u0628\u064A\u0627\u0646\u0627\u062A \u0645\u062A\u0627\u062D\u0629",
-      stale: true,
-      code: "stale"
-    };
-  }
   if (final && !explicitlyStale) {
     return {
       label: "\u0625\u063A\u0644\u0627\u0642 \u0646\u0647\u0627\u0626\u064A",
@@ -5242,7 +5236,8 @@ function stateFor(value, source, now = Date.now(), options = {}) {
       code: "final"
     };
   }
-  const stale = explicitlyStale || age > (SAUDI_DELAY_SECONDS + 5 * 60) * 1e3;
+  const expectedDelaySeconds = Math.max(0, Number(source?.delay_seconds || SAUDI_DELAY_SECONDS));
+  const stale = explicitlyStale || age > (expectedDelaySeconds + 5 * 60) * 1e3;
   return {
     label: stale ? "\u0645\u062A\u0642\u0627\u062F\u0645\u0629" : "\u0645\u062A\u0623\u062E\u0631\u0629 15 \u062F\u0642\u064A\u0642\u0629",
     stale,
@@ -5251,16 +5246,35 @@ function stateFor(value, source, now = Date.now(), options = {}) {
 }
 async function requireMarketAccess(base44, body) {
   const context = await authorizationContext(base44, body.session_id);
-  if (!["admin", "owner"].includes(context.role) && !context.subscription) {
-    throw Object.assign(new Error("Active subscription required"), { status: 403, code: "SUBSCRIPTION_REQUIRED" });
-  }
+  if (body.action !== "markets") requireMarketEntitlement(context, body.market_code);
   return context;
 }
+function marketClockFor(marketCode, now = new Date()) {
+  if (marketCode === "SA_MAIN") return riyadhClock(now);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, weekday: parts.weekday, hour: Number(parts.hour), minute: Number(parts.minute), second: Number(parts.second) };
+}
+function marketPhaseFor(marketCode, clock) {
+  if (marketCode === "SA_MAIN") return marketPhase(clock);
+  if (!["Mon", "Tue", "Wed", "Thu", "Fri"].includes(clock.weekday)) return "closed";
+  const minute = clock.hour * 60 + clock.minute;
+  return minute >= 570 && minute < 960 ? "continuous" : "closed";
+}
 async function instrumentFor(base44, body) {
-  const marketCode = String(body.market_code || "").trim();
+  const marketCode = String(body.market_code || "").trim().toUpperCase();
+  if (!marketCode) throw Object.assign(new Error("market_code is required"), { status: 400, code: "MARKET_IDENTITY_REQUIRED" });
   const instrumentCode = String(body.instrument_code || "").trim();
-  if (marketCode || instrumentCode) {
-    if (!marketCode || !instrumentCode) throw Object.assign(new Error("market_code and instrument_code are required together"), { status: 400, code: "MARKET_IDENTITY_REQUIRED" });
+  if (instrumentCode) {
     const rows = await base44.asServiceRole.entities.Instrument.filter({ market_code: marketCode, instrument_code: instrumentCode });
     if (!rows[0] && marketCode === "SA_MAIN" && /^\d{4}$/.test(instrumentCode)) {
       const legacyRows = await base44.asServiceRole.entities.Instrument.filter({ symbol: instrumentCode });
@@ -5271,14 +5285,16 @@ async function instrumentFor(base44, body) {
   }
   const symbol = String(body.symbol || "").trim();
   if (symbol) {
-    if (!/^\d{4}$/.test(symbol) && symbol !== TASI_SYMBOL) throw Object.assign(new Error("Invalid Saudi market instrument symbol"), { status: 400 });
-    const rows = await base44.asServiceRole.entities.Instrument.filter({ symbol });
+    if (marketCode === "SA_MAIN" && !/^\d{4}$/.test(symbol) && symbol !== TASI_SYMBOL) throw Object.assign(new Error("Invalid Saudi market instrument symbol"), { status: 400 });
+    if (marketCode === US_OPTIONS_MARKET_CODE && !US_OPTIONS_SYMBOLS.has(symbol.toUpperCase())) throw Object.assign(new Error("Instrument is outside the U.S. options catalog"), { status: 400, code: "INSTRUMENT_OUT_OF_MARKET" });
+    const rows = await base44.asServiceRole.entities.Instrument.filter({ symbol: symbol.toUpperCase(), market_code: marketCode });
     if (!rows[0]) throw Object.assign(new Error("Instrument not found"), { status: 404 });
     return rows[0];
   }
   if (!body.instrument_id) throw Object.assign(new Error("symbol or instrument_id is required"), { status: 400 });
   const instrument = await base44.asServiceRole.entities.Instrument.get(String(body.instrument_id));
   if (!instrument) throw Object.assign(new Error("Instrument not found"), { status: 404 });
+  if (instrument.market_code !== marketCode) throw Object.assign(new Error("Instrument is outside the requested market"), { status: 403, code: "CROSS_MARKET_ACCESS_DENIED" });
   return instrument;
 }
 var RANGE_MILLISECONDS = {
@@ -5290,7 +5306,20 @@ var RANGE_MILLISECONDS = {
   "5y": 5 * 366 * 24 * 60 * 60 * 1e3,
   "10y": 10 * 366 * 24 * 60 * 60 * 1e3
 };
-function normalizedStoredBars(chunks) {
+function marketCandleOptions(marketCode) {
+  return marketCode === US_OPTIONS_MARKET_CODE
+    ? { timeZone: "America/New_York", sessionStartMinutes: 570, weekStartsOn: 1 }
+    : { timeZone: "Asia/Riyadh", sessionStartMinutes: 600, weekStartsOn: 0 };
+}
+function marketSessionDate(value, marketCode) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: marketCandleOptions(marketCode).timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date(value));
+}
+function normalizedStoredBars(chunks, marketCode) {
   const byTime = new Map();
   for (const chunk of chunks) for (const bar of chunk.bars || []) {
     const time = new Date(bar.time).getTime();
@@ -5301,13 +5330,15 @@ function normalizedStoredBars(chunks) {
     const volume = Math.max(0, Number(bar.volume || 0));
     if (!Number.isFinite(time) || ![open, high, low, close].every((value) => Number.isFinite(value) && value > 0)) continue;
     if (high < Math.max(open, close) || low > Math.min(open, close)) continue;
-    const key = new Date(time).toISOString();
-    const sourcePriority = chunk.canonical_version === "candle-projection-v1" ? 3 : chunk.is_historical_archive === true ? 2 : 1;
+    const isoTime = new Date(time).toISOString();
+    const key = chunk.interval === "1d" ? `day:${marketSessionDate(isoTime, marketCode)}` : isoTime;
+    const canonicalVersion = String(chunk.canonical_version || "");
+    const sourcePriority = canonicalVersion === "candle-projection-v1" || canonicalVersion.includes("daily-projection") ? 3 : chunk.is_historical_archive === true ? 2 : 1;
     const receivedTime = new Date(chunk.received_time || chunk.updated_date || chunk.created_date || 0).getTime();
     const current = byTime.get(key);
     if (current && (current.sourcePriority > sourcePriority
       || current.sourcePriority === sourcePriority && current.receivedTime > receivedTime)) continue;
-    byTime.set(key, { time: key, open, high, low, close, volume, sourcePriority, receivedTime });
+    byTime.set(key, { time: isoTime, open, high, low, close, volume, sourcePriority, receivedTime });
   }
   return [...byTime.values()]
     .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
@@ -5318,7 +5349,7 @@ function fallbackIntervals(interval) {
   if (["1d", "1h", "2h", "3h", "4h"].includes(interval)) return [interval, "15m"];
   return [interval];
 }
-async function storedCandlesForInterval(base44, instrumentId, interval) {
+async function storedCandlesForInterval(base44, instrumentId, interval, marketCode) {
   const series = [];
   const allChunks = [];
   for (const storedInterval of fallbackIntervals(interval)) {
@@ -5326,12 +5357,12 @@ async function storedCandlesForInterval(base44, instrumentId, interval) {
       .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
       .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
     if (!chunks.length) continue;
-    const storedBars = normalizedStoredBars(chunks);
+    const storedBars = normalizedStoredBars(chunks, marketCode);
     if (!storedBars.length) continue;
     series.push({ interval: storedInterval, bars: storedBars });
     allChunks.push(...chunks);
   }
-  const merged = mergeStoredCandleSeries(series, interval);
+  const merged = mergeStoredCandleSeries(series, interval, marketCandleOptions(marketCode));
   const latestChunk = allChunks
     .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime())
     .at(-1) || null;
@@ -5344,7 +5375,7 @@ async function storedCandlesForInterval(base44, instrumentId, interval) {
     storedIntervals: merged.storedIntervals
   };
 }
-async function storedCandlesForInstruments(base44, instrumentIds, interval) {
+async function storedCandlesForInstruments(base44, instrumentIds, interval, marketCode) {
   const requestedIds = new Set(instrumentIds);
   const chunksByInstrument = new Map(instrumentIds.map((id) => [id, []]));
   for (const storedInterval of fallbackIntervals(interval)) {
@@ -5356,9 +5387,9 @@ async function storedCandlesForInstruments(base44, instrumentIds, interval) {
     const chunks = (chunksByInstrument.get(instrumentId) || []).sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
     const series = fallbackIntervals(interval).map((storedInterval) => {
       const matching = chunks.filter((chunk) => chunk.interval === storedInterval);
-      return matching.length ? { interval: storedInterval, bars: normalizedStoredBars(matching) } : null;
+      return matching.length ? { interval: storedInterval, bars: normalizedStoredBars(matching, marketCode) } : null;
     }).filter(Boolean);
-    const merged = mergeStoredCandleSeries(series, interval);
+    const merged = mergeStoredCandleSeries(series, interval, marketCandleOptions(marketCode));
     return [instrumentId, {
       bars: merged.bars,
       chunks,
@@ -5377,7 +5408,7 @@ async function chartResponse(base44, body, sources) {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
   const [stored, historyRows] = await Promise.all([
-    storedCandlesForInterval(base44, instrument.id, interval),
+    storedCandlesForInterval(base44, instrument.id, interval, body.market_code),
     optionalRows(
       () => base44.asServiceRole.entities.HistoricalCandleSync.filter({ instrument_id: instrument.id, interval: "1d" }, "-completed_at", 20),
       "historical candle sync"
@@ -5461,10 +5492,10 @@ function quoteView(quote, source) {
   };
 }
 function latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMarket) {
-  const clock = riyadhClock();
+  const clock = marketClockFor(requestedMarket);
   const fallback = {
     market_code: requestedMarket,
-    session_phase: marketPhase(clock),
+    session_phase: marketPhaseFor(requestedMarket, clock),
     as_of: null,
     received_at: null,
     delay_seconds: SAUDI_DELAY_SECONDS,
@@ -5493,16 +5524,11 @@ function latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMar
   });
   const selected = licensedCandidate || candidates[0];
   const selectedSource = sourceById.get(selected.source_id);
-  const licensed = selectedSource?.source_type === "licensed"
-    && selectedSource?.license_status === "approved"
-    && selectedSource?.public_enabled === true;
   const snapshotVersion = selected.snapshot_version;
   const current = candidates.filter((quote) => quote.snapshot_version === snapshotVersion);
   const denominator = requestedMarket === "SA_MAIN" ? EXPECTED_INSTRUMENT_COUNT : Math.max(instruments.length, 1);
   const coveragePercent = Math.round(current.length / denominator * 10000) / 100;
-  const freshness = !licensed
-    ? "stale"
-    : current.some((quote) => quote.freshness_status === "stale")
+  const freshness = current.some((quote) => quote.freshness_status === "stale")
     ? "stale"
     : coveragePercent >= COVERAGE_HEALTHY_PERCENT
       ? "healthy"
@@ -5513,7 +5539,7 @@ function latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMar
     .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || null;
   return {
     market_code: requestedMarket,
-    session_phase: current[0].market_phase || marketPhase(clock),
+    session_phase: current[0].market_phase || marketPhaseFor(requestedMarket, clock),
     as_of: latestValue("provider_as_of", "source_time"),
     received_at: latestValue("received_time", "updated_date"),
     delay_seconds: Math.max(0, ...current.map((quote) => Number(quote.delay_seconds || selectedSource?.delay_seconds || SAUDI_DELAY_SECONDS))),
@@ -5658,7 +5684,7 @@ async function sectorChartResponse(base44, body) {
   const quoteByInstrument = new Map();
   for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
   const weights = sectorWeights(instruments, quoteByInstrument);
-  const storedByInstrument = await storedCandlesForInstruments(base44, instruments.map((instrument) => instrument.id), interval);
+  const storedByInstrument = await storedCandlesForInstruments(base44, instruments.map((instrument) => instrument.id), interval, body.market_code);
   const candlesByInstrument = instruments.map((instrument) => ({
     instrument,
     stored: storedByInstrument.get(instrument.id) || { bars: [] }
@@ -5725,14 +5751,15 @@ Deno.serve(async (req) => {
       interval: body?.interval || null,
       range: body?.range || null,
     };
-    await requireMarketAccess(base44, body);
+    const accessContext = await requireMarketAccess(base44, body);
     const sources = await optionalRows(
       () => base44.asServiceRole.entities.DataSource.list("-last_verified_at", 20),
       "data-source"
     );
     const sourceById = new Map(sources.map((item) => [item.id, item]));
     if (body.action === "markets") {
-      return Response.json({ markets: MARKET_CATALOG });
+      const allowed = new Set(marketAccessForContext(accessContext).map((item) => item.market_code));
+      return Response.json({ markets: MARKET_CATALOG.filter((market) => allowed.has(market.market_code) && market.active) });
     }
     if (body.action === "sector") return Response.json(await sectorResponse(base44, body, sourceById));
     if (body.action === "sector_chart") return Response.json(await sectorChartResponse(base44, body));
@@ -5741,7 +5768,7 @@ Deno.serve(async (req) => {
       const query = normalizeSearchText(body.query);
       if (query.length < 1 || query.length > 120) throw Object.assign(new Error("Search query must be 1-120 characters"), { status: 400 });
       const limit = Math.min(Math.max(Number(body.limit || 12), 1), 25);
-      const requestedMarket = String(body.market_code || "SA_MAIN");
+      const requestedMarket = String(body.market_code || "").toUpperCase();
       const [storedInstruments, aliases, quotes] = await Promise.all([
         base44.asServiceRole.entities.Instrument.list("symbol", 500),
         optionalRows(() => base44.asServiceRole.entities.InstrumentAlias.filter({ market_code: requestedMarket, active: true }, "alias", 5e3), "instrument aliases"),
@@ -5848,7 +5875,7 @@ Deno.serve(async (req) => {
       ]);
       let quote = quotes2.filter(usableQuote).sort((a, b) => new Date(b.quote_time).getTime() - new Date(a.quote_time).getTime())[0] || null;
       if (!quote && instrument.instrument_type === "market_index") {
-        const stored = await storedCandlesForInterval(base44, instrument.id, "1d");
+        const stored = await storedCandlesForInterval(base44, instrument.id, "1d", body.market_code);
         const current = stored.bars.at(-1) || null;
         const previous = stored.bars.at(-2) || null;
         if (current && previous && Number(previous.close) > 0) {
@@ -5879,15 +5906,18 @@ Deno.serve(async (req) => {
       const indicators = entityRows(indicators2).sort((a, b) => String(b.source_as_of || b.calculated_at || b.updated_date || "").localeCompare(String(a.source_as_of || a.calculated_at || a.updated_date || "")));
       const requestedTimeframe = ALLOWED_INTERVALS.has(String(body.timeframe || "1d")) ? String(body.timeframe || "1d") : "1d";
       const momentumIndicator = indicators.find((item) => item.indicator_key === "momentum_zones" && item.timeframe === requestedTimeframe) || null;
+      const shareholderRows = instrument.market_code === US_OPTIONS_MARKET_CODE && shareholders.length
+        ? shareholders.filter((item) => item.as_of === shareholders.map((row) => row.as_of || "").sort().at(-1))
+        : shareholders;
       return Response.json({
         instrument: { ...instrument, warning_flag: losses2[0]?.level === "none" ? null : losses2[0]?.level },
         quote: quoteView(quote, source),
         indicators,
         momentum_indicator: momentumIndicator,
         financials: financials.sort((a, b) => String(b.period_end || b.as_of || "").localeCompare(String(a.period_end || a.as_of || ""))),
-        actions: actions.sort((a, b) => String(b.effective_date || b.as_of || "").localeCompare(String(a.effective_date || a.as_of || ""))),
+        actions: actions.sort((a, b) => String(b.ex_date || b.as_of || "").localeCompare(String(a.ex_date || a.as_of || ""))),
         announcements: announcements.sort((a, b) => String(b.published_at || "").localeCompare(String(a.published_at || ""))),
-        shareholders: shareholders.sort((a, b) => Number(b.ownership_percent || 0) - Number(a.ownership_percent || 0)),
+        shareholders: shareholderRows.sort((a, b) => Number(b.ownership_percent || 0) - Number(a.ownership_percent || 0)),
         loss_classification: losses2[0] || null,
         notice: quote?.snapshot_version
           ? "\u0628\u064A\u0627\u0646\u0627\u062A \u0633\u0648\u0642 \u0645\u062A\u0623\u062E\u0631\u0629 15 \u062F\u0642\u064A\u0642\u0629"
@@ -5895,10 +5925,13 @@ Deno.serve(async (req) => {
       });
     }
     const limit = Math.min(Math.max(Number(body.limit || 500), 1), 500);
-    const requestedMarket = String(body.market_code || "SA_MAIN");
+    const requestedMarket = String(body.market_code || "").toUpperCase();
     const instruments = entityRows(await base44.asServiceRole.entities.Instrument.list("symbol", 500))
       .filter((item) => item.market_code === requestedMarket)
       .filter((item) => requestedMarket !== "SA_MAIN" || MAIN_MARKET_SYMBOLS.has(item.symbol));
+    if (requestedMarket === US_OPTIONS_MARKET_CODE && instruments.some((item) => !US_OPTIONS_SYMBOLS.has(item.symbol))) {
+      throw Object.assign(new Error("U.S. options catalog contains an out-of-scope instrument"), { status: 503, code: "CATALOG_ISOLATION_FAILED" });
+    }
     const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500));
     const [indicators, losses] = await Promise.all([
       body.mode === "screener" ? optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.list("-source_as_of", 5000), "indicator-snapshot") : Promise.resolve([]),
@@ -5906,6 +5939,9 @@ Deno.serve(async (req) => {
     ]);
     if (requestedMarket === "SA_MAIN" && instruments.length !== MAIN_MARKET_SYMBOLS.size) {
       throw Object.assign(new Error(`Main-market catalog mismatch: ${instruments.length}/${MAIN_MARKET_SYMBOLS.size}`), { status: 503 });
+    }
+    if (requestedMarket === US_OPTIONS_MARKET_CODE && instruments.length !== US_OPTIONS_CATALOG.companies.length) {
+      throw Object.assign(new Error(`U.S. options catalog mismatch: ${instruments.length}/${US_OPTIONS_CATALOG.companies.length}`), { status: 503, code: "US_OPTIONS_CATALOG_INCOMPLETE" });
     }
     const quoteByInstrument = /* @__PURE__ */ new Map();
     for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);

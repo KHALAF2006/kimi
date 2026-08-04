@@ -16,9 +16,9 @@ function rounded(value: number) {
   return Number(value.toFixed(8));
 }
 
-function riyadhDate(value: string | Date) {
+function marketDate(value: string | Date, timeZone = "Asia/Riyadh") {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Riyadh",
+    timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -42,15 +42,16 @@ export function normalizeTechnicalBars(inputBars: Array<Record<string, unknown>>
   return [...byTime.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time));
 }
 
-function sundayWeekKey(dateString: string) {
+function weekKey(dateString: string, weekStartsOn = 0) {
   const date = new Date(`${dateString}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() - date.getUTCDay());
+  const delta = (date.getUTCDay() - weekStartsOn + 7) % 7;
+  date.setUTCDate(date.getUTCDate() - delta);
   return date.toISOString().slice(0, 10);
 }
 
-export function bucketKeyForInterval(time: string, interval: "1d" | "1wk" | "1mo") {
-  const date = riyadhDate(time);
-  if (interval === "1wk") return sundayWeekKey(date);
+export function bucketKeyForInterval(time: string, interval: "1d" | "1wk" | "1mo", options: { timeZone?: string; weekStartsOn?: number } = {}) {
+  const date = marketDate(time, options.timeZone || "Asia/Riyadh");
+  if (interval === "1wk") return weekKey(date, Number.isInteger(options.weekStartsOn) ? Number(options.weekStartsOn) : 0);
   if (interval === "1mo") return date.slice(0, 7);
   return date;
 }
@@ -58,10 +59,11 @@ export function bucketKeyForInterval(time: string, interval: "1d" | "1wk" | "1mo
 export function aggregateTechnicalBars(
   inputBars: Array<Record<string, unknown>>,
   interval: "1d" | "1wk" | "1mo",
+  options: { timeZone?: string; weekStartsOn?: number } = {},
 ): CandleBar[] {
   const groups = new Map<string, CandleBar[]>();
   for (const bar of normalizeTechnicalBars(inputBars)) {
-    const key = bucketKeyForInterval(bar.time, interval);
+    const key = bucketKeyForInterval(bar.time, interval, options);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)?.push(bar);
   }

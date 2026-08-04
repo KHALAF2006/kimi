@@ -14,7 +14,7 @@ function EmptySection({ children }) {
   return <p className="mt-3 text-sm leading-6 text-slate-500">{children}</p>;
 }
 
-export default function CompanyPanel({ symbol, requestedTimeframe = "", onResetWidth = () => {}, previousCompany = null, nextCompany = null, onSelectCompany = () => {} }) {
+export default function CompanyPanel({ symbol, marketCode, requestedTimeframe = "", onResetWidth = () => {}, previousCompany = null, nextCompany = null, onSelectCompany = () => {} }) {
   const { language, isArabic, theme } = usePreferences();
   const [state, setState] = useState({ loading: false, data: null, dataSymbol: "", error: "" });
   const [chartMomentum, setChartMomentum] = useState(null);
@@ -24,11 +24,11 @@ export default function CompanyPanel({ symbol, requestedTimeframe = "", onResetW
     if (!symbol) { setState({ loading: false, data: null, dataSymbol: "", error: "" }); return; }
     let active = true;
     setState((current) => ({ ...current, loading: true, error: "" }));
-    invokeAppFunction("marketRead", { symbol, timeframe: requestedTimeframe || "1d" })
+    invokeAppFunction("marketRead", { symbol, market_code: marketCode, timeframe: requestedTimeframe || "1d" })
       .then((data) => active && setState({ loading: false, data, dataSymbol: symbol, error: "" }))
       .catch((error) => active && setState((current) => ({ ...current, loading: false, error: error?.response?.data?.error || error?.message || "company_fetch_failed" })));
     return () => { active = false; };
-  }, [symbol]);
+  }, [symbol, marketCode]);
 
   const storedMomentum = useMemo(() => state.dataSymbol === symbol ? normalizeMomentum(
     state.data?.momentum_indicator || selectMomentumSnapshot(state.data?.indicators, requestedTimeframe || "1d"),
@@ -49,8 +49,8 @@ export default function CompanyPanel({ symbol, requestedTimeframe = "", onResetW
     {state.loading && <div className="company-refresh-status" role="status"><Loader2 size={14} className="animate-spin" />{isArabic ? `جارٍ فتح ${symbol}…` : `Opening ${symbol}…`}</div>}
     <section className="company-hero-card">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div><span className="eyebrow"><Building2 size={14} />{isArabic ? "ملف الشركة" : "Company profile"}</span><h2 className="mt-3 text-2xl font-black">{instrument.symbol}</h2><p className="mt-1 text-lg font-bold">{isArabic ? instrument.name_ar : instrument.name_en}</p><p className="mt-1 text-sm text-slate-500">{isArabic ? instrument.sector_ar : instrument.sector_en}</p><div className="mt-3"><LossFlagBadge flag={instrument.warning_flag || loss?.level} /></div></div>
-        <div className="text-left" dir="ltr"><b className="block text-3xl font-black">{formatNumber(quote.last_price, language)} <small className="text-sm text-slate-500">SAR</small></b><span className={"mt-2 block text-base font-black market-" + direction}>{Number(quote.change_percent || 0) > 0 ? "+" : ""}{formatNumber(quote.change_percent, language)}%</span></div>
+        <div><span className="eyebrow"><Building2 size={14} />{isArabic ? "ملف الشركة" : "Company profile"}</span><h2 className="mt-3 text-2xl font-black">{instrument.symbol}</h2><p className="mt-1 text-lg font-bold">{isArabic ? instrument.name_ar : instrument.name_en}</p><p className="mt-1 text-sm text-slate-500">{isArabic ? instrument.sector_ar : instrument.sector_en}{instrument.industry_en ? ` · ${instrument.industry_en}` : ""}{instrument.issuer_country ? ` · ${instrument.issuer_country}` : ""}{instrument.ipo_year ? ` · IPO ${instrument.ipo_year}` : ""}</p><div className="mt-3"><LossFlagBadge flag={instrument.warning_flag || loss?.level} /></div></div>
+        <div className="text-left" dir="ltr"><b className="block text-3xl font-black">{formatNumber(quote.last_price, language)} <small className="text-sm text-slate-500">{instrument.currency || (marketCode === "US_OPTIONS" ? "USD" : "SAR")}</small></b><span className={"mt-2 block text-base font-black market-" + direction}>{Number(quote.change_percent || 0) > 0 ? "+" : ""}{formatNumber(quote.change_percent, language)}%</span></div>
       </div>
       <div className="mt-5 grid grid-cols-2 gap-2 xl:grid-cols-4">
         <Metric label={isArabic ? "الافتتاح" : "Open"} value={formatNumber(quote.open, language)} />
@@ -62,9 +62,17 @@ export default function CompanyPanel({ symbol, requestedTimeframe = "", onResetW
         <Metric label={isArabic ? "القيمة المتداولة" : "Traded value"} value={formatCompact(quote.traded_value, language)} />
         <Metric label={isArabic ? "القيمة السوقية" : "Market cap"} value={formatCompact(quote.market_cap, language)} />
       </div>
+      {marketCode === "US_OPTIONS" && <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600 xl:grid-cols-4">
+        <span><b>{isArabic ? "الاسم القانوني: " : "Legal name: "}</b>{instrument.legal_name_en || instrument.name_en}</span>
+        <span><b>CIK: </b>{instrument.cik || "—"}</span>
+        <span><b>{isArabic ? "التصنيف: " : "SIC: "}</b>{instrument.sic_code ? `${instrument.sic_code} · ${instrument.sic_description || ""}` : "—"}</span>
+        <span><b>{isArabic ? "نهاية السنة المالية: " : "Fiscal year end: "}</b>{instrument.fiscal_year_end || "—"}</span>
+        {instrument.website_url && <a href={instrument.website_url} target="_blank" rel="noreferrer" className="font-bold text-sky-700 underline">{isArabic ? "موقع الشركة" : "Company website"}</a>}
+        {instrument.sec_filing_url && <a href={instrument.sec_filing_url} target="_blank" rel="noreferrer" className="font-bold text-sky-700 underline">{isArabic ? "ملفات الشركة الرسمية" : "Official filings"}</a>}
+      </div>}
     </section>
 
-    <CompanyChart symbol={symbol} companyNameAr={instrument.name_ar} companyNameEn={instrument.name_en} momentum={storedMomentum} requestedInterval={requestedTimeframe} onMomentumChange={handleMomentumChange} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} onResetWidth={onResetWidth} />
+    <CompanyChart symbol={symbol} companyNameAr={instrument.name_ar} companyNameEn={instrument.name_en} marketCode={marketCode} momentum={storedMomentum} requestedInterval={requestedTimeframe} onMomentumChange={handleMomentumChange} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} onResetWidth={onResetWidth} />
 
     <section className="content-card">
       <div className="section-heading"><TrendingUp size={18} /><div><h3>{isArabic ? "المناطق السعرية" : "Price zones"}</h3><p>{isArabic ? "تتحول المنطقة المكسورة بالإغلاق إلى مقاومة، ويختفي وقفها حتى تُستعاد كدعم." : "A zone broken on close becomes resistance and its stop stays hidden until support is reclaimed."}</p></div></div>

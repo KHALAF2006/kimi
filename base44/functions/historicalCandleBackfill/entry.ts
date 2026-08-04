@@ -46,6 +46,10 @@ var LEGACY_ROLE_PERMISSIONS = {
 // base44/shared/security.ts
 var MAX_JSON_BODY_BYTES = 256 * 1024;
 var SESSION_TOKEN_PREFIX = "kmy1";
+var MARKET_ACCESS = {
+  SA_MAIN: { entitlement: "market.saudi", name_ar: "\u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629", name_en: "Saudi Main Market", currency: "SAR" },
+  US_OPTIONS: { entitlement: "market.us.options", name_ar: "\u0634\u0631\u0643\u0627\u062A \u0639\u0642\u0648\u062F \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A", name_en: "U.S. Optionable Companies", currency: "USD" }
+};
 async function sha256(value) {
   const bytes = new TextEncoder().encode(String(value));
   const digest2 = await crypto.subtle.digest("SHA-256", bytes);
@@ -210,13 +214,44 @@ async function assignedPermissions(base44, membership) {
 }
 async function subscriptionContext(base44, profile, account) {
   const accountSubscriptions = await base44.asServiceRole.entities.Subscription.filter({ account_id: account.id, status: "active" });
-  const customerSubscriptions = accountSubscriptions.length ? [] : await base44.asServiceRole.entities.Subscription.filter({ customer_id: profile.id, status: "active" });
+  const customerSubscriptions = await base44.asServiceRole.entities.Subscription.filter({ customer_id: profile.id, status: "active" });
   const now = Date.now();
-  const subscription = [...accountSubscriptions, ...customerSubscriptions].find((item) => !item.ends_at || new Date(item.ends_at).getTime() > now) || null;
-  if (!subscription) return { subscription: null, plan: null, entitlements: [] };
-  const plan = await base44.asServiceRole.entities.SubscriptionPlan.get(subscription.plan_id);
-  const entitlements = await base44.asServiceRole.entities.PlanEntitlement.filter({ plan_id: subscription.plan_id, enabled: true });
-  return { subscription, plan, entitlements };
+  const subscriptions = [...new Map([...accountSubscriptions, ...customerSubscriptions].filter((item) => !item.ends_at || new Date(item.ends_at).getTime() > now).map((item) => [item.id, item])).values()];
+  if (!subscriptions.length) return { subscription: null, subscriptions: [], plan: null, plans: [], entitlements: [], marketAccess: [] };
+  const planIds = [...new Set(subscriptions.map((item) => item.plan_id).filter(Boolean))];
+  const plans = (await Promise.all(planIds.map(async (planId) => {
+    try {
+      return await base44.asServiceRole.entities.SubscriptionPlan.get(planId);
+    } catch {
+      return null;
+    }
+  }))).filter(Boolean);
+  const entitlementGroups = await Promise.all(planIds.map(
+    (planId) => base44.asServiceRole.entities.PlanEntitlement.filter({ plan_id: planId, enabled: true })
+  ));
+  const entitlementsByCode = /* @__PURE__ */ new Map();
+  entitlementGroups.flat().forEach((item) => {
+    const current = entitlementsByCode.get(item.code);
+    if (!current || Number(item.limit_value || 0) > Number(current.limit_value || 0)) entitlementsByCode.set(item.code, item);
+  });
+  const entitlements = [...entitlementsByCode.values()];
+  const marketCodes = /* @__PURE__ */ new Set();
+  entitlementGroups.forEach((group) => {
+    const codes = new Set(group.map((item) => item.code));
+    const explicitMarkets = [...codes].filter((code) => code.startsWith("market."));
+    if (codes.has("market.us.options")) marketCodes.add("US_OPTIONS");
+    if ([...codes].some((code) => ["market.saudi", "market.saudi.delayed", "market.saudi.realtime"].includes(code))) marketCodes.add("SA_MAIN");
+    if (!explicitMarkets.length) marketCodes.add("SA_MAIN");
+  });
+  const marketAccess = [...marketCodes].map((marketCode) => ({ market_code: marketCode, ...MARKET_ACCESS[marketCode] }));
+  return {
+    subscription: subscriptions[0] || null,
+    subscriptions,
+    plan: plans.find((item) => item.id === subscriptions[0]?.plan_id) || null,
+    plans,
+    entitlements,
+    marketAccess
+  };
 }
 async function authorizationContext(base44, sessionId) {
   const user = await requireUser(base44);
@@ -346,25 +381,40 @@ var MARKET_AUTOMATION_SPECS = Object.freeze([
   { name: "saudi_session_final_1536_riyadh", cron: "36 12 * * 0-4", slotKind: "session_final", active: false }
 ]);
 var RIYADH_TIMEZONE = "Asia/Riyadh";
-function candleBucket(value, interval) {
+var SAUDI_CANDLE_OPTIONS = Object.freeze({ timeZone: "Asia/Riyadh", sessionStartMinutes: 600, weekStartsOn: 0 });
+function marketClockParts(value, timeZone) {
+  return Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(value).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+}
+function candleBucket(value, interval, options = SAUDI_CANDLE_OPTIONS) {
   const time = new Date(value).getTime();
   if (!Number.isFinite(time)) return "";
+  const resolved = { ...SAUDI_CANDLE_OPTIONS, ...options };
   if (interval === "15m") return `quarter:${Math.floor(time / (15 * 60 * 1e3))}`;
   if (["1h", "2h", "3h", "4h"].includes(interval)) {
     const hours = Number(interval.slice(0, -1));
-    const local = new Date(time + 3 * 60 * 60 * 1e3);
-    const dateKey2 = local.toISOString().slice(0, 10);
-    const minuteOfDay = local.getUTCHours() * 60 + local.getUTCMinutes();
-    const sessionMinute = minuteOfDay - 10 * 60;
+    const parts2 = marketClockParts(new Date(time), resolved.timeZone);
+    const dateKey2 = `${parts2.year}-${parts2.month}-${parts2.day}`;
+    const minuteOfDay = Number(parts2.hour) % 24 * 60 + Number(parts2.minute);
+    const sessionMinute = minuteOfDay - resolved.sessionStartMinutes;
     if (sessionMinute < 0) return "";
     return `${interval}:${dateKey2}:${Math.floor(sessionMinute / (hours * 60))}`;
   }
-  const dateKey = riyadhClock(new Date(time)).date;
+  const parts = marketClockParts(new Date(time), resolved.timeZone);
+  const dateKey = `${parts.year}-${parts.month}-${parts.day}`;
   if (interval === "1d") return `day:${dateKey}`;
   if (interval === "1mo") return `month:${dateKey.slice(0, 7)}`;
   if (interval === "1wk") {
     const start = /* @__PURE__ */ new Date(`${dateKey}T00:00:00.000Z`);
-    start.setUTCDate(start.getUTCDate() - start.getUTCDay());
+    const daysSinceStart = (start.getUTCDay() - resolved.weekStartsOn + 7) % 7;
+    start.setUTCDate(start.getUTCDate() - daysSinceStart);
     return `week:${start.toISOString().slice(0, 10)}`;
   }
   return "";
@@ -386,7 +436,7 @@ function normalizedCandleBar(bar) {
     volume
   };
 }
-function mergeStoredCandleSeries(series, requestedInterval) {
+function mergeStoredCandleSeries(series, requestedInterval, options = SAUDI_CANDLE_OPTIONS) {
   const intervalPriority = /* @__PURE__ */ new Map();
   const storedIntervals = [];
   const normalizedSeries = [];
@@ -409,7 +459,7 @@ function mergeStoredCandleSeries(series, requestedInterval) {
     for (const rawBar of sourceBars) {
       const bar = normalizedCandleBar(rawBar);
       if (!bar) continue;
-      const bucket = candleBucket(bar.time, bucketInterval);
+      const bucket = candleBucket(bar.time, bucketInterval, options);
       if (!bucket) continue;
       const current = grouped.get(bucket);
       if (!current) {
@@ -432,7 +482,7 @@ function mergeStoredCandleSeries(series, requestedInterval) {
   function mergeByBucket(bars, bucketInterval) {
     const merged = /* @__PURE__ */ new Map();
     for (const bar of bars) {
-      const bucket = candleBucket(bar.time, bucketInterval);
+      const bucket = candleBucket(bar.time, bucketInterval, options);
       if (!bucket) continue;
       const current = merged.get(bucket);
       const candidateEnd = new Date(bar.source_end).getTime();
@@ -446,7 +496,7 @@ function mergeStoredCandleSeries(series, requestedInterval) {
   function aggregateMaterialized(bars, bucketInterval) {
     const grouped = /* @__PURE__ */ new Map();
     for (const bar of bars) {
-      const bucket = candleBucket(bar.time, bucketInterval);
+      const bucket = candleBucket(bar.time, bucketInterval, options);
       if (!bucket) continue;
       const current = grouped.get(bucket);
       if (!current) {

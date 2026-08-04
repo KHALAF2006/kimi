@@ -47,7 +47,10 @@ export const RESERVED_ROLE_TEMPLATES = [
 ];
 
 export const ENTITLEMENT_CODES = new Set([
+  "market.saudi",
+  "market.saudi.delayed",
   "market.saudi.realtime",
+  "market.us.options",
   "market.gcc.delayed",
   "charts.drawings",
   "charts.saved_layouts",

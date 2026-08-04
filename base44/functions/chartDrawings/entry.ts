@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, profileFor, readJsonBody, replyError, requireActiveSession, requireUser } from "../../shared/security.ts";
+import { audit, authorizationContext, readJsonBody, replyError, requireMarketEntitlement } from "../../shared/security.ts";
 
 // base44/functions/chartDrawings/entry.ts
 var TYPES = /* @__PURE__ */ new Set(["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "measure", "price_range", "date_range", "date_and_price_range"]);
@@ -55,25 +55,26 @@ function cleanDrawing(value) {
     z_index: Math.max(-1e4, Math.min(1e4, Number(value?.zIndex ?? value?.z_index) || 0))
   };
 }
-async function instrumentFor(base44, symbol) {
-  if (!/^\d{4}$/.test(symbol)) bad("Valid four-digit symbol required", "INVALID_SYMBOL");
-  const instruments = await base44.asServiceRole.entities.Instrument.filter({ symbol });
+async function instrumentFor(base44, marketCode, symbol) {
+  if (!/^[A-Z0-9.-]{1,15}$/.test(symbol)) bad("Valid market symbol required", "INVALID_SYMBOL");
+  const instruments = await base44.asServiceRole.entities.Instrument.filter({ symbol, market_code: marketCode });
   if (!instruments[0]) throw Object.assign(new Error("Instrument not found"), { status: 404, code: "INSTRUMENT_NOT_FOUND" });
   return instruments[0];
 }
-async function ownedDrawing(base44, profile, body) {
+async function ownedDrawing(base44, profile, marketCode, body) {
   let row = null;
   if (body.drawing_id) row = await base44.asServiceRole.entities.ChartDrawing.get(String(body.drawing_id));
   if (!row && body.client_id) {
     const rows = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, client_id: String(body.client_id) });
     row = rows[0] || null;
   }
-  if (!row || row.customer_id !== profile.id) throw Object.assign(new Error("Drawing not found"), { status: 404, code: "DRAWING_NOT_FOUND" });
+  if (!row || row.customer_id !== profile.id || (row.market_code || "SA_MAIN") !== marketCode) throw Object.assign(new Error("Drawing not found"), { status: 404, code: "DRAWING_NOT_FOUND" });
   return row;
 }
 function responseDrawing(row) {
   return {
     serverId: row.id,
+    marketCode: row.market_code || "SA_MAIN",
     clientId: row.client_id,
     type: row.drawing_type,
     points: row.points,
@@ -89,29 +90,29 @@ function responseDrawing(row) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await requireUser(base44);
-    const profile = await profileFor(base44, user);
-    if (!profile) throw Object.assign(new Error("Profile not found"), { status: 404 });
     const body = await readJsonBody(req);
-    await requireActiveSession(base44, profile, body.session_id);
+    const context = await authorizationContext(base44, body.session_id);
+    const { user, profile } = context;
+    const marketCode = requireMarketEntitlement(context, body.market_code);
     if (body.action === "list") {
       const symbol = String(body.symbol || "").trim();
-      await instrumentFor(base44, symbol);
+      await instrumentFor(base44, marketCode, symbol);
       const rows = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, symbol });
       const interval = INTERVALS.has(body.interval_scope) ? body.interval_scope : "all";
-      return Response.json({ drawings: rows.filter((row) => row.interval_scope === "all" || row.interval_scope === interval).map(responseDrawing) });
+      return Response.json({ drawings: rows.filter((row) => (row.market_code || "SA_MAIN") === marketCode && (row.interval_scope === "all" || row.interval_scope === interval)).map(responseDrawing) });
     }
     if (body.action === "save") {
       const symbol = String(body.symbol || "").trim();
-      const instrument = await instrumentFor(base44, symbol);
+      const instrument = await instrumentFor(base44, marketCode, symbol);
       const clean = cleanDrawing(body.drawing);
       const interval = INTERVALS.has(body.interval_scope) ? body.interval_scope : "all";
       const matches = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, client_id: clean.client_id });
       const existing = matches[0] || null;
-      if (existing && (existing.customer_id !== profile.id || existing.symbol !== symbol)) throw Object.assign(new Error("Drawing identifier conflict"), { status: 409, code: "DRAWING_ID_CONFLICT" });
+      if (existing && (existing.customer_id !== profile.id || existing.symbol !== symbol || (existing.market_code || "SA_MAIN") !== marketCode)) throw Object.assign(new Error("Drawing identifier conflict"), { status: 409, code: "DRAWING_ID_CONFLICT" });
       const payload = {
         customer_id: profile.id,
         instrument_id: instrument.id,
+        market_code: marketCode,
         symbol,
         interval_scope: interval,
         ...clean,
@@ -122,12 +123,13 @@ Deno.serve(async (req) => {
       return Response.json({ drawing: responseDrawing(row) });
     }
     if (body.action === "duplicate") {
-      const drawing = await ownedDrawing(base44, profile, body);
+      const drawing = await ownedDrawing(base44, profile, marketCode, body);
       const clientId = String(body.new_client_id || "").trim();
       if (!/^[a-zA-Z0-9-]{8,80}$/.test(clientId)) bad("Invalid duplicate drawing identifier");
       const conflicts = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, client_id: clientId });
       if (conflicts[0]) throw Object.assign(new Error("Drawing identifier conflict"), { status: 409, code: "DRAWING_ID_CONFLICT" });
-      const siblings = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, symbol: drawing.symbol });
+      const siblings = (await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, symbol: drawing.symbol }))
+        .filter((item) => (item.market_code || "SA_MAIN") === marketCode);
       const maxZIndex = Math.max(0, ...siblings.map((item) => Number(item.z_index || 0)));
       const points = Array.isArray(body.points) && body.points.length
         ? body.points.map(cleanPoint)
@@ -138,6 +140,7 @@ Deno.serve(async (req) => {
       const copy = await base44.asServiceRole.entities.ChartDrawing.create({
         customer_id: profile.id,
         instrument_id: drawing.instrument_id,
+        market_code: marketCode,
         symbol: drawing.symbol,
         interval: drawing.interval_scope === "all" ? "15m" : drawing.interval_scope,
         interval_scope: drawing.interval_scope || "all",
@@ -155,7 +158,7 @@ Deno.serve(async (req) => {
       return Response.json({ drawing: responseDrawing(copy) });
     }
     if (body.action === "save_alert") {
-      const drawing = await ownedDrawing(base44, profile, body);
+      const drawing = await ownedDrawing(base44, profile, marketCode, body);
       if (!ALERT_TYPES.has(drawing.drawing_type)) bad("Alerts are supported for trend lines, rays, and horizontal lines", "DRAWING_ALERT_UNSUPPORTED");
       const requested = String(body.alert?.condition || "crosses");
       const condition = requested === "crosses_above" ? "crosses_drawing_above" : requested === "crosses_below" ? "crosses_drawing_below" : "crosses_drawing";
@@ -165,6 +168,7 @@ Deno.serve(async (req) => {
       const payload = {
         customer_id: profile.id,
         instrument_id: drawing.instrument_id,
+        market_code: marketCode,
         symbol: drawing.symbol,
         indicator_key: "chart_drawing",
         condition,
@@ -181,7 +185,7 @@ Deno.serve(async (req) => {
       return Response.json({ rule });
     }
     if (body.action === "delete_alert") {
-      const drawing = await ownedDrawing(base44, profile, body);
+      const drawing = await ownedDrawing(base44, profile, marketCode, body);
       if (drawing.alert_rule_id) {
         const rule = await base44.asServiceRole.entities.AlertRule.get(drawing.alert_rule_id);
         if (rule?.customer_id === profile.id) await base44.asServiceRole.entities.AlertRule.delete(rule.id);
@@ -192,11 +196,11 @@ Deno.serve(async (req) => {
     }
     if (body.action === "set_visibility_bulk") {
       const symbol = String(body.symbol || "").trim();
-      await instrumentFor(base44, symbol);
+      await instrumentFor(base44, marketCode, symbol);
       const interval = INTERVALS.has(body.interval_scope) ? body.interval_scope : "all";
       const visible = body.visible === true;
       const rows = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, symbol });
-      const scoped = rows.filter((row) => row.interval_scope === "all" || row.interval_scope === interval);
+      const scoped = rows.filter((row) => (row.market_code || "SA_MAIN") === marketCode && (row.interval_scope === "all" || row.interval_scope === interval));
       await Promise.all(scoped.map((row) => base44.asServiceRole.entities.ChartDrawing.update(row.id, {
         visible,
         revision: Number(row.revision || 0) + 1
@@ -207,10 +211,10 @@ Deno.serve(async (req) => {
     if (body.action === "delete_all") {
       if (body.confirm_all !== true) bad("Explicit confirmation is required", "DRAWING_DELETE_ALL_CONFIRMATION_REQUIRED");
       const symbol = String(body.symbol || "").trim();
-      await instrumentFor(base44, symbol);
+      await instrumentFor(base44, marketCode, symbol);
       const interval = INTERVALS.has(body.interval_scope) ? body.interval_scope : "all";
       const rows = await base44.asServiceRole.entities.ChartDrawing.filter({ customer_id: profile.id, symbol });
-      const scoped = rows.filter((row) => row.interval_scope === "all" || row.interval_scope === interval);
+      const scoped = rows.filter((row) => (row.market_code || "SA_MAIN") === marketCode && (row.interval_scope === "all" || row.interval_scope === interval));
       const withAlerts = scoped.filter((row) => row.alert_rule_id);
       if (withAlerts.length && body.confirm_alert_delete !== true) {
         throw Object.assign(new Error("One or more drawings have active alerts"), { status: 409, code: "DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED" });
@@ -224,7 +228,7 @@ Deno.serve(async (req) => {
       return Response.json({ removed: scoped.length });
     }
     if (body.action === "delete") {
-      const drawing = await ownedDrawing(base44, profile, body);
+      const drawing = await ownedDrawing(base44, profile, marketCode, body);
       if (drawing.alert_rule_id && body.confirm_alert_delete !== true) {
         throw Object.assign(new Error("Drawing has an active alert"), { status: 409, code: "DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED" });
       }

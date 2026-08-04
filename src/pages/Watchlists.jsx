@@ -6,6 +6,7 @@ import StatusPanel from "@/components/StatusPanel";
 import InstrumentSearchInput from "@/components/market/InstrumentSearchInput";
 import { invokeAppFunction } from "@/services/marketService";
 import { usePreferences } from "@/lib/preferences";
+import { useActiveMarket } from "@/lib/MarketContext";
 
 const copy = {
   ar: { title: "قوائم المتابعة", description: "أنشئ قوائمك وأضف الشركات وافتح شارت أي شركة مباشرة.", newList: "اسم القائمة الجديدة", create: "إنشاء قائمة", symbol: "رمز الشركة", add: "إضافة", empty: "لا توجد قوائم متابعة", noItems: "لم تُضف شركات بعد.", removeItem: "إزالة الشركة", deleteList: "حذف القائمة", confirmList: "هل تريد حذف القائمة وجميع شركاتها؟" },
@@ -14,27 +15,29 @@ const copy = {
 
 export default function Watchlists() {
   const { language, isArabic } = usePreferences();
+  const { marketCode, market } = useActiveMarket();
   const t = copy[language];
   const [state, setState] = useState({ loading: true, data: [], error: "", busy: "" });
   const [name, setName] = useState("");
   const [symbols, setSymbols] = useState({});
 
   async function load() {
+    if (!marketCode) return;
     setState((value) => ({ ...value, loading: true, error: "" }));
     try {
-      const data = await invokeAppFunction("screeningWatchlists", { action: "list" });
+      const data = await invokeAppFunction("screeningWatchlists", { action: "list", market_code: marketCode });
       setState({ loading: false, data: data.watchlists || [], error: "", busy: "" });
     } catch (error) {
       setState((value) => ({ ...value, loading: false, error: error?.response?.data?.error || error.message, busy: "" }));
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { setSymbols({}); if (marketCode) load(); }, [marketCode]);
 
   async function mutate(key, payload) {
     setState((value) => ({ ...value, busy: key, error: "" }));
     try {
-      await invokeAppFunction("screeningWatchlists", payload);
+      await invokeAppFunction("screeningWatchlists", { ...payload, market_code: marketCode });
       await load();
       return true;
     } catch (error) {
@@ -71,12 +74,12 @@ export default function Watchlists() {
           <button type="button" className="icon-button text-red-600" onClick={() => window.confirm(t.confirmList) && mutate(`delete:${watchlist.id}`, { action: "delete", watchlist_id: watchlist.id })} disabled={state.busy === `delete:${watchlist.id}`} title={t.deleteList} aria-label={`${t.deleteList}: ${watchlist.name}`}><Trash2 size={17}/></button>
         </header>
         <form onSubmit={(event) => addItem(event, watchlist.id)} className="flex gap-2 p-4">
-          <div className="min-w-0 flex-1"><InstrumentSearchInput value={symbols[watchlist.id] || ""} onChange={(symbol) => setSymbols((value) => ({ ...value, [watchlist.id]: symbol }))} isArabic={isArabic} required label={`${t.symbol}: ${watchlist.name}`} /></div>
+          <div className="min-w-0 flex-1"><InstrumentSearchInput value={symbols[watchlist.id] || ""} onChange={(symbol) => setSymbols((value) => ({ ...value, [watchlist.id]: symbol }))} marketCode={marketCode} isArabic={isArabic} required label={`${t.symbol}: ${watchlist.name}`} /></div>
           <button className="secondary-button shrink-0" disabled={state.busy === `add:${watchlist.id}`}><Plus size={16}/><span>{t.add}</span></button>
         </form>
         <div className="divide-y divide-slate-200 dark:divide-slate-800">
           {watchlist.items?.length ? watchlist.items.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 px-4 py-3">
-            <SessionLink to={`/company?symbol=${encodeURIComponent(item.symbol)}`} className="flex min-w-0 flex-1 items-center gap-3 text-sky-700 hover:underline dark:text-sky-300"><Eye size={16}/><span className="min-w-0"><b className="block font-black">{item.symbol} · {isArabic ? item.instrument?.name_ar : item.instrument?.name_en}</b><small className="block truncate text-slate-500">{isArabic ? item.instrument?.sector_ar : item.instrument?.sector_en}{item.quote?.last_price ? ` · ${Number(item.quote.last_price).toFixed(2)} ر.س (${Number(item.quote.change_percent || 0).toFixed(2)}%)` : ""}</small></span></SessionLink>
+            <SessionLink to={`/company?symbol=${encodeURIComponent(item.symbol)}&market=${encodeURIComponent(marketCode)}`} className="flex min-w-0 flex-1 items-center gap-3 text-sky-700 hover:underline dark:text-sky-300"><Eye size={16}/><span className="min-w-0"><b className="block font-black">{item.symbol} · {isArabic ? item.instrument?.name_ar : item.instrument?.name_en}</b><small className="block truncate text-slate-500">{isArabic ? item.instrument?.sector_ar : item.instrument?.sector_en}{item.quote?.last_price ? ` · ${Number(item.quote.last_price).toFixed(2)} ${market?.currency || ""} (${Number(item.quote.change_percent || 0).toFixed(2)}%)` : ""}</small></span></SessionLink>
             <button type="button" className="icon-button text-red-600" onClick={() => mutate(`remove:${item.id}`, { action: "remove_item", watchlist_id: watchlist.id, item_id: item.id })} disabled={state.busy === `remove:${item.id}`} title={t.removeItem} aria-label={`${t.removeItem}: ${item.symbol}`}><X size={16}/></button>
           </div>) : <p className="px-4 pb-5 text-sm text-slate-500">{t.noItems}</p>}
         </div>
