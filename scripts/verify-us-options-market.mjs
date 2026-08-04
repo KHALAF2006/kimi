@@ -162,6 +162,7 @@ assert.match(signals, /dedupeDailyBars/);
 assert.match(signals, /const PROJECTION_BATCH_SIZE = 2/);
 assert.match(signals, /body\.mode === "projection_batch"/);
 assert.match(signals, /run_type: "technical_projection_batch"/);
+assert.match(signals, /market_data\.refresh_signals_batch/);
 assert.match(signals, /instrument_id: idQuery, market_code: US_OPTIONS_MARKET_CODE, interval: "1d"/);
 assert.match(signals, /Promise\.allSettled\(group\.map/);
 assert.match(signals, /projectInstrumentBatch\(base44, instrumentIds, sessionDate, source\.id, run\.id\)/);
@@ -170,6 +171,9 @@ assert.match(signals, /aggregateTechnicalBars\(daily, "1wk", MARKET_OPTIONS\)/);
 assert.match(signals, /aggregateTechnicalBars\(daily, "1mo", MARKET_OPTIONS\)/);
 assert.match(signals, /indicator_key: "technical_signals"/);
 assert.match(signals, /indicator_key: "momentum_zones"/);
+
+const operationsAdmin = await source("src/pages/OperationsAdmin.jsx");
+assert.match(operationsAdmin, /invokeAppFunction\("usOptionsSignalRefresh"/);
 
 const marketContext = await source("src/lib/MarketContext.jsx");
 assert.match(marketContext, /availableMarkets\.some\(\(market\) => market\.market_code === normalized\)/);

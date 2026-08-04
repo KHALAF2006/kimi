@@ -42,7 +42,12 @@ export default function OperationsAdmin() {
         let batchCount = 1;
         do {
           setState((value) => ({ ...value, progress: `حساب دفعة الإشارات ${batchIndex + 1} من ${batchCount}` }));
-          const result = await invokeAppFunction("adminMarketData", { action, reason, market_code: marketCode, batch_index: batchIndex });
+          const result = await invokeAppFunction("usOptionsSignalRefresh", {
+            mode: "projection_batch",
+            reason,
+            market_code: marketCode,
+            batch_index: batchIndex,
+          });
           batchCount = Math.max(1, Number(result?.batch_count) || 1);
           batchIndex += 1;
           if (batchIndex < batchCount) await new Promise((resolve) => setTimeout(resolve, 350));

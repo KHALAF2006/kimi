@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { readJsonBody, replyError, requirePermission, requireTrustedOwner } from "../../shared/security.ts";
+import { audit, readJsonBody, replyError, requirePermission, requireTrustedOwner } from "../../shared/security.ts";
 import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from "../../shared/momentum.ts";
 import { aggregateTechnicalBars, calculateTechnicalSignals, normalizeTechnicalBars, TECHNICAL_SIGNAL_FORMULA_VERSION } from "../../shared/technical-signals.ts";
 import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE, US_OPTIONS_SYMBOLS } from "../../shared/us-options-catalog.ts";
@@ -166,8 +166,9 @@ Deno.serve(async (req) => {
     base44 = createClientFromRequest(req);
     const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...(requestBody.args || {}) };
-    if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
-    else await requireTrustedOwner(base44);
+    const authContext = body.session_id
+      ? await requirePermission(base44, body.session_id, "data.ingestion.run")
+      : await requireTrustedOwner(base44);
     const sessionDate = String(body.session_date || nyDate());
 
     if (body.mode === "projection_batch") {
@@ -196,6 +197,17 @@ Deno.serve(async (req) => {
         coverage_percent: selected.length ? (selected.length - failed) / selected.length * 100 : 0,
         notes: JSON.stringify({ batch_index: batchIndex, batch_count: batchCount, candles: result.candles, signals: result.signals, skipped: result.skipped }),
       });
+      if (authContext?.user?.id) await audit(
+        base44,
+        authContext.user.id,
+        "market_data.refresh_signals_batch",
+        "IngestionRun",
+        run.id,
+        status,
+        String(body.reason || "manual U.S. signal projection").slice(0, 500),
+        {},
+        { market_code: US_OPTIONS_MARKET_CODE, batch_index: batchIndex, batch_count: batchCount }
+      );
       return Response.json({ ...result, status, market_code: US_OPTIONS_MARKET_CODE, session_date: sessionDate, run_id: run.id, batch_index: batchIndex, batch_count: batchCount });
     }
 

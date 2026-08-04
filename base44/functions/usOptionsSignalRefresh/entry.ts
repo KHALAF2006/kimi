@@ -2314,8 +2314,7 @@ Deno.serve(async (req) => {
     base44 = createClientFromRequest(req);
     const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...requestBody.args || {} };
-    if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
-    else await requireTrustedOwner(base44);
+    const authContext = body.session_id ? await requirePermission(base44, body.session_id, "data.ingestion.run") : await requireTrustedOwner(base44);
     const sessionDate = String(body.session_date || nyDate());
     if (body.mode === "projection_batch") {
       const allInstruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_OPTIONS_MARKET_CODE }, "symbol", 500)).filter((item) => US_OPTIONS_SYMBOLS.has(item.symbol) && item.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
@@ -2351,6 +2350,17 @@ Deno.serve(async (req) => {
         coverage_percent: selected.length ? (selected.length - failed) / selected.length * 100 : 0,
         notes: JSON.stringify({ batch_index: batchIndex, batch_count: batchCount, candles: result.candles, signals: result.signals, skipped: result.skipped })
       });
+      if (authContext?.user?.id) await audit(
+        base44,
+        authContext.user.id,
+        "market_data.refresh_signals_batch",
+        "IngestionRun",
+        run.id,
+        status2,
+        String(body.reason || "manual U.S. signal projection").slice(0, 500),
+        {},
+        { market_code: US_OPTIONS_MARKET_CODE, batch_index: batchIndex, batch_count: batchCount }
+      );
       return Response.json({ ...result, status: status2, market_code: US_OPTIONS_MARKET_CODE, session_date: sessionDate, run_id: run.id, batch_index: batchIndex, batch_count: batchCount });
     }
     const slotKey = `${US_OPTIONS_MARKET_CODE}:technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
