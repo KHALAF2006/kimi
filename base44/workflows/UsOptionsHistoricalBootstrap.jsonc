@@ -9,7 +9,7 @@
       }
     }]
   },
-  "description": "دفعات محدودة تملأ الأرشيف التاريخي لشركات عقود الخيارات ثم تتوقف بعد اكتمال التهيئة.",
+  "description": "دفعات محدودة تملأ الأرشيف التاريخي لشركات عقود الخيارات؛ تتجاوز الوظيفة الشركات المكتملة ويوقفه المالك بعد اكتمال الكتالوج.",
   "name": "سوق الخيارات — تهيئة التاريخي",
   "trigger": {
     "condition": null,
@@ -17,7 +17,7 @@
       "trigger_type": "scheduled", "events": [], "schedule_mode": "recurring",
       "cron_expression": "0 3 * * *", "one_time_date": null,
       "timezone": "America/New_York", "interval_value": null, "interval_unit": null,
-      "interval_anchor": null, "ends_type": "after", "ends_on_date": null, "ends_after_count": 12
+      "interval_anchor": null, "ends_type": "never", "ends_on_date": null, "ends_after_count": null
     }
   }
 }

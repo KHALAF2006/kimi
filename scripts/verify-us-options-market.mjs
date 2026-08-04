@@ -200,8 +200,8 @@ assert.equal(ingestionBatch2Workflow.trigger.config.cron_expression, "2,17,32,47
 assert.equal(Object.values(ingestionWorkflow.definition.do[0])[0].with.args.batch_index, 0);
 assert.equal(Object.values(ingestionBatch2Workflow.definition.do[0])[0].with.args.batch_index, 1);
 assert.equal(signalWorkflow.trigger.config.cron_expression, "0 18 * * 1-5");
-assert.equal(historyWorkflow.trigger.config.ends_type, "after");
-assert.equal(historyWorkflow.trigger.config.ends_after_count, 12);
+assert.equal(historyWorkflow.trigger.config.ends_type, "never");
+assert.equal(historyWorkflow.trigger.config.ends_after_count, null);
 assert.equal(Object.values(companyWorkflow.definition.do[0])[0].with.args.batch_size, 10);
 for (const workflow of [ingestionWorkflow, ingestionBatch2Workflow, signalWorkflow, historyWorkflow, companyWorkflow]) {
   assert.equal(workflow.trigger.config.trigger_type, "scheduled");
