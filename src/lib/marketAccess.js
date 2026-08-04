@@ -12,6 +12,8 @@ export const OWNER_US_OPTIONS_MARKET = Object.freeze({
   currency: "USD",
 });
 
+export const SUPPORTED_MARKETS = Object.freeze([LEGACY_SAUDI_MARKET, OWNER_US_OPTIONS_MARKET]);
+
 /**
  * Preserve the pre-multi-market identity contract without widening access.
  * An explicit market_access field remains authoritative, including an empty
