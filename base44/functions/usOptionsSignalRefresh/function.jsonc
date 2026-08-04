@@ -1,17 +1,4 @@
 {
   "name": "usOptionsSignalRefresh",
-  "entry": "entry.ts",
-  "automations": [
-    {
-      "type": "scheduled",
-      "name": "us_options_daily_signals",
-      "description": "إسقاط اليومية والأسبوعية والشهرية والإشارات بعد إغلاق نيويورك في الصيف والشتاء.",
-      "function_args": { "market_code": "US_OPTIONS", "source": "daily_session_projection" },
-      "is_active": true,
-      "schedule_mode": "recurring",
-      "schedule_type": "cron",
-      "cron_expression": "0 22 * * 1-5",
-      "ends_type": "never"
-    }
-  ]
+  "entry": "entry.ts"
 }

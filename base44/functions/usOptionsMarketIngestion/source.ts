@@ -87,9 +87,11 @@ async function nextTradingSessionDate(base44, sessionDate) {
   throw Object.assign(new Error("Unable to resolve the next U.S. trading session"), { status: 503, code: "US_OPTIONS_CALENDAR_INCOMPLETE" });
 }
 
-async function upsertMany(base44, entity, incoming, fields) {
+async function upsertMany(base44, entity, incoming, fields, existingFilter = null) {
   const unique = [...new Map(incoming.map((row) => [keyFor(row, fields), row])).values()];
-  const existing = rows(await base44.asServiceRole.entities[entity].list("-updated_date", 5e3));
+  const existing = rows(existingFilter
+    ? await base44.asServiceRole.entities[entity].filter(existingFilter)
+    : await base44.asServiceRole.entities[entity].list("-updated_date", 5e3));
   const byKey = new Map(existing.map((row) => [keyFor(row, fields), row]));
   const creates = unique.filter((row) => !byKey.has(keyFor(row, fields)));
   const updates = unique.filter((row) => byKey.has(keyFor(row, fields))).map((row) => ({ id: byKey.get(keyFor(row, fields)).id, ...row }));
@@ -121,6 +123,60 @@ function instrumentRow(company) {
     status: "active",
     official_url: company.nasdaqUrl,
   };
+}
+
+async function ensureCatalog(base44, now) {
+  const marketRows = await base44.asServiceRole.entities.Market.filter({ market_code: US_OPTIONS_MARKET_CODE });
+  if (marketRows[0]) await base44.asServiceRole.entities.Market.update(marketRows[0].id, US_OPTIONS_CATALOG.market);
+  else await base44.asServiceRole.entities.Market.create(US_OPTIONS_CATALOG.market);
+
+  const sourceRows = await base44.asServiceRole.entities.DataSource.filter({ code: PROVIDER_CODE });
+  const sourceData = {
+    name: "U.S. optionable equities delayed chart adapter", market_code: US_OPTIONS_MARKET_CODE,
+    source_type: "reference", quote_mode: "delayed", delay_seconds: DELAY_SECONDS,
+    license_status: "restricted", public_enabled: false, base_url: "https://query1.finance.yahoo.com",
+    last_verified_at: now.toISOString(),
+  };
+  const source = sourceRows[0]
+    ? await base44.asServiceRole.entities.DataSource.update(sourceRows[0].id, sourceData)
+    : await base44.asServiceRole.entities.DataSource.create({ code: PROVIDER_CODE, ...sourceData });
+
+  const existingInstruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_OPTIONS_MARKET_CODE }));
+  const byCompositeKey = new Map(existingInstruments.map((instrument) => [instrument.composite_key, instrument]));
+  const instrumentCreates = [];
+  const instrumentUpdates = [];
+  for (const company of US_OPTIONS_CATALOG.companies) {
+    const payload = instrumentRow(company);
+    const current = byCompositeKey.get(payload.composite_key);
+    if (!current) instrumentCreates.push(payload);
+    else if (["symbol", "name_ar", "name_en", "sector_ar", "sector_en", "industry_en", "currency", "status", "catalog_as_of"]
+      .some((field) => current[field] !== payload[field])) instrumentUpdates.push({ id: current.id, ...payload });
+  }
+  if (instrumentCreates.length) await base44.asServiceRole.entities.Instrument.bulkCreate(instrumentCreates);
+  if (instrumentUpdates.length) await base44.asServiceRole.entities.Instrument.bulkUpdate(instrumentUpdates);
+  const instruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_OPTIONS_MARKET_CODE }))
+    .filter((instrument) => US_OPTIONS_SYMBOLS.has(instrument.symbol) && instrument.status !== "delisted");
+  if (instruments.length !== US_OPTIONS_CATALOG.companies.length) throw Object.assign(new Error(`U.S. options catalog incomplete: ${instruments.length}/${US_OPTIONS_CATALOG.companies.length}`), { status: 503, code: "US_OPTIONS_CATALOG_INCOMPLETE" });
+
+  const existingMappings = rows(await base44.asServiceRole.entities.ProviderInstrumentMap.filter({ market_code: US_OPTIONS_MARKET_CODE }));
+  const mappingsByKey = new Map(existingMappings.map((mapping) => [`${mapping.instrument_id}|${mapping.provider_code}`, mapping]));
+  const mappingCreates = [];
+  const mappingUpdates = [];
+  for (const instrument of instruments) {
+    const payload = {
+      instrument_id: instrument.id, market_code: US_OPTIONS_MARKET_CODE, provider_code: PROVIDER_CODE,
+      provider_symbol: instrument.symbol, quote_mode: "delayed", delay_seconds: DELAY_SECONDS,
+      license_status: "pending", active: true,
+    };
+    const current = mappingsByKey.get(`${instrument.id}|${PROVIDER_CODE}`);
+    if (!current) mappingCreates.push(payload);
+    else if (["provider_symbol", "quote_mode", "delay_seconds", "license_status", "active"]
+      .some((field) => current[field] !== payload[field])) mappingUpdates.push({ id: current.id, ...payload });
+  }
+  if (mappingCreates.length) await base44.asServiceRole.entities.ProviderInstrumentMap.bulkCreate(mappingCreates);
+  if (mappingUpdates.length) await base44.asServiceRole.entities.ProviderInstrumentMap.bulkUpdate(mappingUpdates);
+
+  return { source, instruments, bySymbol: new Map(instruments.map((instrument) => [instrument.symbol, instrument])) };
 }
 
 async function fetchChart(symbol, now = new Date()) {
@@ -199,8 +255,7 @@ function normalizeChart(symbol, result, now) {
   };
 }
 
-async function fetchUniverse(now) {
-  const symbols = US_OPTIONS_CATALOG.companies.map((company) => company.symbol);
+async function fetchUniverse(now, symbols) {
   const output = [];
   const failures = [];
   let cursor = 0;
@@ -268,46 +323,38 @@ Deno.serve(async (req) => {
     if (String(body.market_code || US_OPTIONS_MARKET_CODE) !== US_OPTIONS_MARKET_CODE) throw Object.assign(new Error("Wrong market for U.S. options ingestion"), { status: 400, code: "MARKET_MISMATCH" });
     const now = new Date();
     const clock = nyClock(now);
+    // Catalog readiness is independent from the exchange session. This keeps a newly
+    // enabled market discoverable even when its first trusted invocation happens
+    // outside trading hours; quote ingestion remains gated below.
+    const { source, instruments, bySymbol } = await ensureCatalog(base44, now);
+    const batchCount = Math.min(Math.max(Number(body.batch_count) || 2, 1), US_OPTIONS_CATALOG.companies.length);
+    const batchIndex = Math.min(Math.max(Number(body.batch_index) || 0, 0), batchCount - 1);
+    const batchSymbols = US_OPTIONS_CATALOG.companies
+      .map((company) => company.symbol)
+      .filter((_, index) => index % batchCount === batchIndex);
+    const batchSymbolSet = new Set(batchSymbols);
+    const batchInstruments = instruments.filter((instrument) => batchSymbolSet.has(instrument.symbol));
+    if (body.action === "catalog_status") return Response.json({
+      status: "ready", market_code: US_OPTIONS_MARKET_CODE,
+      instruments: instruments.length, batch_size: batchInstruments.length,
+      batch_index: batchIndex, batch_count: batchCount,
+    });
     const session = await sessionDecision(base44, clock);
     if (!session.tradingDay) return Response.json({ status: "skipped", reason: session.reason, market_code: US_OPTIONS_MARKET_CODE, session_date: clock.date });
     const minute = clock.hour * 60 + clock.minute;
     const closeMinute = session.closeMinute;
     if (minute < 600 || minute > closeMinute + 30) return Response.json({ status: "skipped", reason: "outside_ingestion_window", market_code: US_OPTIONS_MARKET_CODE, session_date: clock.date });
 
-    const marketRows = await base44.asServiceRole.entities.Market.filter({ market_code: US_OPTIONS_MARKET_CODE });
-    if (marketRows[0]) await base44.asServiceRole.entities.Market.update(marketRows[0].id, US_OPTIONS_CATALOG.market);
-    else await base44.asServiceRole.entities.Market.create(US_OPTIONS_CATALOG.market);
-    const sourceRows = await base44.asServiceRole.entities.DataSource.filter({ code: PROVIDER_CODE });
-    const sourceData = {
-      name: "U.S. optionable equities delayed chart adapter", market_code: US_OPTIONS_MARKET_CODE,
-      source_type: "reference", quote_mode: "delayed", delay_seconds: DELAY_SECONDS,
-      license_status: "restricted", public_enabled: false, base_url: "https://query1.finance.yahoo.com",
-      last_verified_at: now.toISOString(),
-    };
-    const source = sourceRows[0]
-      ? await base44.asServiceRole.entities.DataSource.update(sourceRows[0].id, sourceData)
-      : await base44.asServiceRole.entities.DataSource.create({ code: PROVIDER_CODE, ...sourceData });
-    await upsertMany(base44, "Instrument", US_OPTIONS_CATALOG.companies.map(instrumentRow), ["composite_key"]);
-    const instruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_OPTIONS_MARKET_CODE }))
-      .filter((instrument) => US_OPTIONS_SYMBOLS.has(instrument.symbol) && instrument.status !== "delisted");
-    if (instruments.length !== US_OPTIONS_CATALOG.companies.length) throw Object.assign(new Error(`U.S. options catalog incomplete: ${instruments.length}/${US_OPTIONS_CATALOG.companies.length}`), { status: 503, code: "US_OPTIONS_CATALOG_INCOMPLETE" });
-    const bySymbol = new Map(instruments.map((instrument) => [instrument.symbol, instrument]));
-    await upsertMany(base44, "ProviderInstrumentMap", instruments.map((instrument) => ({
-      instrument_id: instrument.id, market_code: US_OPTIONS_MARKET_CODE, provider_code: PROVIDER_CODE,
-      provider_symbol: instrument.symbol, quote_mode: "delayed", delay_seconds: DELAY_SECONDS,
-      license_status: "pending", active: true,
-    })), ["instrument_id", "provider_code"]);
-
-    const slotKey = `${US_OPTIONS_MARKET_CODE}:${clock.date}:15m:${clock.hour.toString().padStart(2, "0")}:${Math.floor(clock.minute / 15) * 15}`;
+    const slotKey = `${US_OPTIONS_MARKET_CODE}:${clock.date}:15m:${clock.hour.toString().padStart(2, "0")}:${Math.floor(clock.minute / 15) * 15}:batch-${batchIndex + 1}-of-${batchCount}`;
     const existingRuns = await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey });
     if (existingRuns.some((item) => ["success", "partial"].includes(item.status)) && body.force !== true) return Response.json({ status: "skipped", reason: "already_ingested", slot_key: slotKey });
     run = await base44.asServiceRole.entities.IngestionRun.create({
       run_type: "quarter_hour", market_code: US_OPTIONS_MARKET_CODE, slot_key: slotKey, slot_kind: "quarter_hour",
       scheduled_for: now.toISOString(), lease_expires_at: new Date(now.getTime() + 4 * 60e3).toISOString(),
-      started_at: now.toISOString(), total_records: instruments.length, success_count: 0, failed_count: 0,
+      started_at: now.toISOString(), total_records: batchInstruments.length, success_count: 0, failed_count: 0,
       status: "running", source_id: source.id, notes: "U.S. optionable company T+15 incremental candle update",
     });
-    const { output, failures } = await fetchUniverse(now);
+    const { output, failures } = await fetchUniverse(now, batchSymbols);
     const received = new Date().toISOString();
     const snapshotVersion = `${US_OPTIONS_MARKET_CODE}:${clock.date}:${Date.now()}`;
     const isFinal = minute >= closeMinute + 15;
@@ -337,19 +384,19 @@ Deno.serve(async (req) => {
         bucket_count: item.bars.length, completeness_status: "complete", is_historical_archive: false, adjustment_mode: "none",
       });
     }
-    const quoteResult = await upsertMany(base44, "QuoteLatest", acceptedQuotes, ["instrument_id"]);
-    const candleResult = await upsertMany(base44, "CandleChunk", chunks, ["instrument_id", "interval", "chunk_key"]);
+    const quoteResult = await upsertMany(base44, "QuoteLatest", acceptedQuotes, ["instrument_id"], { market_code: US_OPTIONS_MARKET_CODE });
+    const candleResult = await upsertMany(base44, "CandleChunk", chunks, ["instrument_id", "interval", "chunk_key"], { market_code: US_OPTIONS_MARKET_CODE, interval: "15m", session_date: clock.date });
     const acceptedIds = new Set(acceptedQuotes.map((quote) => quote.instrument_id));
-    const stale = rows(await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500))
-      .filter((quote) => quote.market_code === US_OPTIONS_MARKET_CODE && !acceptedIds.has(quote.instrument_id))
+    const stale = rows(await base44.asServiceRole.entities.QuoteLatest.filter({ market_code: US_OPTIONS_MARKET_CODE }))
+      .filter((quote) => batchInstruments.some((instrument) => instrument.id === quote.instrument_id) && !acceptedIds.has(quote.instrument_id))
       .map((quote) => ({ id: quote.id, freshness_status: "stale", quality_status: "stale" }));
     if (stale.length) await base44.asServiceRole.entities.QuoteLatest.bulkUpdate([...new Map(stale.map((row) => [row.id, row])).values()]);
     await evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate);
-    const coverage = acceptedQuotes.length / instruments.length * 100;
+    const coverage = acceptedQuotes.length / batchInstruments.length * 100;
     const status = coverage >= 99 ? "success" : coverage >= 95 ? "partial" : "failed";
     await base44.asServiceRole.entities.IngestionRun.update(run.id, {
       status, finished_at: new Date().toISOString(), success_count: acceptedQuotes.length,
-      failed_count: instruments.length - acceptedQuotes.length, coverage_percent: coverage,
+      failed_count: batchInstruments.length - acceptedQuotes.length, coverage_percent: coverage,
       provider_as_of: acceptedQuotes.map((quote) => quote.provider_as_of).sort().at(-1) || null,
       snapshot_version: snapshotVersion, notes: `quotes:${acceptedQuotes.length};failures:${failures.length}`,
     });
@@ -358,6 +405,7 @@ Deno.serve(async (req) => {
       status, market_code: US_OPTIONS_MARKET_CODE, session_date: clock.date, run_id: run.id,
       coverage_percent: coverage, quotes: quoteResult, candles: candleResult,
       accepted: acceptedQuotes.length, rejected: failures.length, snapshot_version: snapshotVersion, is_final: isFinal,
+      batch_index: batchIndex, batch_count: batchCount,
     });
   } catch (error) {
     if (base44 && run?.id) {

@@ -1,0 +1,23 @@
+{
+  "definition": {
+    "document": { "dsl": "1.0.0", "name": "us_options_company_intelligence_daily", "version": "1.0", "namespace": "base44" },
+    "do": [{
+      "refresh_us_options_company_intelligence": {
+        "call": "invoke_backend_function",
+        "with": { "function_name": "usOptionsCompanyIntelligence", "args": { "market_code": "US_OPTIONS", "batch_size": 10 } },
+        "then": "end"
+      }
+    }]
+  },
+  "description": "تحديث دفعة متناوبة من إفصاحات وماليات وإجراءات وملكية شركات عقود الخيارات.",
+  "name": "سوق الخيارات — معلومات الشركات",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled", "events": [], "schedule_mode": "recurring",
+      "cron_expression": "30 3 * * *", "one_time_date": null,
+      "timezone": "America/New_York", "interval_value": null, "interval_unit": null,
+      "interval_anchor": null, "ends_type": "never", "ends_on_date": null, "ends_after_count": null
+    }
+  }
+}

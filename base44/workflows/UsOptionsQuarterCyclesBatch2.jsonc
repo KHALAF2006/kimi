@@ -1,0 +1,23 @@
+{
+  "definition": {
+    "document": { "dsl": "1.0.0", "name": "us_options_quarter_cycles_batch_2", "version": "1.0", "namespace": "base44" },
+    "do": [{
+      "refresh_us_options_quarter_batch_2": {
+        "call": "invoke_backend_function",
+        "with": { "function_name": "usOptionsMarketIngestion", "args": { "market_code": "US_OPTIONS", "source": "scheduled_t15", "batch_index": 1, "batch_count": 2 } },
+        "then": "end"
+      }
+    }]
+  },
+  "description": "الدفعة الثانية المكملة لتحديث شركات عقود الخيارات، تبدأ بعد الدفعة الأولى بدقيقتين.",
+  "name": "سوق الخيارات — ربع الساعة — الدفعة 2",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled", "events": [], "schedule_mode": "recurring",
+      "cron_expression": "2,17,32,47 10-16 * * 1-5", "one_time_date": null,
+      "timezone": "America/New_York", "interval_value": null, "interval_unit": null,
+      "interval_anchor": null, "ends_type": "never", "ends_on_date": null, "ends_after_count": null
+    }
+  }
+}

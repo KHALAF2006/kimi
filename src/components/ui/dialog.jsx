@@ -14,7 +14,12 @@ const DialogPortal = DialogPrimitive.Portal
 
 const DialogClose = DialogPrimitive.Close
 
-const DialogOverlay = React.forwardRef(({ className, ...props }, ref) => (
+/**
+ * @param {React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>} props
+ * @param {React.ForwardedRef<React.ElementRef<typeof DialogPrimitive.Overlay>>} ref
+ */
+function DialogOverlayComponent({ className, ...props }, ref) {
+  return (
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
@@ -22,10 +27,17 @@ const DialogOverlay = React.forwardRef(({ className, ...props }, ref) => (
       className
     )}
     {...props} />
-))
+  )
+}
+const DialogOverlay = React.forwardRef(DialogOverlayComponent)
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
-const DialogContent = React.forwardRef(({ className, children, ...props }, ref) => (
+/**
+ * @param {React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>} props
+ * @param {React.ForwardedRef<React.ElementRef<typeof DialogPrimitive.Content>>} ref
+ */
+function DialogContentComponent({ className, children, ...props }, ref) {
+  return (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -43,9 +55,12 @@ const DialogContent = React.forwardRef(({ className, children, ...props }, ref) 
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPortal>
-))
+  )
+}
+const DialogContent = React.forwardRef(DialogContentComponent)
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
+/** @param {React.HTMLAttributes<HTMLDivElement>} props */
 const DialogHeader = ({
   className,
   ...props
@@ -56,6 +71,7 @@ const DialogHeader = ({
 )
 DialogHeader.displayName = "DialogHeader"
 
+/** @param {React.HTMLAttributes<HTMLDivElement>} props */
 const DialogFooter = ({
   className,
   ...props
@@ -66,20 +82,34 @@ const DialogFooter = ({
 )
 DialogFooter.displayName = "DialogFooter"
 
-const DialogTitle = React.forwardRef(({ className, ...props }, ref) => (
+/**
+ * @param {React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>} props
+ * @param {React.ForwardedRef<React.ElementRef<typeof DialogPrimitive.Title>>} ref
+ */
+function DialogTitleComponent({ className, ...props }, ref) {
+  return (
   <DialogPrimitive.Title
     ref={ref}
     className={cn("text-lg font-semibold leading-none tracking-tight", className)}
     {...props} />
-))
+  )
+}
+const DialogTitle = React.forwardRef(DialogTitleComponent)
 DialogTitle.displayName = DialogPrimitive.Title.displayName
 
-const DialogDescription = React.forwardRef(({ className, ...props }, ref) => (
+/**
+ * @param {React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>} props
+ * @param {React.ForwardedRef<React.ElementRef<typeof DialogPrimitive.Description>>} ref
+ */
+function DialogDescriptionComponent({ className, ...props }, ref) {
+  return (
   <DialogPrimitive.Description
     ref={ref}
     className={cn("text-sm text-muted-foreground", className)}
     {...props} />
-))
+  )
+}
+const DialogDescription = React.forwardRef(DialogDescriptionComponent)
 DialogDescription.displayName = DialogPrimitive.Description.displayName
 
 export {

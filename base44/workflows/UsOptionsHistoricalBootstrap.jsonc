@@ -1,0 +1,23 @@
+{
+  "definition": {
+    "document": { "dsl": "1.0.0", "name": "us_options_historical_bootstrap", "version": "1.0", "namespace": "base44" },
+    "do": [{
+      "backfill_us_options_history": {
+        "call": "invoke_backend_function",
+        "with": { "function_name": "usOptionsHistoricalBackfill", "args": { "market_code": "US_OPTIONS", "batch_size": 15 } },
+        "then": "end"
+      }
+    }]
+  },
+  "description": "دفعات محدودة تملأ الأرشيف التاريخي لشركات عقود الخيارات ثم تتوقف بعد اكتمال التهيئة.",
+  "name": "سوق الخيارات — تهيئة التاريخي",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled", "events": [], "schedule_mode": "recurring",
+      "cron_expression": "0 3 * * *", "one_time_date": null,
+      "timezone": "America/New_York", "interval_value": null, "interval_unit": null,
+      "interval_anchor": null, "ends_type": "after", "ends_on_date": null, "ends_after_count": 12
+    }
+  }
+}

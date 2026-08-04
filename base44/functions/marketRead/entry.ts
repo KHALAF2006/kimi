@@ -5866,12 +5866,12 @@ Deno.serve(async (req) => {
       const instrument = await instrumentFor(base44, body);
       const [quotes2, indicators2, financials, actions, announcements, shareholders, losses2] = await Promise.all([
         base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: instrument.id }),
-        base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: instrument.id }),
-        base44.asServiceRole.entities.CompanyFinancial.filter({ instrument_id: instrument.id }),
-        base44.asServiceRole.entities.CorporateAction.filter({ instrument_id: instrument.id }),
-        base44.asServiceRole.entities.CompanyAnnouncement.filter({ instrument_id: instrument.id }),
-        base44.asServiceRole.entities.MajorShareholder.filter({ instrument_id: instrument.id }),
-        base44.asServiceRole.entities.LossClassification.filter({ instrument_id: instrument.id })
+        optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: instrument.id }), "company indicators"),
+        optionalRows(() => base44.asServiceRole.entities.CompanyFinancial.filter({ instrument_id: instrument.id }), "company financials"),
+        optionalRows(() => base44.asServiceRole.entities.CorporateAction.filter({ instrument_id: instrument.id }), "company actions"),
+        optionalRows(() => base44.asServiceRole.entities.CompanyAnnouncement.filter({ instrument_id: instrument.id }), "company announcements"),
+        optionalRows(() => base44.asServiceRole.entities.MajorShareholder.filter({ instrument_id: instrument.id }), "company shareholders"),
+        optionalRows(() => base44.asServiceRole.entities.LossClassification.filter({ instrument_id: instrument.id }), "company loss classification")
       ]);
       let quote = quotes2.filter(usableQuote).sort((a, b) => new Date(b.quote_time).getTime() - new Date(a.quote_time).getTime())[0] || null;
       if (!quote && instrument.instrument_type === "market_index") {

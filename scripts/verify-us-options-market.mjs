@@ -104,6 +104,9 @@ assert.match(marketRead, /timeZone: "America\/New_York", sessionStartMinutes: 57
 assert.match(marketRead, /mergeStoredCandleSeries\(series, interval, marketCandleOptions\(marketCode\)\)/);
 assert.match(marketRead, /canonicalVersion\.includes\("daily-projection"\)/);
 assert.doesNotMatch(marketRead, /const freshness = !licensed/);
+for (const optionalCompanySection of ["company indicators", "company financials", "company actions", "company announcements", "company shareholders", "company loss classification"]) {
+  assert.match(marketRead, new RegExp(`optionalRows\\(\\(\\) => [^\\n]+, "${optionalCompanySection}"\\)`), `${optionalCompanySection} must not make the entire company profile unavailable`);
+}
 
 for (const backend of ["screeningWatchlists", "customerSelfService"]) {
   const text = await source(`base44/functions/${backend}/entry.ts`);
@@ -129,6 +132,13 @@ assert.match(ingestion, /US_OPTIONS_CATALOG_INCOMPLETE/);
 assert.match(ingestion, /quality_status: freshnessStatus === "fresh" \? "verified" : "stale"/);
 assert.match(ingestion, /freshness_status: "stale"/);
 assert.match(ingestion, /await evaluateAlerts\(base44, acceptedQuotes, isFinal, nextTradingDate\)/);
+assert.match(ingestion, /async function ensureCatalog/);
+assert.match(ingestion, /batch_count/);
+assert.match(ingestion, /batch_index/);
+assert.ok(
+  ingestion.indexOf("await ensureCatalog(base44, now)") < ingestion.indexOf("if (!session.tradingDay)"),
+  "the U.S. catalog must initialize before the market-session early return",
+);
 
 const history = await source("base44/functions/usOptionsHistoricalBackfill/source.ts");
 assert.match(history, /async function ensureCatalog/);
@@ -164,20 +174,41 @@ assert.deepEqual(marketAccess.resolveAvailableMarkets(null), [], "an authorizati
 assert.deepEqual(marketAccess.resolveAvailableMarkets({ market_access: [] }), [], "an explicit empty entitlement list must remain empty");
 assert.equal(marketAccess.resolveAvailableMarkets({ identity: { user_id: "legacy-user" } })[0]?.market_code, "SA_MAIN", "a legacy authenticated identity response must retain Saudi access only");
 assert.deepEqual(marketAccess.resolveAvailableMarkets({ market_access: [{ market_code: "US_OPTIONS" }] }).map((market) => market.market_code), ["US_OPTIONS"], "an explicit U.S. entitlement must remain isolated");
+assert.deepEqual(marketAccess.resolveAvailableMarkets({ identity: { role: "owner" }, market_access: [] }).map((market) => market.market_code), ["SA_MAIN", "US_OPTIONS"], "the owner must retain every supported market even when the entitlement array is empty");
+const marketAccessSelect = await source("src/components/MarketAccessSelect.jsx");
+assert.match(marketAccessSelect, /SUPPORTED_MARKETS\.map/);
+assert.ok(marketAccessSelect.indexOf("if (!allowed.has(nextCode))") < marketAccessSelect.indexOf("setMarketCode(nextCode)"), "a locked market must open subscription guidance before any active-market mutation");
+assert.match(marketAccessSelect, /setLockedMarket/);
 const dashboard = await source("src/pages/Dashboard.jsx");
 assert.match(dashboard, /if \(!marketCode\) \{[\s\S]*loading: false,[\s\S]*market_access_unavailable/, "the dashboard must terminate loading when no market is available");
-assert.match(dashboard, /disabled=\{marketContextLoading \|\| availableMarkets\.length === 0\}/, "an unresolved empty market selector must not render as an interactive blank control");
+assert.match(dashboard, /<MarketAccessSelect/);
+const layout = await source("src/components/KmyLayout.jsx");
+assert.match(layout, /<MarketAccessSelect compact/);
 
 const ingestionConfig = JSON.parse(await source("base44/functions/usOptionsMarketIngestion/function.jsonc"));
 const signalConfig = JSON.parse(await source("base44/functions/usOptionsSignalRefresh/function.jsonc"));
 const historyConfig = JSON.parse(await source("base44/functions/usOptionsHistoricalBackfill/function.jsonc"));
 const companyConfig = JSON.parse(await source("base44/functions/usOptionsCompanyIntelligence/function.jsonc"));
-assert.equal(ingestionConfig.automations[0].cron_expression, "0,15,30,45 14-21 * * 1-5");
-assert.equal(signalConfig.automations[0].cron_expression, "0 22 * * 1-5");
-assert.equal(historyConfig.automations[0].ends_type, "after");
-assert.equal(historyConfig.automations[0].ends_after_count, 12);
-assert.equal(companyConfig.automations[0].function_args.batch_size, 10);
-assert.ok([ingestionConfig, signalConfig, historyConfig, companyConfig].every((config) => config.automations.every((automation) => automation.type === "scheduled" && automation.schedule_type === "cron")));
+assert.ok([ingestionConfig, signalConfig, historyConfig, companyConfig].every((config) => config.automations === undefined), "the editor app uses Workflows and rejects function-level legacy automations");
+const ingestionWorkflow = JSON.parse(await source("base44/workflows/UsOptionsQuarterCycles.jsonc"));
+const ingestionBatch2Workflow = JSON.parse(await source("base44/workflows/UsOptionsQuarterCyclesBatch2.jsonc"));
+const signalWorkflow = JSON.parse(await source("base44/workflows/UsOptionsSignalsDaily.jsonc"));
+const historyWorkflow = JSON.parse(await source("base44/workflows/UsOptionsHistoricalBootstrap.jsonc"));
+const companyWorkflow = JSON.parse(await source("base44/workflows/UsOptionsCompanyIntelligenceDaily.jsonc"));
+assert.equal(ingestionWorkflow.trigger.config.cron_expression, "0,15,30,45 10-16 * * 1-5");
+assert.equal(ingestionBatch2Workflow.trigger.config.cron_expression, "2,17,32,47 10-16 * * 1-5");
+assert.equal(Object.values(ingestionWorkflow.definition.do[0])[0].with.args.batch_index, 0);
+assert.equal(Object.values(ingestionBatch2Workflow.definition.do[0])[0].with.args.batch_index, 1);
+assert.equal(signalWorkflow.trigger.config.cron_expression, "0 18 * * 1-5");
+assert.equal(historyWorkflow.trigger.config.ends_type, "after");
+assert.equal(historyWorkflow.trigger.config.ends_after_count, 12);
+assert.equal(Object.values(companyWorkflow.definition.do[0])[0].with.args.batch_size, 10);
+for (const workflow of [ingestionWorkflow, ingestionBatch2Workflow, signalWorkflow, historyWorkflow, companyWorkflow]) {
+  assert.equal(workflow.trigger.config.trigger_type, "scheduled");
+  assert.equal(workflow.trigger.config.schedule_mode, "recurring");
+  assert.equal(workflow.trigger.config.timezone, "America/New_York");
+  assert.equal(Object.values(workflow.definition.do[0])[0].with.args.market_code, "US_OPTIONS");
+}
 
 const functionBuilder = await source("scripts/build-app-editor-functions.mjs");
 for (const functionName of ["usOptionsCompanyIntelligence", "usOptionsHistoricalBackfill", "usOptionsMarketIngestion", "usOptionsSignalRefresh"]) assert.match(functionBuilder, new RegExp(`"${functionName}"`));
