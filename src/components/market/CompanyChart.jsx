@@ -401,7 +401,15 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     setError("");
     const request = sector
       ? { action: "sector_chart", sector, market_code: marketCode, interval, range, lookback_days: requestedPeakLookbackDays }
-      : { action: "chart", symbol, market_code: marketCode, interval, range, lookback_days: requestedPeakLookbackDays };
+      : {
+        action: "chart",
+        symbol,
+        instrument_code: symbol,
+        market_code: marketCode,
+        interval,
+        range,
+        lookback_days: requestedPeakLookbackDays,
+      };
     setIndicatorState({ key: indicatorKey, momentum: null });
     readMarketChart(request)
       .then((data) => {

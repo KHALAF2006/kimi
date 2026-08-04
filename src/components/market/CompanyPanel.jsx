@@ -24,7 +24,12 @@ export default function CompanyPanel({ symbol, marketCode, requestedTimeframe = 
     if (!symbol) { setState({ loading: false, data: null, dataSymbol: "", error: "" }); return; }
     let active = true;
     setState((current) => ({ ...current, loading: true, error: "" }));
-    invokeAppFunction("marketRead", { symbol, market_code: marketCode, timeframe: requestedTimeframe || "1d" })
+    invokeAppFunction("marketRead", {
+      symbol,
+      instrument_code: symbol,
+      market_code: marketCode,
+      timeframe: requestedTimeframe || "1d",
+    })
       .then((data) => active && setState({ loading: false, data, dataSymbol: symbol, error: "" }))
       .catch((error) => active && setState((current) => ({ ...current, loading: false, error: error?.response?.data?.error || error?.message || "company_fetch_failed" })));
     return () => { active = false; };
