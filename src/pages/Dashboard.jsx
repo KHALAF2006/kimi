@@ -29,7 +29,7 @@ export default function Dashboard() {
   const { language, isArabic, text } = usePreferences();
   const [params, setParams] = useSearchParams();
   const [state, setState] = useState({ loading: true, rows: [], total: 0, sources: [], markets: [], market: null, snapshot: null, sectorSummaries: [], error: "", notice: "" });
-  const { marketCode, availableMarkets, setMarketCode } = useActiveMarket();
+  const { loading: marketContextLoading, error: marketContextError, marketCode, availableMarkets, setMarketCode, refresh: refreshMarketAccess } = useActiveMarket();
   const [query, setQuery] = useState("");
   const [sector, setSector] = useState(() => params.get("sector") || "");
   const [directionFilter, setDirectionFilter] = useState("");
@@ -46,7 +46,15 @@ export default function Dashboard() {
   const urlSector = params.get("sector") || "";
 
   async function loadMarket(silent = false) {
-    if (!marketCode) return;
+    if (marketContextLoading) return;
+    if (!marketCode) {
+      if (!silent) setState((value) => ({
+        ...value,
+        loading: false,
+        error: marketContextError || "market_access_unavailable",
+      }));
+      return;
+    }
     const requestId = ++loadRequestRef.current;
     if (!silent) setState((value) => ({ ...value, loading: true, rows: [], total: 0, sources: [], market: null, snapshot: null, sectorSummaries: [], error: "", notice: "" }));
     try {
@@ -64,10 +72,12 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
+    if (marketContextLoading) return undefined;
     loadMarket();
+    if (!marketCode) return undefined;
     const timer = window.setInterval(() => loadMarket(true), 15 * 60 * 1000);
     return () => window.clearInterval(timer);
-  }, [activeTab === "momentum", marketCode]);
+  }, [activeTab === "momentum", marketCode, marketContextLoading]);
 
   useEffect(() => { setSector(urlSector); }, [urlSector]);
 
@@ -207,7 +217,7 @@ export default function Dashboard() {
     <div className="mx-auto max-w-[1800px] space-y-5 px-3 py-5 sm:px-5">
       <section className="flex flex-wrap items-end justify-between gap-4">
         <div><span className="eyebrow"><Activity size={14} />{isArabic ? state.market?.name_ar || "السوق الرئيسية السعودية" : state.market?.name_en || "Saudi Main Market"}</span><h1 className="mt-3 text-3xl font-black">{isArabic ? "لوحة السوق" : "Market dashboard"}</h1><p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{isArabic ? "السوق والشركات والشارت والمؤشرات في مساحة واحدة مترابطة." : "Market, companies, charts and indicators in one connected workspace."}</p></div>
-        <div className="flex flex-wrap gap-2"><select className="form-input" value={marketCode} onChange={(event) => { setMarketCode(event.target.value); setSector(""); setParams({}); }}>{availableMarkets.map((market) => <option key={market.market_code} value={market.market_code}>{isArabic ? market.name_ar : market.name_en}</option>)}</select><button className="secondary-button" onClick={() => loadMarket()} disabled={state.loading}><RefreshCw size={15} className={state.loading ? "animate-spin" : ""} />{isArabic ? "تحديث العرض" : "Refresh view"}</button></div>
+        <div className="flex flex-wrap gap-2"><select aria-label={isArabic ? "اختيار السوق" : "Select market"} className="form-input" value={marketCode} disabled={marketContextLoading || availableMarkets.length === 0} onChange={(event) => { setMarketCode(event.target.value); setSector(""); setParams({}); }}>{availableMarkets.length === 0 && <option value="">{marketContextLoading ? (isArabic ? "جاري تحميل الأسواق…" : "Loading markets…") : (isArabic ? "لا يوجد سوق متاح" : "No market available")}</option>}{availableMarkets.map((market) => <option key={market.market_code} value={market.market_code}>{isArabic ? market.name_ar : market.name_en}</option>)}</select><button className="secondary-button" onClick={() => marketCode ? loadMarket() : refreshMarketAccess()} disabled={state.loading || marketContextLoading}><RefreshCw size={15} className={state.loading || marketContextLoading ? "animate-spin" : ""} />{isArabic ? "تحديث العرض" : "Refresh view"}</button></div>
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">

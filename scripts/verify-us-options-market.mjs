@@ -156,6 +156,15 @@ assert.match(signals, /indicator_key: "momentum_zones"/);
 const marketContext = await source("src/lib/MarketContext.jsx");
 assert.match(marketContext, /availableMarkets\.some\(\(market\) => market\.market_code === normalized\)/);
 assert.match(marketContext, /localStorage\.removeItem\(STORAGE_KEY\)/);
+assert.match(marketContext, /resolveAvailableMarkets\(context\)/, "active market selection must support the legacy Saudi identity contract");
+const marketAccess = await importTypeScriptModule("./src/lib/marketAccess.js");
+assert.deepEqual(marketAccess.resolveAvailableMarkets(null), [], "an authorization failure must never grant market access");
+assert.deepEqual(marketAccess.resolveAvailableMarkets({ market_access: [] }), [], "an explicit empty entitlement list must remain empty");
+assert.equal(marketAccess.resolveAvailableMarkets({ identity: { user_id: "legacy-user" } })[0]?.market_code, "SA_MAIN", "a legacy authenticated identity response must retain Saudi access only");
+assert.deepEqual(marketAccess.resolveAvailableMarkets({ market_access: [{ market_code: "US_OPTIONS" }] }).map((market) => market.market_code), ["US_OPTIONS"], "an explicit U.S. entitlement must remain isolated");
+const dashboard = await source("src/pages/Dashboard.jsx");
+assert.match(dashboard, /if \(!marketCode\) \{[\s\S]*loading: false,[\s\S]*market_access_unavailable/, "the dashboard must terminate loading when no market is available");
+assert.match(dashboard, /disabled=\{marketContextLoading \|\| availableMarkets\.length === 0\}/, "an unresolved empty market selector must not render as an interactive blank control");
 
 const ingestionConfig = JSON.parse(await source("base44/functions/usOptionsMarketIngestion/function.jsonc"));
 const signalConfig = JSON.parse(await source("base44/functions/usOptionsSignalRefresh/function.jsonc"));
