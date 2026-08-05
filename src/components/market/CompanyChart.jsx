@@ -32,10 +32,10 @@ const rangeOptions = [
   { value: "max", ar: "تاريخي", en: "History", intervals: ["1d", "1wk", "1mo"] },
 ];
 
-function ChartControlPopover({ open, onOpenChange, trigger, className, isArabic, children }) {
+function ChartControlPopover({ open, onOpenChange, trigger, className, isArabic, portalContainer, children }) {
   return <Popover.Root open={open} onOpenChange={onOpenChange} modal={false}>
     <Popover.Trigger asChild>{trigger}</Popover.Trigger>
-    <Popover.Portal>
+    <Popover.Portal container={portalContainer || undefined}>
       <Popover.Content
         className={className}
         dir={isArabic ? "rtl" : "ltr"}
@@ -207,6 +207,11 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const [showVolume, setShowVolume] = useState(() => localStorage.getItem("kmy_show_volume") !== "false");
   const [showRsi, setShowRsi] = useState(() => localStorage.getItem("kmy_show_rsi") !== "false");
   const [chartControls, setChartControls] = useState(/** @type {{ menu: string, panel: string }} */ ({ menu: "", panel: "" }));
+  const [chartPortalContainer, setChartPortalContainer] = useState(null);
+  const bindChartRoot = useCallback((node) => {
+    wrapperRef.current = node;
+    setChartPortalContainer((current) => current === node ? current : node);
+  }, []);
   const dispatchChartControl = useCallback((action) => {
     setChartControls((current) => chartControlTransition(current, action));
   }, []);
@@ -1070,7 +1075,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     })}
   </>;
 
-  return <div ref={wrapperRef} className="chart-shell">
+  return <div ref={bindChartRoot} className="chart-shell">
     <div className="chart-header-row">
       <div className="chart-title-block">
         <h3 className="font-black">{chartTitle}</h3>
@@ -1086,6 +1091,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
           open={chartControls.menu === "candle-type"}
           onOpenChange={(open) => changeChartMenu("candle-type", open)}
           isArabic={isArabic}
+          portalContainer={chartPortalContainer}
           className="chart-type-popover chart-control-popover"
           trigger={<button type="button" className="chart-type-button" title={isArabic ? "تغيير نوع الشموع" : "Change candle type"} aria-label={isArabic ? `نوع الشموع: ${candleTypeLabel}` : `Candle type: ${candleTypeLabel}`}><ChartCandlestick size={17} /><span>{candleTypeLabel}</span><ChevronLeft size={14} /></button>}
         >{candleTypeContent}</ChartControlPopover>
@@ -1093,6 +1099,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
           open={chartControls.menu === "indicators"}
           onOpenChange={(open) => changeChartMenu("indicators", open)}
           isArabic={isArabic}
+          portalContainer={chartPortalContainer}
           className="indicator-hub-popover chart-control-popover"
           trigger={<button type="button" className={"indicator-hub-button " + (anyIndicatorVisible || chartControls.panel ? "active" : "")}><SlidersHorizontal size={17} /><span>{isArabic ? "المؤشرات" : "Indicators"}</span><small>{[showVolume, showMomentum, showRsi, showSma20, showSma50].filter(Boolean).length}</small></button>}
         >{indicatorMenuContent}</ChartControlPopover>
@@ -1100,6 +1107,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
           open={chartControls.menu === "reversals"}
           onOpenChange={(open) => changeChartMenu("reversals", open)}
           isArabic={isArabic}
+          portalContainer={chartPortalContainer}
           className="indicator-hub-popover reversal-hub-popover chart-control-popover"
           trigger={<button type="button" className={"indicator-hub-button reversal-hub-button " + (anyReversalVisible ? "active" : "")}><Flame size={17} /><span>{isArabic ? "الشموع الانعكاسية" : "Reversal candles"}</span><small>{[chartPreferences.reversal.pinBar.enabled, chartPreferences.reversal.engulfing.enabled].filter(Boolean).length}</small></button>}
         >{reversalMenuContent}</ChartControlPopover>

@@ -250,6 +250,8 @@ assert.match(companyChart, /ref=\{canvasWrapRef\}/, "fullscreen chart sizing mus
 
 const chartStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
 assert.match(companyChart, /Popover\.Portal/, "chart control popovers must render above chart controls in a portal");
+assert.match(companyChart, /Popover\.Portal container=\{portalContainer \|\| undefined\}/, "chart control popovers must stay inside the fullscreen chart top-layer subtree");
+assert.match(companyChart, /ref=\{bindChartRoot\}/, "the chart shell must provide the fullscreen-safe portal container");
 assert.match(companyChart, /collisionPadding=\{12\}/, "chart control popovers must avoid viewport collisions");
 assert.match(chartStyles, /\.chart-control-popover\s*\{[^}]*z-index:\s*140/, "chart control popovers must have one deterministic layer above every chart toolbar");
 assert.doesNotMatch(chartStyles, /\.chart-type-popover\s*\{[^}]*absolute/, "the candle chooser must rely on collision-aware positioning instead of a competing local absolute layer");

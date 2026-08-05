@@ -10,6 +10,7 @@ var PERMISSION_CATALOG = [
   { code: "customers.full.read", group_code: "customers", name_ar: "\u0639\u0631\u0636 \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0627\u0644\u0643\u0627\u0645\u0644\u0629", name_en: "View full customer data", sensitive: true, owner_only: false },
   { code: "customers.status.manage", group_code: "customers", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u062D\u0627\u0644\u0629 \u0627\u0644\u0639\u0645\u064A\u0644", name_en: "Manage customer status", sensitive: true, owner_only: false },
   { code: "customers.sessions.revoke", group_code: "customers", name_ar: "\u0625\u0644\u063A\u0627\u0621 \u062C\u0644\u0633\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621", name_en: "Revoke customer sessions", sensitive: true, owner_only: false },
+  { code: "customers.notes.manage", group_code: "customers", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621", name_en: "Manage customer notes", sensitive: true, owner_only: false },
   { code: "subscriptions.read", group_code: "subscriptions", name_ar: "\u0639\u0631\u0636 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643\u0627\u062A", name_en: "View subscriptions", sensitive: false, owner_only: false },
   { code: "subscriptions.manage", group_code: "subscriptions", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643\u0627\u062A", name_en: "Manage subscriptions", sensitive: true, owner_only: false },
   { code: "plans.manage", group_code: "subscriptions", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062E\u0637\u0637 \u0648\u0627\u0644\u062D\u062F\u0648\u062F", name_en: "Manage plans and entitlements", sensitive: true, owner_only: true },
@@ -32,6 +33,7 @@ var LEGACY_ROLE_PERMISSIONS = {
     "customers.full.read",
     "customers.status.manage",
     "customers.sessions.revoke",
+    "customers.notes.manage",
     "subscriptions.read",
     "subscriptions.manage",
     "data.operations.read",
@@ -2187,14 +2189,15 @@ async function ensureProjectionSource(base44) {
 }
 async function projectInstrumentBatch(base44, instrumentIds, sessionDate, sourceId, runId) {
   const idQuery = { $in: instrumentIds };
-  const [instrumentRows, dailyRows, intradayRows, snapshotRows] = await Promise.all([
+  const [instrumentRows, dailyRows, higherTimeframeRows, intradayRows, snapshotRows] = await Promise.all([
     base44.asServiceRole.entities.Instrument.filter({ id: idQuery, market_code: US_OPTIONS_MARKET_CODE }, "symbol", PROJECTION_BATCH_SIZE),
     base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_OPTIONS_MARKET_CODE, interval: "1d" }, "start_time", 1e3),
+    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_OPTIONS_MARKET_CODE, interval: { $in: ["1wk", "1mo"] } }, "-end_time", PROJECTION_BATCH_SIZE * 8),
     base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_OPTIONS_MARKET_CODE, interval: "15m", session_date: sessionDate }, "-end_time", 500),
     base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery }, "-source_as_of", PROJECTION_BATCH_SIZE * 12)
   ]);
   const instruments = rows(instrumentRows).filter((item) => US_OPTIONS_SYMBOLS.has(item.symbol) && item.status !== "delisted");
-  const usableChunks = [...rows(dailyRows), ...rows(intradayRows)].filter((chunk) => chunk.quality_status !== "quarantined");
+  const usableChunks = [...rows(dailyRows), ...rows(higherTimeframeRows), ...rows(intradayRows)].filter((chunk) => chunk.quality_status !== "quarantined");
   const existingSnapshots = rows(snapshotRows).filter((item) => instrumentIds.includes(item.instrument_id));
   const projectedDaily = [];
   const higherChunks = [];

@@ -78,14 +78,15 @@ async function ensureProjectionSource(base44) {
 
 async function projectInstrumentBatch(base44, instrumentIds, sessionDate, sourceId, runId) {
   const idQuery = { $in: instrumentIds };
-  const [instrumentRows, dailyRows, intradayRows, snapshotRows] = await Promise.all([
+  const [instrumentRows, dailyRows, higherTimeframeRows, intradayRows, snapshotRows] = await Promise.all([
     base44.asServiceRole.entities.Instrument.filter({ id: idQuery, market_code: US_OPTIONS_MARKET_CODE }, "symbol", PROJECTION_BATCH_SIZE),
     base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_OPTIONS_MARKET_CODE, interval: "1d" }, "start_time", 1000),
+    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_OPTIONS_MARKET_CODE, interval: { $in: ["1wk", "1mo"] } }, "-end_time", PROJECTION_BATCH_SIZE * 8),
     base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_OPTIONS_MARKET_CODE, interval: "15m", session_date: sessionDate }, "-end_time", 500),
     base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery }, "-source_as_of", PROJECTION_BATCH_SIZE * 12),
   ]);
   const instruments = rows(instrumentRows).filter((item) => US_OPTIONS_SYMBOLS.has(item.symbol) && item.status !== "delisted");
-  const usableChunks = [...rows(dailyRows), ...rows(intradayRows)].filter((chunk) => chunk.quality_status !== "quarantined");
+  const usableChunks = [...rows(dailyRows), ...rows(higherTimeframeRows), ...rows(intradayRows)].filter((chunk) => chunk.quality_status !== "quarantined");
   const existingSnapshots = rows(snapshotRows).filter((item) => instrumentIds.includes(item.instrument_id));
   const projectedDaily = [];
   const higherChunks = [];
