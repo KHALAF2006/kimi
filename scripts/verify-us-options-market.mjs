@@ -150,8 +150,10 @@ assert.match(ingestion, /batch_index/);
 assert.match(ingestion, /barsBySession/, "the five-day provider response must be partitioned into durable exchange sessions");
 assert.match(ingestion, /for \(const session of item\.sessions\)/, "every returned 15-minute session must be persisted, not only the current day");
 assert.match(ingestion, /canonical_version: "us-options-intraday-v2"/);
+assert.match(ingestion, /forcedRecovery = body\.force === true/);
+assert.match(ingestion, /!forcedRecovery && \(minute < 600 \|\| minute > closeMinute \+ 30\)/);
 assert.ok(
-  ingestion.indexOf("await ensureCatalog(base44, now)") < ingestion.indexOf("if (!session.tradingDay)"),
+  ingestion.indexOf("await ensureCatalog(base44, now)") < ingestion.indexOf("if (!session.tradingDay && !forcedRecovery)"),
   "the U.S. catalog must initialize before the market-session early return",
 );
 

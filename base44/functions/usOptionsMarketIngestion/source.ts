@@ -347,10 +347,11 @@ Deno.serve(async (req) => {
       batch_index: batchIndex, batch_count: batchCount,
     });
     const session = await sessionDecision(base44, clock);
-    if (!session.tradingDay) return Response.json({ status: "skipped", reason: session.reason, market_code: US_OPTIONS_MARKET_CODE, session_date: clock.date });
+    const forcedRecovery = body.force === true;
+    if (!session.tradingDay && !forcedRecovery) return Response.json({ status: "skipped", reason: session.reason, market_code: US_OPTIONS_MARKET_CODE, session_date: clock.date });
     const minute = clock.hour * 60 + clock.minute;
     const closeMinute = session.closeMinute;
-    if (minute < 600 || minute > closeMinute + 30) return Response.json({ status: "skipped", reason: "outside_ingestion_window", market_code: US_OPTIONS_MARKET_CODE, session_date: clock.date });
+    if (!forcedRecovery && (minute < 600 || minute > closeMinute + 30)) return Response.json({ status: "skipped", reason: "outside_ingestion_window", market_code: US_OPTIONS_MARKET_CODE, session_date: clock.date });
 
     const slotKey = `${US_OPTIONS_MARKET_CODE}:${clock.date}:15m:${clock.hour.toString().padStart(2, "0")}:${Math.floor(clock.minute / 15) * 15}:batch-${batchIndex + 1}-of-${batchCount}`;
     const existingRuns = await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey });
