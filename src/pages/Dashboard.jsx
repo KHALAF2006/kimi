@@ -9,7 +9,7 @@ import MarketTable from "@/components/market/MarketTable";
 import MarketTicker from "@/components/market/MarketTicker";
 import { formatCompact, marketSummary } from "@/lib/market";
 import { usePreferences } from "@/lib/preferences";
-import { invokeAppFunction } from "@/services/marketService";
+import { invokeAppFunction, readMarketSupplement } from "@/services/marketService";
 import { useActiveMarket } from "@/lib/MarketContext";
 import MarketAccessSelect from "@/components/MarketAccessSelect";
 
@@ -29,7 +29,7 @@ function SummaryCard({ icon: Icon, label, value, tone, active, onClick }) {
 export default function Dashboard() {
   const { language, isArabic, text } = usePreferences();
   const [params, setParams] = useSearchParams();
-  const [state, setState] = useState({ loading: true, marketCodeLoaded: "", rows: [], total: 0, sources: [], markets: [], market: null, snapshot: null, sectorSummaries: [], error: "", notice: "" });
+  const [state, setState] = useState({ loading: true, marketCodeLoaded: "", rows: [], total: 0, sources: [], markets: [], market: null, snapshot: null, sectorSummaries: [], error: "", refreshWarning: "", notice: "" });
   const { loading: marketContextLoading, error: marketContextError, marketCode, availableMarkets, refresh: refreshMarketAccess } = useActiveMarket();
   const [query, setQuery] = useState("");
   const [sector, setSector] = useState(() => params.get("sector") || "");
@@ -58,8 +58,8 @@ export default function Dashboard() {
     }
     const requestId = ++loadRequestRef.current;
     if (!silent) setState((value) => value.marketCodeLoaded === marketCode
-      ? { ...value, loading: true, error: "" }
-      : { ...value, loading: true, marketCodeLoaded: "", rows: [], total: 0, sources: [], market: null, snapshot: null, sectorSummaries: [], error: "", notice: "" });
+      ? { ...value, loading: true, error: "", refreshWarning: "" }
+      : { ...value, loading: true, marketCodeLoaded: "", rows: [], total: 0, sources: [], market: null, snapshot: null, sectorSummaries: [], error: "", refreshWarning: "", notice: "" });
     try {
       const [data, marketData] = await Promise.all([
         invokeAppFunction("marketRead", { limit: 500, market_code: marketCode, mode: activeTab === "momentum" ? "screener" : undefined }),
@@ -67,10 +67,28 @@ export default function Dashboard() {
       ]);
       if (requestId !== loadRequestRef.current) return;
       const markets = marketData.markets || state.markets;
-      setState({ loading: false, marketCodeLoaded: marketCode, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, snapshot: data.snapshot || null, sectorSummaries: data.sector_summaries || [], error: "", notice: data.notice || "" });
+      setState((value) => ({ loading: false, marketCodeLoaded: marketCode, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, snapshot: data.snapshot || null, sectorSummaries: value.marketCodeLoaded === marketCode ? value.sectorSummaries : [], error: "", refreshWarning: "", notice: data.notice || "" }));
+      if (activeTab !== "momentum") {
+        readMarketSupplement({ action: "sector_summaries", market_code: marketCode })
+          .then((sectorData) => {
+            if (requestId !== loadRequestRef.current) return;
+            setState((value) => value.marketCodeLoaded === marketCode
+              ? { ...value, sectorSummaries: sectorData.sector_summaries || [] }
+              : value);
+          })
+          .catch(() => {});
+      }
     } catch (error) {
       if (requestId !== loadRequestRef.current) return;
-      setState((value) => ({ ...value, loading: false, error: error?.response?.data?.error || error?.message || "market_fetch_failed" }));
+      setState((value) => {
+        const retained = value.marketCodeLoaded === marketCode && value.rows.length > 0;
+        return {
+          ...value,
+          loading: false,
+          error: retained ? "" : error?.response?.data?.error || error?.message || "market_fetch_failed",
+          refreshWarning: retained ? "last_snapshot_retained" : "",
+        };
+      });
     }
   }
 
@@ -240,6 +258,7 @@ export default function Dashboard() {
               ? "تعذر تحديث ملخص الشركة؛ سيبقى آخر شارت محفوظ ظاهرًا إن كان متاحًا."
               : "تعذر تحديث ملخص السوق. أعد المحاولة، وستبقى آخر بيانات محفوظة ظاهرة إن كانت متاحة."
         : "The latest summary could not be refreshed. Previously stored data remains visible when available."}</div>}
+      {state.refreshWarning && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200" role="status">{isArabic ? "لم تصل نسخة أحدث بعد؛ المعروض هو آخر ملخص سوق محفوظ بنجاح." : "A newer snapshot has not arrived yet; the last successfully stored market summary remains visible."}</div>}
 
       <section className="dashboard-grid" style={/** @type {React.CSSProperties} */ ({ "--profile-width": profileWidth + "px" })}>
         <aside id="company-profile" className="min-w-0 scroll-mt-28">{selectedSymbol

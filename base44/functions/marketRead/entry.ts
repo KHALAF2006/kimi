@@ -5351,15 +5351,15 @@ function fallbackIntervals(interval) {
 }
 async function entityReadWithRetry(read) {
   let lastError = null;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
       return await read();
     } catch (error) {
       lastError = error;
       const status = Number(error?.status || error?.response?.status || error?.response?.data?.status || 0);
       const message = String(error?.message || error?.response?.data?.error || "").toLowerCase();
-      if (attempt >= 2 || status !== 429 && !message.includes("rate limit")) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
+      if (attempt >= 3 || status !== 429 && !message.includes("rate limit")) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** (attempt - 1)));
     }
   }
   throw lastError;
@@ -5774,6 +5774,24 @@ Deno.serve(async (req) => {
       range: body?.range || null,
     };
     const accessContext = await requireMarketAccess(base44, body);
+    if (body.action === "sector_summaries") {
+      const requestedMarket = String(body.market_code || "").toUpperCase();
+      const instruments = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.Instrument.filter({ market_code: requestedMarket }, "symbol", 500)))
+        .filter((item) => requestedMarket !== "SA_MAIN" || MAIN_MARKET_SYMBOLS.has(item.symbol));
+      if (requestedMarket === "SA_MAIN" && instruments.length !== MAIN_MARKET_SYMBOLS.size) {
+        throw Object.assign(new Error(`Main-market catalog mismatch: ${instruments.length}/${MAIN_MARKET_SYMBOLS.size}`), { status: 503 });
+      }
+      if (requestedMarket === US_OPTIONS_MARKET_CODE && instruments.length !== US_OPTIONS_CATALOG.companies.length) {
+        throw Object.assign(new Error(`U.S. options catalog mismatch: ${instruments.length}/${US_OPTIONS_CATALOG.companies.length}`), { status: 503, code: "US_OPTIONS_CATALOG_INCOMPLETE" });
+      }
+      const quotes = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((item) => item.id) } }, "-quote_time", 1000)));
+      const quoteByInstrument = new Map();
+      for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
+      return Response.json({
+        market_code: requestedMarket,
+        sector_summaries: await sectorSummaries(base44, instruments, quoteByInstrument, requestedMarket),
+      });
+    }
     const sources = await optionalRows(
       () => base44.asServiceRole.entities.DataSource.list("-last_verified_at", 20),
       "data-source"
@@ -5974,9 +5992,7 @@ Deno.serve(async (req) => {
     }
     const quoteByInstrument = /* @__PURE__ */ new Map();
     for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
-    const sectorSummaryRows = body.mode === "screener"
-      ? []
-      : await optionalRows(() => sectorSummaries(base44, instruments, quoteByInstrument, requestedMarket), "sector summaries");
+    const sectorSummaryRows = [];
     const indicatorsByInstrument = new Map();
     for (const item of indicators) {
       if (!indicatorsByInstrument.has(item.instrument_id)) indicatorsByInstrument.set(item.instrument_id, []);

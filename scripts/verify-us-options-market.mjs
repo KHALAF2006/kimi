@@ -152,6 +152,9 @@ assert.match(ingestion, /for \(const session of item\.sessions\)/, "every return
 assert.match(ingestion, /canonical_version: "us-options-intraday-v2"/);
 assert.match(ingestion, /forcedRecovery = body\.force === true/);
 assert.match(ingestion, /!forcedRecovery && \(minute < 600 \|\| minute > closeMinute \+ 30\)/);
+assert.match(ingestion, /body\.action === "data_status"/);
+assert.match(ingestion, /intraday_instrument_count: coveredIntraday\.size/);
+assert.match(ingestion, /daily_history_instrument_count: coveredDaily\.size/);
 assert.ok(
   ingestion.indexOf("await ensureCatalog(base44, now)") < ingestion.indexOf("if (!session.tradingDay && !forcedRecovery)"),
   "the U.S. catalog must initialize before the market-session early return",

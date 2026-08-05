@@ -6,8 +6,11 @@ const isLocalBrowser = typeof window !== "undefined" && localBrowserHosts.has(wi
 const referenceApi = isLocalBrowser ? (configuredReferenceApi || "/reference-api") : "";
 const chartRequestCache = new Map();
 const chartRequestInflight = new Map();
+const marketSupplementCache = new Map();
+const marketSupplementInflight = new Map();
 const CHART_CACHE_MAX_AGE_MS = 60_000;
 const CHART_CACHE_MAX_ENTRIES = 80;
+const MARKET_SUPPLEMENT_MAX_AGE_MS = 15 * 60_000;
 
 function stableRequestKey(payload) {
   const sessionId = localStorage.getItem("kmy_session_id") || "anonymous";
@@ -283,5 +286,21 @@ export async function readMarketChart(payload, { maxAgeMs = CHART_CACHE_MAX_AGE_
     })
     .finally(() => chartRequestInflight.delete(key));
   chartRequestInflight.set(key, request);
+  return request;
+}
+
+export async function readMarketSupplement(payload, { maxAgeMs = MARKET_SUPPLEMENT_MAX_AGE_MS } = {}) {
+  const key = stableRequestKey(payload);
+  const cached = marketSupplementCache.get(key);
+  if (cached && Date.now() - cached.receivedAt <= maxAgeMs) return cached.data;
+  if (marketSupplementInflight.has(key)) return marketSupplementInflight.get(key);
+  const request = invokeAppFunction("marketRead", payload)
+    .then((data) => {
+      if (marketSupplementCache.size >= 8) marketSupplementCache.delete(marketSupplementCache.keys().next().value);
+      marketSupplementCache.set(key, { data, receivedAt: Date.now() });
+      return data;
+    })
+    .finally(() => marketSupplementInflight.delete(key));
+  marketSupplementInflight.set(key, request);
   return request;
 }

@@ -226,6 +226,8 @@ assert.equal((companyChart.match(/readMarketChart\(request\)/g) || []).length, 1
 assert.doesNotMatch(companyChart, /indicatorRange/, "the chart must not issue a second full-history request for investor zones");
 assert.match(marketService, /chartRequestInflight\.has\(key\)/, "identical in-flight chart reads must be deduplicated");
 assert.match(marketService, /CHART_CACHE_MAX_ENTRIES/, "the short chart cache must remain bounded");
+assert.match(marketService, /MARKET_SUPPLEMENT_MAX_AGE_MS = 15 \* 60_000/, "non-critical market supplements must be cached for the quarter-hour display cycle");
+assert.match(marketService, /marketSupplementInflight\.has\(key\)/, "identical sector-summary reads must be deduplicated");
 assert.match(companyChart, /save_chart_preferences/, "chart preferences must persist through the protected backend");
 assert.match(companyChart, /axisLabelVisible:\s*false,\s*title:\s*""/, "investor-zone boundaries must not crowd the price axis with repeated labels");
 assert.match(companyChart, /rsiSettings\.lineColor/);
@@ -325,11 +327,16 @@ assert.match(marketReadFunction, /instrument_type:\s*"sector_index"/, "sector se
 assert.match(marketReadFunction, /TASI_SYMBOL/, "the protected market directory must include the Saudi general market index");
 assert.match(marketReadFunction, /searchCandidateScore/, "instrument autocomplete must use deterministic exact, prefix, and substring ranking");
 assert.match(marketReadFunction, /Number\(currentChange\) <= -1\.5 && Number\(priorChange\) <= -1\.5/, "sector heat state must reserve red for a two-session decline beyond 1.5 percent");
+assert.match(marketReadFunction, /body\.action === "sector_summaries"/, "sector heat must use a separate protected read instead of blocking the core market snapshot");
+assert.match(marketReadFunction, /const sectorSummaryRows = \[\]/, "the core market snapshot must not scan historical candle chunks for sector heat");
+assert.match(marketReadFunction, /attempt <= 3/, "rate-limited entity reads must use a bounded server-side retry");
 const dashboardPage = await readFile(new URL("../src/pages/Dashboard.jsx", import.meta.url), "utf8");
 assert.match(dashboardPage, /SectorPanel/, "sector selection must open a sector profile, not only filter the table");
 assert.match(dashboardPage, /InstrumentSearchInput/, "the visible dashboard search must use the protected autocomplete instead of a cosmetic table filter");
 assert.match(dashboardPage, /MarketIndexPanel/, "TASI selection must open a dedicated market-index analysis panel");
 assert.match(dashboardPage, /sector-heat-/, "sector tiles must consume the backend movement state");
+assert.match(dashboardPage, /readMarketSupplement\(\{ action: "sector_summaries"/, "sector heat must load through the bounded supplement cache after the core dashboard snapshot");
+assert.match(dashboardPage, /refreshWarning: retained \? "last_snapshot_retained"/, "a transient same-market refresh failure must retain the last successful snapshot");
 assert.doesNotMatch(dashboardPage, /MarketDataStatus/, "the removed market-status banner must not be mounted on the dashboard");
 assert.match(marketReadFunction, /fallbackIntervals\(interval\)/, "weekly and monthly chart requests must fall back to stored daily or intraday candles");
 assert.match(marketReadFunction, /storedCandlesForInterval\(base44, instrument\.id, interval, body\.market_code\)/, "company and sector charts must share the same market-aware candle aggregation path");

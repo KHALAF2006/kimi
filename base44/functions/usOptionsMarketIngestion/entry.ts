@@ -1746,6 +1746,21 @@ function rows(value) {
   if (Array.isArray(value?.items)) return value.items;
   return [];
 }
+async function readRowsWithRetry(read) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return rows(await read());
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.status || error?.response?.status || 0);
+      const message = String(error?.message || "").toLowerCase();
+      if (attempt >= 3 || status !== 429 && !message.includes("rate limit")) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** (attempt - 1)));
+    }
+  }
+  throw lastError;
+}
 function nyClock(value = /* @__PURE__ */ new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
@@ -2059,6 +2074,28 @@ Deno.serve(async (req) => {
       batch_index: batchIndex,
       batch_count: batchCount
     });
+    if (body.action === "data_status") {
+      const instrumentIds = new Set(instruments.map((instrument) => instrument.id));
+      const quotes = await readRowsWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ market_code: US_OPTIONS_MARKET_CODE }, "-provider_as_of", 1e3));
+      const intradayChunks = await readRowsWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: US_OPTIONS_MARKET_CODE, interval: "15m" }, "-end_time", 2e3));
+      const dailyHistory = await readRowsWithRetry(() => base44.asServiceRole.entities.HistoricalCandleSync.filter({ market_code: US_OPTIONS_MARKET_CODE, interval: "1d" }, "-completed_at", 500));
+      const signals = await readRowsWithRetry(() => base44.asServiceRole.entities.IndicatorSnapshot.filter({ market_code: US_OPTIONS_MARKET_CODE, indicator_key: "technical_signals" }, "-source_as_of", 1e3));
+      const coveredQuotes = new Set(quotes.filter((item) => instrumentIds.has(item.instrument_id) && Number(item.last_price) > 0 && item.quality_status !== "quarantined").map((item) => item.instrument_id));
+      const coveredIntraday = new Set(intradayChunks.filter((item) => instrumentIds.has(item.instrument_id) && Array.isArray(item.bars) && item.bars.length > 0 && item.quality_status !== "quarantined").map((item) => item.instrument_id));
+      const coveredDaily = new Set(dailyHistory.filter((item) => instrumentIds.has(item.instrument_id) && item.status === "complete" && item.coverage_verified === true && item.provider_partial !== true).map((item) => item.instrument_id));
+      const signalCoverage = Object.fromEntries(["1d", "1wk", "1mo"].map((timeframe) => [timeframe, new Set(signals.filter((item) => instrumentIds.has(item.instrument_id) && item.timeframe === timeframe).map((item) => item.instrument_id)).size]));
+      return Response.json({
+        status: coveredQuotes.size === instruments.length && coveredIntraday.size === instruments.length && coveredDaily.size === instruments.length ? "healthy" : "degraded",
+        market_code: US_OPTIONS_MARKET_CODE,
+        expected_instruments: instruments.length,
+        quote_instrument_count: coveredQuotes.size,
+        intraday_instrument_count: coveredIntraday.size,
+        daily_history_instrument_count: coveredDaily.size,
+        signal_instrument_count: signalCoverage,
+        latest_quote_as_of: quotes.map((item) => item.provider_as_of || item.quote_time).filter(Boolean).sort().at(-1) || null,
+        latest_intraday_as_of: intradayChunks.map((item) => item.provider_as_of || item.end_time).filter(Boolean).sort().at(-1) || null
+      });
+    }
     const session = await sessionDecision(base44, clock);
     const forcedRecovery = body.force === true;
     if (!session.tradingDay && !forcedRecovery) return Response.json({ status: "skipped", reason: session.reason, market_code: US_OPTIONS_MARKET_CODE, session_date: clock.date });
