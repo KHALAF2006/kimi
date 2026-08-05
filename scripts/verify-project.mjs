@@ -331,6 +331,13 @@ assert.match(marketReadFunction, /body\.action === "sector_summaries"/, "sector 
 assert.match(marketReadFunction, /const sectorSummaryRows = \[\]/, "the core market snapshot must not scan historical candle chunks for sector heat");
 assert.match(marketReadFunction, /attempt <= 3/, "rate-limited entity reads must use a bounded server-side retry");
 const dashboardPage = await readFile(new URL("../src/pages/Dashboard.jsx", import.meta.url), "utf8");
+const companyPanel = await readFile(new URL("../src/components/market/CompanyPanel.jsx", import.meta.url), "utf8");
+const appShell = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appErrorBoundary = await readFile(new URL("../src/components/AppErrorBoundary.jsx", import.meta.url), "utf8");
+assert.match(companyPanel, /hasCurrentInstrument = state\.dataSymbol === symbol && Boolean\(state\.data\?\.instrument\)/, "opening a company must guard the first render before company data arrives");
+assert.match(companyPanel, /if \(!data\?\.instrument\) throw new Error\("company_payload_incomplete"\)/, "an incomplete company response must use the recoverable error path");
+assert.match(appShell, /<AppErrorBoundary><AuthenticatedApp \/><\/AppErrorBoundary>/, "a route render failure must not leave the application on a blank page");
+assert.match(appErrorBoundary, /window\.location\.assign\("\/dashboard"\)/, "the render fallback must provide a deterministic safe return to the dashboard");
 assert.match(dashboardPage, /SectorPanel/, "sector selection must open a sector profile, not only filter the table");
 assert.match(dashboardPage, /InstrumentSearchInput/, "the visible dashboard search must use the protected autocomplete instead of a cosmetic table filter");
 assert.match(dashboardPage, /MarketIndexPanel/, "TASI selection must open a dedicated market-index analysis panel");
@@ -362,7 +369,6 @@ assert.match(screenerPage, /Number\.isFinite\(candleTimestamp\)/, "the screener 
 assert.match(screenerPage, /آخر 3 شموع محفوظة/, "the screener must tell customers the exact three-candle search window");
 assert.match(screenerPage, /detailsTimeframe=\{timeframe\}/, "strategy results must preserve the selected timeframe when opening a company");
 assert.match(customerMarketTable, /companyDashboardPath\(row\.symbol, detailsTimeframe, marketCode\)/, "company links must carry explicit strategy timeframe and market identity");
-const companyPanel = await readFile(new URL("../src/components/market/CompanyPanel.jsx", import.meta.url), "utf8");
 assert.match(companyChart, /wrapperRef\.current\.requestFullscreen\(\)/, "fullscreen must target only the chart shell so the page itself does not require vertical scrolling");
 assert.match(companyChart, /bullishColor/, "reversal candle rendering must use a distinct bullish color");
 assert.match(companyChart, /bearishColor/, "reversal candle rendering must use a distinct bearish color");

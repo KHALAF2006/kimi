@@ -12,6 +12,7 @@ import { PreferencesProvider } from '@/lib/preferences';
 import { AuthorizationProvider } from '@/lib/AuthorizationContext';
 import { ActiveMarketProvider } from '@/lib/MarketContext';
 import PermissionGate from '@/components/PermissionGate';
+import AppErrorBoundary from '@/components/AppErrorBoundary';
 
 import { lazy, Suspense } from 'react';
 
@@ -108,7 +109,7 @@ function App() {
             <ActiveMarketProvider>
               <Router>
                 <ScrollToTop />
-                <AuthenticatedApp />
+                <AppErrorBoundary><AuthenticatedApp /></AppErrorBoundary>
               </Router>
               <Toaster />
             </ActiveMarketProvider>

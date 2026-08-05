@@ -16,7 +16,7 @@ function EmptySection({ children }) {
 
 export default function CompanyPanel({ symbol, marketCode, requestedTimeframe = "", onResetWidth = () => {}, previousCompany = null, nextCompany = null, onSelectCompany = () => {} }) {
   const { language, isArabic, theme } = usePreferences();
-  const [state, setState] = useState({ loading: false, data: null, dataSymbol: "", error: "" });
+  const [state, setState] = useState({ loading: Boolean(symbol), data: null, dataSymbol: "", error: "" });
   const [chartMomentum, setChartMomentum] = useState(null);
 
   useEffect(() => {
@@ -30,7 +30,10 @@ export default function CompanyPanel({ symbol, marketCode, requestedTimeframe = 
       market_code: marketCode,
       timeframe: requestedTimeframe || "1d",
     })
-      .then((data) => active && setState({ loading: false, data, dataSymbol: symbol, error: "" }))
+      .then((data) => {
+        if (!data?.instrument) throw new Error("company_payload_incomplete");
+        if (active) setState({ loading: false, data, dataSymbol: symbol, error: "" });
+      })
       .catch((error) => active && setState((current) => ({ ...current, loading: false, error: error?.response?.data?.error || error?.message || "company_fetch_failed" })));
     return () => { active = false; };
   }, [symbol, marketCode]);
@@ -45,10 +48,14 @@ export default function CompanyPanel({ symbol, marketCode, requestedTimeframe = 
   }, [symbol]);
 
   if (!symbol) return <section className="company-panel-empty"><Building2 size={34} /><h2>{isArabic ? "اختر شركة" : "Select a company"}</h2><p>{isArabic ? "اضغط على أي شركة أو على شريط السوق لعرض السعر والشموع والمعلومات والمؤشر هنا." : "Open any company to view its quote, candles, company information and indicator here."}</p></section>;
-  if ((state.loading || state.error) && !state.data?.instrument) return <div className="space-y-4">
-    <section className={state.error ? "company-panel-empty text-red-600" : "company-panel-empty"}>{state.loading ? <Loader2 className="animate-spin" /> : <Info />}<h2>{state.loading ? (isArabic ? "جارٍ تحميل معلومات الشركة…" : "Loading company information…") : (isArabic ? "تعذر تحديث معلومات الشركة" : "Company summary unavailable")}</h2><p>{isArabic ? "يبقى الشارت وأدوات تغيير الفاصل متاحة أثناء استعادة خدمة الملخص." : "The chart and timeframe controls remain available while the summary service recovers."}</p></section>
+  const hasCurrentInstrument = state.dataSymbol === symbol && Boolean(state.data?.instrument);
+  if (!hasCurrentInstrument) {
+    const waitingForCompany = state.loading || !state.error;
+    return <div className="space-y-4">
+    <section className={state.error ? "company-panel-empty text-red-600" : "company-panel-empty"}>{waitingForCompany ? <Loader2 className="animate-spin" /> : <Info />}<h2>{waitingForCompany ? (isArabic ? "جارٍ تحميل معلومات الشركة…" : "Loading company information…") : (isArabic ? "تعذر تحديث معلومات الشركة" : "Company summary unavailable")}</h2><p>{isArabic ? "يبقى الشارت وأدوات تغيير الفاصل متاحة أثناء استعادة خدمة الملخص." : "The chart and timeframe controls remain available while the summary service recovers."}</p></section>
     <CompanyChart symbol={symbol} marketCode={marketCode} requestedInterval={requestedTimeframe} onResetWidth={onResetWidth} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} />
   </div>;
+  }
 
   const { instrument, quote = {}, financials = [], actions = [], announcements = [], shareholders = [], loss_classification: loss } = state.data;
   const direction = quoteDirection(quote.change_percent);
