@@ -29,7 +29,7 @@ function SummaryCard({ icon: Icon, label, value, tone, active, onClick }) {
 export default function Dashboard() {
   const { language, isArabic, text } = usePreferences();
   const [params, setParams] = useSearchParams();
-  const [state, setState] = useState({ loading: true, rows: [], total: 0, sources: [], markets: [], market: null, snapshot: null, sectorSummaries: [], error: "", notice: "" });
+  const [state, setState] = useState({ loading: true, marketCodeLoaded: "", rows: [], total: 0, sources: [], markets: [], market: null, snapshot: null, sectorSummaries: [], error: "", notice: "" });
   const { loading: marketContextLoading, error: marketContextError, marketCode, availableMarkets, refresh: refreshMarketAccess } = useActiveMarket();
   const [query, setQuery] = useState("");
   const [sector, setSector] = useState(() => params.get("sector") || "");
@@ -57,7 +57,9 @@ export default function Dashboard() {
       return;
     }
     const requestId = ++loadRequestRef.current;
-    if (!silent) setState((value) => ({ ...value, loading: true, rows: [], total: 0, sources: [], market: null, snapshot: null, sectorSummaries: [], error: "", notice: "" }));
+    if (!silent) setState((value) => value.marketCodeLoaded === marketCode
+      ? { ...value, loading: true, error: "" }
+      : { ...value, loading: true, marketCodeLoaded: "", rows: [], total: 0, sources: [], market: null, snapshot: null, sectorSummaries: [], error: "", notice: "" });
     try {
       const [data, marketData] = await Promise.all([
         invokeAppFunction("marketRead", { limit: 500, market_code: marketCode, mode: activeTab === "momentum" ? "screener" : undefined }),
@@ -65,7 +67,7 @@ export default function Dashboard() {
       ]);
       if (requestId !== loadRequestRef.current) return;
       const markets = marketData.markets || state.markets;
-      setState({ loading: false, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, snapshot: data.snapshot || null, sectorSummaries: data.sector_summaries || [], error: "", notice: data.notice || "" });
+      setState({ loading: false, marketCodeLoaded: marketCode, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, snapshot: data.snapshot || null, sectorSummaries: data.sector_summaries || [], error: "", notice: data.notice || "" });
     } catch (error) {
       if (requestId !== loadRequestRef.current) return;
       setState((value) => ({ ...value, loading: false, error: error?.response?.data?.error || error?.message || "market_fetch_failed" }));

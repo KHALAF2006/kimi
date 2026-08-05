@@ -11,13 +11,14 @@ import ChartDrawingTools from "@/components/market/ChartDrawingTools";
 import ChartSettingsSheet from "@/components/market/ChartSettingsSheet";
 import { CHART_REPLAY_SPEEDS, nextReplayCursor, normalizeReplaySpeed, replayCandles, replayStartIndex } from "@/lib/chart-replay";
 import { chartControlTransition } from "@/lib/chart-controls";
+import { persistSuccessfulChartSelection, readSuccessfulChartSelection } from "@/lib/chart-timeframes";
 
 const intervalOptions = [
   { value: "15m", ar: "15 د", en: "15m", defaultRange: "5d" },
   { value: "1h", ar: "ساعة", en: "1H", defaultRange: "1mo" },
-  { value: "2h", ar: "ساعتان", en: "2H", defaultRange: "3mo" },
-  { value: "3h", ar: "3 ساعات", en: "3H", defaultRange: "3mo" },
-  { value: "4h", ar: "4 ساعات", en: "4H", defaultRange: "3mo" },
+  { value: "2h", ar: "ساعتان", en: "2H", defaultRange: "5d" },
+  { value: "3h", ar: "3 ساعات", en: "3H", defaultRange: "5d" },
+  { value: "4h", ar: "4 ساعات", en: "4H", defaultRange: "5d" },
   { value: "1d", ar: "يوم", en: "1D", defaultRange: "1y" },
   { value: "1wk", ar: "أسبوع", en: "1W", defaultRange: "5y" },
   { value: "1mo", ar: "شهر", en: "1M", defaultRange: "5y" },
@@ -31,6 +32,7 @@ const rangeOptions = [
   { value: "5y", ar: "5 سنوات", en: "5Y", intervals: ["1d", "1wk", "1mo"] },
   { value: "max", ar: "تاريخي", en: "History", intervals: ["1d", "1wk", "1mo"] },
 ];
+const intradayIntervals = new Set(["15m", "1h", "2h", "3h", "4h"]);
 
 function ChartControlPopover({ open, onOpenChange, trigger, className, isArabic, portalContainer, children }) {
   return <Popover.Root open={open} onOpenChange={onOpenChange} modal={false}>
@@ -49,18 +51,6 @@ function ChartControlPopover({ open, onOpenChange, trigger, className, isArabic,
       </Popover.Content>
     </Popover.Portal>
   </Popover.Root>;
-}
-
-function initialChartInterval(requestedInterval = "") {
-  if (intervalOptions.some((item) => item.value === requestedInterval)) return requestedInterval;
-  const stored = localStorage.getItem("kmy_chart_interval") || "1d";
-  return intervalOptions.some((item) => item.value === stored) ? stored : "1d";
-}
-
-function initialChartRange(interval = initialChartInterval()) {
-  const stored = localStorage.getItem("kmy_chart_range") || "1y";
-  if (rangeOptions.some((item) => item.value === stored && item.intervals.includes(interval))) return stored;
-  return intervalOptions.find((item) => item.value === interval)?.defaultRange || "1y";
 }
 
 const rsiDefaults = {
@@ -194,13 +184,20 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const replayModeRef = useRef("idle");
   const replayStartTimeRef = useRef(null);
   const replayTimerRef = useRef(0);
-  const [interval, setInterval] = useState(() => initialChartInterval(requestedInterval));
-  const [range, setRange] = useState(() => initialChartRange(initialChartInterval(requestedInterval)));
+  const chartTarget = sector || symbol;
+  const chartTargetType = sector ? "sector" : symbol === "TASI" ? "market-index" : "instrument";
+  const safeRequestedInterval = symbol === "TASI" && intradayIntervals.has(requestedInterval) ? "" : requestedInterval;
+  const initialSelectionRef = useRef(readSuccessfulChartSelection(marketCode, chartTargetType, chartTarget, safeRequestedInterval));
+  const successfulSelectionRef = useRef(readSuccessfulChartSelection(marketCode, chartTargetType, chartTarget));
+  const [interval, setInterval] = useState(initialSelectionRef.current.interval);
+  const [range, setRange] = useState(initialSelectionRef.current.range);
   const [candles, setCandles] = useState([]);
   const [indicatorState, setIndicatorState] = useState({ key: "", momentum: null });
   const [historyMeta, setHistoryMeta] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [recoveryNotice, setRecoveryNotice] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
   const [hovered, setHovered] = useState(null);
   const [showMomentum, setShowMomentum] = useState(() => localStorage.getItem("kmy_show_momentum") !== "false");
   const [showMomentumCard, setShowMomentumCard] = useState(() => localStorage.getItem("kmy_show_momentum_card") !== "false");
@@ -255,7 +252,6 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const [drawingVisibilityCommand, setDrawingVisibilityCommand] = useState(null);
   replayModeRef.current = replayState.mode;
   replayStartTimeRef.current = replayState.startTime;
-  const chartTarget = sector || symbol;
   const indicatorKey = `${chartTarget}:${interval}`;
   const backendMomentum = useMemo(() => indicatorState.key === indicatorKey ? normalizeMomentum(indicatorState.momentum, theme) : null, [indicatorState, indicatorKey, theme]);
   const identityName = sector ? (isArabic ? `مؤشر قطاع ${sector}` : `${sector} sector index`) : (isArabic ? companyNameAr || companyNameEn : companyNameEn || companyNameAr);
@@ -343,12 +339,23 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   }, [chartTarget, interval, range, dispatchChartControl]);
 
   useEffect(() => {
-    if (!requestedInterval || !intervalOptions.some((item) => item.value === requestedInterval)) return;
+    if (!requestedInterval || symbol === "TASI" && intradayIntervals.has(requestedInterval) || !intervalOptions.some((item) => item.value === requestedInterval)) return;
     setInterval(requestedInterval);
     setRange((current) => rangeOptions.some((item) => item.value === current && item.intervals.includes(requestedInterval))
       ? current
       : intervalOptions.find((item) => item.value === requestedInterval)?.defaultRange || "1y");
-  }, [requestedInterval]);
+  }, [requestedInterval, symbol]);
+
+  useEffect(() => {
+    const selection = readSuccessfulChartSelection(marketCode, chartTargetType, chartTarget, symbol === "TASI" && intradayIntervals.has(requestedInterval) ? "" : requestedInterval);
+    successfulSelectionRef.current = readSuccessfulChartSelection(marketCode, chartTargetType, chartTarget);
+    setInterval(selection.interval);
+    setRange(selection.range);
+    setCandles([]);
+    setHistoryMeta(null);
+    setError("");
+    setRecoveryNotice("");
+  }, [marketCode, chartTargetType, chartTarget]);
 
   useEffect(() => {
     const updateViewport = () => {
@@ -403,7 +410,6 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     if (!chartTarget) return;
     let active = true;
     setLoading(true);
-    setError("");
     const request = sector
       ? { action: "sector_chart", sector, market_code: marketCode, interval, range, lookback_days: requestedPeakLookbackDays }
       : {
@@ -419,21 +425,32 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     readMarketChart(request)
       .then((data) => {
         if (!active) return;
-        setCandles(Array.isArray(data.candles) ? data.candles : []);
+        const nextCandles = Array.isArray(data.candles) ? data.candles : [];
+        if (!nextCandles.length) throw Object.assign(new Error("chart_data_not_available"), { code: "CHART_DATA_NOT_AVAILABLE" });
+        setCandles(nextCandles);
         setHistoryMeta(data.data_meta || null);
         setIndicatorState({ key: indicatorKey, momentum: data.momentum_indicator || null });
+        const successful = persistSuccessfulChartSelection(marketCode, chartTargetType, chartTarget, { interval, range });
+        successfulSelectionRef.current = successful;
+        setError("");
+        setRecoveryNotice("");
       })
       .catch((reason) => {
         if (!active) return;
-        setCandles([]);
-        setHistoryMeta(null);
-        setError(reason?.response?.data?.error || reason?.message || "chart_fetch_failed");
+        const failedMessage = reason?.response?.data?.error || reason?.message || "chart_fetch_failed";
+        const lastSuccessful = successfulSelectionRef.current;
+        setError(failedMessage);
+        if (lastSuccessful && (lastSuccessful.interval !== interval || lastSuccessful.range !== range)) {
+          setRecoveryNotice(isArabic
+            ? `تعذر فتح فاصل ${interval}؛ أُعيد الشارت تلقائيًا إلى آخر فاصل سليم.`
+            : `${interval} could not be opened; the chart returned to the last working interval.`);
+          setInterval(lastSuccessful.interval);
+          setRange(lastSuccessful.range);
+        }
       })
       .finally(() => active && setLoading(false));
-    localStorage.setItem("kmy_chart_interval", interval);
-    localStorage.setItem("kmy_chart_range", range);
     return () => { active = false; };
-  }, [chartTarget, sector, symbol, marketCode, interval, range, indicatorKey, requestedPeakLookbackDays]);
+  }, [chartTarget, chartTargetType, sector, symbol, marketCode, interval, range, indicatorKey, requestedPeakLookbackDays, retryKey, isArabic]);
 
   useEffect(() => {
     onMomentumChange(momentum, interval);
@@ -676,7 +693,15 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       watermarkRef.current = null;
       momentumLinesRef.current = [];
     };
-  }, [theme, language, interval]);
+  }, [theme, language]);
+
+  useEffect(() => {
+    chartRef.current?.timeScale().applyOptions({
+      timeVisible: intradayIntervals.has(interval),
+      secondsVisible: false,
+      barSpacing: interval === "15m" ? 7 : 9,
+    });
+  }, [interval]);
 
   useEffect(() => {
     sma20SeriesRef.current?.applyOptions({
@@ -876,6 +901,9 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   }, [momentum, momentumSettings, visibleOrderedCandles, showMomentum, isArabic]);
 
   function changeInterval(nextInterval) {
+    if (symbol === "TASI" && intradayIntervals.has(nextInterval)) return;
+    setRecoveryNotice("");
+    setError("");
     setInterval(nextInterval);
     const supported = rangeOptions.filter((item) => item.intervals.includes(nextInterval));
     if (!supported.some((item) => item.value === range)) {
@@ -886,6 +914,8 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   function changeRange(nextRange) {
     const option = rangeOptions.find((item) => item.value === nextRange);
     if (!option) return;
+    setRecoveryNotice("");
+    setError("");
     if (!option.intervals.includes(interval)) setInterval("1d");
     setRange(nextRange);
   }
@@ -1138,7 +1168,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     </section>}
 
     <div className="chart-toolbar-grid">
-      <div className="chart-control-group"><span>{isArabic ? "الفاصل" : "Interval"}</span><div>{intervalOptions.map((item) => <button type="button" key={item.value} onClick={() => changeInterval(item.value)} className={"chart-chip " + (interval === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>)}</div></div>
+      <div className="chart-control-group"><span>{isArabic ? "الفاصل" : "Interval"}</span><div>{intervalOptions.map((item) => {
+        const unavailable = symbol === "TASI" && intradayIntervals.has(item.value);
+        return <button type="button" key={item.value} disabled={unavailable} title={unavailable ? (isArabic ? "لا يوجد مصدر شموع لحظية موثق لتاسي حاليًا" : "No verified intraday TASI candle source is configured") : undefined} onClick={() => changeInterval(item.value)} className={"chart-chip " + (interval === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>;
+      })}</div></div>
       <div className="chart-control-group"><span>{isArabic ? "النطاق" : "Range"}</span><div>{rangeOptions.map((item) => {
         const switchesToDaily = !item.intervals.includes(interval);
         return <button type="button" key={item.value} onClick={() => changeRange(item.value)} title={switchesToDaily ? (isArabic ? "يفتح هذا النطاق على الفاصل اليومي" : "Opens this range on the daily interval") : undefined} className={"chart-chip " + (range === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>;
@@ -1185,19 +1218,23 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
 
     <div className={"ohlc-strip " + (hovered ? "" : "invisible")} dir="ltr" aria-hidden={!hovered}>{hovered ? <><time>{formatChartDate(hovered.time, isArabic ? "ar-SA" : "en-GB", interval === "15m" || interval === "1h")}</time>{chartPreferences.candleType === "heikin_ashi" && <b>HA</b>}<span>O {formatNumber(hovered.open, "en")}</span><span>H {formatNumber(hovered.high, "en")}</span><span>L {formatNumber(hovered.low, "en")}</span><span>C {formatNumber(hovered.close, "en")}</span>{Number.isFinite(Number(hovered.volume)) && <span>VOL {formatNumber(hovered.volume, "en", 0)}</span>}{Number.isFinite(Number(hovered.rsi)) && <span>RSI {formatNumber(hovered.rsi, "en")}</span>}</> : <span>&nbsp;</span>}</div>
     {loading && <div className="chart-message">{isArabic ? "جارٍ تحميل الشموع الحقيقية…" : "Loading verified candles…"}</div>}
-    {error && <div className="chart-message text-red-600">{isArabic
-      ? sector
-        ? "لا تتوفر شموع كافية لمؤشر هذا القطاع على الفاصل والنطاق المختارين. جرّب الفاصل اليومي أو نطاقًا أقصر."
-        : symbol === "TASI"
-          ? "لم تكتمل أرشفة شموع تاسي على الفاصل والنطاق المختارين بعد."
-          : "تعذر جلب شموع هذه الأداة من الأرشيف المحفوظ."
-      : sector
-        ? "This sector index does not have enough stored candles for the selected interval and range."
-        : "Stored candles are unavailable for this instrument."}</div>}
+    {(error || recoveryNotice) && <div className="chart-message chart-recovery-message text-red-600" role="alert">
+      <span>{recoveryNotice || (isArabic
+        ? sector
+          ? "لا تتوفر شموع كافية لمؤشر هذا القطاع على الفاصل والنطاق المختارين. جرّب الفاصل اليومي أو نطاقًا أقصر."
+          : symbol === "TASI"
+            ? "لم تكتمل أرشفة شموع تاسي على الفاصل والنطاق المختارين بعد."
+            : "تعذر جلب شموع هذه الأداة من الأرشيف المحفوظ."
+        : sector
+          ? "This sector index does not have enough stored candles for the selected interval and range."
+          : "Stored candles are unavailable for this instrument.")}</span>
+      <button type="button" className="secondary-button" onClick={() => setRetryKey((value) => value + 1)}>{isArabic ? "إعادة المحاولة" : "Retry"}</button>
+      {(interval !== "1d" || range !== "1y") && <button type="button" className="secondary-button" onClick={() => { setError(""); setRecoveryNotice(""); setInterval("1d"); setRange("1y"); }}>{isArabic ? "العودة إلى اليومي" : "Back to daily"}</button>}
+    </div>}
     {!loading && !error && !candles.length && <div className="chart-message">{isArabic ? "لا توجد شموع موثقة لهذا النطاق." : "No verified candles for this range."}</div>}
     {!loading && !error && range === "max" && historyMeta?.history_complete === false && <div className="chart-history-status" role="status">{isArabic ? "السجل التاريخي لهذا السهم غير مكتمل بعد؛ المعروض هو الجزء المحفوظ فقط." : "This instrument's historical archive is not complete yet; only stored candles are shown."}</div>}
 
-    <div ref={canvasWrapRef} className={candles.length ? "chart-canvas-wrap" : "h-0"} style={candles.length && !fullscreen ? { height: chartHeight } : undefined}>
+    <div ref={canvasWrapRef} className="chart-canvas-wrap" style={!fullscreen ? { height: chartHeight } : undefined}>
       <div ref={containerRef} className="absolute inset-0" />
       {Number.isFinite(Number(replayLineX)) && <div className="chart-replay-start-line" style={{ left: Number(replayLineX), height: mainPaneHeight }} aria-hidden="true"><span>{isArabic ? "البداية" : "Start"}</span></div>}
       {replayState.mode === "selecting" && <div className="chart-replay-selection-hint" aria-hidden="true"><History size={15} />{isArabic ? "اختر شمعة البداية" : "Select the starting bar"}</div>}

@@ -220,11 +220,36 @@ async function referenceMarketRead(payload) {
   };
 }
 
+function invokeWithTimeout(factory, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(Object.assign(new Error("market_read_timeout"), { code: "MARKET_READ_TIMEOUT" })), timeoutMs);
+    Promise.resolve().then(factory).then(
+      (value) => { window.clearTimeout(timer); resolve(value); },
+      (error) => { window.clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 export async function invokeAppFunction(functionName, payload = {}) {
   if (referenceApi && functionName === "marketRead") return referenceMarketRead(payload);
   try {
-    const response = await base44.functions.invoke(functionName, { ...payload, session_id: localStorage.getItem("kmy_session_id") });
-    return response.data;
+    const invoke = () => base44.functions.invoke(functionName, { ...payload, session_id: localStorage.getItem("kmy_session_id") });
+    const maxAttempts = functionName === "marketRead" ? 2 : 1;
+    let lastError = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const response = await invokeWithTimeout(invoke, 20_000);
+        return response.data;
+      } catch (error) {
+        lastError = error;
+        const status = Number(error?.response?.status || error?.response?.data?.status || 0);
+        const code = String(error?.response?.data?.code || error?.code || "");
+        const transient = status === 429 || status >= 500 || code === "MARKET_READ_TIMEOUT";
+        if (!transient || attempt >= maxAttempts) throw error;
+        await new Promise((resolve) => window.setTimeout(resolve, 250 * attempt));
+      }
+    }
+    throw lastError || new Error("market_read_failed");
   } catch (error) {
     const message = error?.response?.data?.error || error?.message;
     if (message === "Active device session required") {

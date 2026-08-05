@@ -5349,11 +5349,33 @@ function fallbackIntervals(interval) {
   if (["1d", "1h", "2h", "3h", "4h"].includes(interval)) return [interval, "15m"];
   return [interval];
 }
+async function entityReadWithRetry(read) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await read();
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.status || error?.response?.status || error?.response?.data?.status || 0);
+      const message = String(error?.message || error?.response?.data?.error || "").toLowerCase();
+      if (attempt >= 2 || status !== 429 && !message.includes("rate limit")) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
+    }
+  }
+  throw lastError;
+}
+function availableIntervals(storedIntervals) {
+  const stored = new Set(storedIntervals || []);
+  const available = new Set(stored);
+  if (stored.has("15m")) ["15m", "1h", "2h", "3h", "4h", "1d", "1wk", "1mo"].forEach((interval) => available.add(interval));
+  if (stored.has("1d")) ["1d", "1wk", "1mo"].forEach((interval) => available.add(interval));
+  return [...available];
+}
 async function storedCandlesForInterval(base44, instrumentId, interval, marketCode) {
   const series = [];
   const allChunks = [];
   for (const storedInterval of fallbackIntervals(interval)) {
-    const chunks = entityRows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrumentId, interval: storedInterval }, "-end_time", 500))
+    const chunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrumentId, interval: storedInterval }, "-end_time", 500)))
       .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
       .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
     if (!chunks.length) continue;
@@ -5379,7 +5401,7 @@ async function storedCandlesForInstruments(base44, instrumentIds, interval, mark
   const requestedIds = new Set(instrumentIds);
   const chunksByInstrument = new Map(instrumentIds.map((id) => [id, []]));
   for (const storedInterval of fallbackIntervals(interval)) {
-    const chunks = entityRows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: { $in: instrumentIds }, interval: storedInterval }, "-end_time", 5e3))
+    const chunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: { $in: instrumentIds }, interval: storedInterval }, "-end_time", 5e3)))
       .filter((chunk) => requestedIds.has(chunk.instrument_id) && chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
     for (const chunk of chunks) chunksByInstrument.get(chunk.instrument_id)?.push(chunk);
   }
@@ -5453,6 +5475,7 @@ async function chartResponse(base44, body, sources) {
       quality_status: latestChunk.quality_status,
       license_status: source?.license_status || "restricted",
       requested_interval: interval,
+      available_intervals: availableIntervals(stored.storedIntervals),
       stored_interval: stored.storedInterval,
       stored_intervals: stored.storedIntervals,
       snapshot_version: latestChunk.snapshot_version || null,
@@ -5557,7 +5580,7 @@ function cleanSectorName(value) {
 async function sectorInstruments(base44, body) {
   const requestedMarket = String(body.market_code || "SA_MAIN");
   const sector = cleanSectorName(body.sector);
-  const instruments = entityRows(await base44.asServiceRole.entities.Instrument.filter({ market_code: requestedMarket }, "symbol", 500))
+  const instruments = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.Instrument.filter({ market_code: requestedMarket }, "symbol", 500)))
     .filter((item) => item.sector_ar === sector || item.sector_en === sector);
   if (!instruments.length) throw Object.assign(new Error("Sector not found"), { status: 404, code: "SECTOR_NOT_FOUND" });
   return { requestedMarket, sector, instruments };
@@ -5567,17 +5590,17 @@ function sectorWeights(instruments, quoteByInstrument) {
   const total = caps.reduce((sum, value) => sum + value, 0);
   return new Map(instruments.map((instrument, index) => [instrument.id, total > 0 ? caps[index] / total : 1 / instruments.length]));
 }
-async function sectorSummaries(base44, instruments, quoteByInstrument) {
+async function sectorSummaries(base44, instruments, quoteByInstrument, marketCode) {
   const equities = instruments.filter((instrument) => (instrument.instrument_type || "equity") === "equity");
   const equityIds = new Set(equities.map((instrument) => instrument.id));
-  const recentDailyChunks = entityRows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: { $in: equities.map((instrument) => instrument.id) }, interval: "1d" }, "-end_time", 1e3))
+  const recentDailyChunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: { $in: equities.map((instrument) => instrument.id) }, interval: "1d" }, "-end_time", 1e3)))
     .filter((chunk) => equityIds.has(chunk.instrument_id) && chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
   const chunksByInstrument = new Map();
   for (const chunk of recentDailyChunks) {
     if (!chunksByInstrument.has(chunk.instrument_id)) chunksByInstrument.set(chunk.instrument_id, []);
     chunksByInstrument.get(chunk.instrument_id).push(chunk);
   }
-  const barsByInstrument = new Map(equities.map((instrument) => [instrument.id, normalizedStoredBars(chunksByInstrument.get(instrument.id) || [])]));
+  const barsByInstrument = new Map(equities.map((instrument) => [instrument.id, normalizedStoredBars(chunksByInstrument.get(instrument.id) || [], marketCode)]));
   const groups = new Map();
   for (const instrument of equities) {
     const key = instrument.sector_ar || instrument.sector_en;
@@ -5633,7 +5656,7 @@ async function sectorSummaries(base44, instruments, quoteByInstrument) {
 }
 async function sectorResponse(base44, body, sourceById) {
   const { requestedMarket, sector, instruments } = await sectorInstruments(base44, body);
-  const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((instrument) => instrument.id) } }, "-quote_time", 1000));
+  const quotes = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((instrument) => instrument.id) } }, "-quote_time", 1000)));
   const quoteByInstrument = new Map();
   for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
   const weights = sectorWeights(instruments, quoteByInstrument);
@@ -5679,7 +5702,7 @@ async function sectorChartResponse(base44, body) {
   if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range)) {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
-  const quotes = entityRows(await base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((instrument) => instrument.id) } }, "-quote_time", 1000));
+  const quotes = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((instrument) => instrument.id) } }, "-quote_time", 1000)));
   const quoteByInstrument = new Map();
   for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
   const weights = sectorWeights(instruments, quoteByInstrument);
@@ -5925,7 +5948,7 @@ Deno.serve(async (req) => {
     }
     const limit = Math.min(Math.max(Number(body.limit || 500), 1), 500);
     const requestedMarket = String(body.market_code || "").toUpperCase();
-    const instruments = entityRows(await base44.asServiceRole.entities.Instrument.filter({ market_code: requestedMarket }, "symbol", 500))
+    const instruments = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.Instrument.filter({ market_code: requestedMarket }, "symbol", 500)))
       .filter((item) => requestedMarket !== "SA_MAIN" || MAIN_MARKET_SYMBOLS.has(item.symbol));
     if (requestedMarket === US_OPTIONS_MARKET_CODE && instruments.some((item) => !US_OPTIONS_SYMBOLS.has(item.symbol))) {
       throw Object.assign(new Error("U.S. options catalog contains an out-of-scope instrument"), { status: 503, code: "CATALOG_ISOLATION_FAILED" });
@@ -5933,7 +5956,7 @@ Deno.serve(async (req) => {
     const instrumentIds = instruments.map((item) => item.id);
     const screenerTimeframe = ["1d", "1wk", "1mo"].includes(String(body.timeframe || "1d")) ? String(body.timeframe || "1d") : "1d";
     const [quotes, indicators, losses] = await Promise.all([
-      base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instrumentIds } }, "-quote_time", 1000),
+      entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instrumentIds } }, "-quote_time", 1000)),
       body.mode === "screener"
         ? optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.filter({
           instrument_id: { $in: instrumentIds },
@@ -5953,7 +5976,7 @@ Deno.serve(async (req) => {
     for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
     const sectorSummaryRows = body.mode === "screener"
       ? []
-      : await optionalRows(() => sectorSummaries(base44, instruments, quoteByInstrument), "sector summaries");
+      : await optionalRows(() => sectorSummaries(base44, instruments, quoteByInstrument, requestedMarket), "sector summaries");
     const indicatorsByInstrument = new Map();
     for (const item of indicators) {
       if (!indicatorsByInstrument.has(item.instrument_id)) indicatorsByInstrument.set(item.instrument_id, []);

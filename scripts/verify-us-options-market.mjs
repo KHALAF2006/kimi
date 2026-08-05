@@ -22,6 +22,7 @@ async function importTypeScriptModule(relativePath) {
 
 const catalogModule = await importTypeScriptModule("./base44/shared/us-options-catalog.ts");
 const timingModule = await importTypeScriptModule("./base44/shared/us-options-timing.ts");
+const timeframeModule = await importTypeScriptModule("./src/lib/chart-timeframes.js");
 const intelligenceModule = await importTypeScriptModule("./base44/shared/us-company-intelligence.ts");
 const catalog = catalogModule.US_OPTIONS_CATALOG;
 const symbols = catalog.companies.map((item) => item.symbol);
@@ -42,6 +43,17 @@ assert.equal(timingModule.alertIntervalDue("2h", "2026-08-04T14:30:00.000Z", fal
 assert.equal(timingModule.alertIntervalDue("1wk", "2026-04-02T20:00:00.000Z", true, { nextTradingDate: "2026-04-06" }), true, "the Thursday close before Good Friday must finalize the trading week");
 assert.equal(timingModule.alertIntervalDue("1mo", "2026-05-29T20:00:00.000Z", true, { nextTradingDate: "2026-06-01" }), true, "the final trading session must finalize the month");
 assert.equal(timingModule.alertIntervalDue("1mo", "2026-05-28T20:00:00.000Z", true, { nextTradingDate: "2026-05-29" }), false);
+
+const memoryStorage = new Map();
+globalThis.localStorage = {
+  getItem: (key) => memoryStorage.get(key) ?? null,
+  setItem: (key, value) => memoryStorage.set(key, String(value)),
+};
+timeframeModule.persistSuccessfulChartSelection("SA_MAIN", "instrument", "1111", { interval: "1d", range: "1y" });
+timeframeModule.persistSuccessfulChartSelection("US_OPTIONS", "instrument", "PLTR", { interval: "2h", range: "5d" });
+assert.deepEqual(timeframeModule.readSuccessfulChartSelection("SA_MAIN", "instrument", "1111"), { interval: "1d", range: "1y" }, "Saudi chart selection must remain market and instrument scoped");
+assert.deepEqual(timeframeModule.readSuccessfulChartSelection("US_OPTIONS", "instrument", "PLTR"), { interval: "2h", range: "5d" }, "U.S. chart selection must not leak into Saudi state");
+assert.deepEqual(timeframeModule.normalizeChartSelection({ interval: "2h", range: "5y" }), { interval: "2h", range: "5d" }, "an invalid intraday range must recover to the bounded default");
 
 const instrumentFixture = { id: "instrument-aapl", symbol: "AAPL", name_en: "Apple Inc." };
 const nowFixture = "2026-08-04T12:00:00.000Z";
@@ -135,6 +147,9 @@ assert.match(ingestion, /await evaluateAlerts\(base44, acceptedQuotes, isFinal, 
 assert.match(ingestion, /async function ensureCatalog/);
 assert.match(ingestion, /batch_count/);
 assert.match(ingestion, /batch_index/);
+assert.match(ingestion, /barsBySession/, "the five-day provider response must be partitioned into durable exchange sessions");
+assert.match(ingestion, /for \(const session of item\.sessions\)/, "every returned 15-minute session must be persisted, not only the current day");
+assert.match(ingestion, /canonical_version: "us-options-intraday-v2"/);
 assert.ok(
   ingestion.indexOf("await ensureCatalog(base44, now)") < ingestion.indexOf("if (!session.tradingDay)"),
   "the U.S. catalog must initialize before the market-session early return",
@@ -194,6 +209,12 @@ assert.match(marketAccessSelect, /setLockedMarket/);
 const dashboard = await source("src/pages/Dashboard.jsx");
 assert.match(dashboard, /if \(!marketCode\) \{[\s\S]*loading: false,[\s\S]*market_access_unavailable/, "the dashboard must terminate loading when no market is available");
 assert.match(dashboard, /<MarketAccessSelect/);
+assert.match(dashboard, /value\.marketCodeLoaded === marketCode/, "same-market refresh must keep the last good rows while a new read is in flight");
+const companyChart = await source("src/components/market/CompanyChart.jsx");
+assert.match(companyChart, /persistSuccessfulChartSelection/);
+assert.match(companyChart, /successfulSelectionRef/);
+assert.match(companyChart, /العودة إلى اليومي/);
+assert.doesNotMatch(companyChart, /className=\{candles\.length \? "chart-canvas-wrap" : "h-0"\}/, "a failed request must never collapse the chart controls and canvas to zero height");
 const layout = await source("src/components/KmyLayout.jsx");
 assert.match(layout, /<MarketAccessSelect compact/);
 

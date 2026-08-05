@@ -537,6 +537,10 @@ const usWinterBars = [
 ];
 assert.equal(mergeStoredCandleSeries([{ interval: "15m", bars: usSummerBars }], "1h", usOptionsCandleOptions).bars.length, 2, "U.S. summer buckets must start at 09:30 EDT");
 assert.equal(mergeStoredCandleSeries([{ interval: "15m", bars: usWinterBars }], "1h", usOptionsCandleOptions).bars.length, 2, "U.S. winter buckets must start at 09:30 EST");
+for (const interval of ["2h", "3h", "4h"]) {
+  assert.ok(mergeStoredCandleSeries([{ interval: "15m", bars: usSummerBars }], interval, usOptionsCandleOptions).bars.length > 0, `U.S. summer ${interval} aggregation must remain available`);
+  assert.ok(mergeStoredCandleSeries([{ interval: "15m", bars: usWinterBars }], interval, usOptionsCandleOptions).bars.length > 0, `U.S. winter ${interval} aggregation must remain available`);
+}
 const usWeekBoundary = [
   { time: "2026-07-31T16:00:00.000Z", open: 10, high: 11, low: 9, close: 10.5, volume: 100 },
   { time: "2026-08-03T16:00:00.000Z", open: 11, high: 12, low: 10, close: 11.5, volume: 120 },

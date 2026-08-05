@@ -90,7 +90,7 @@ async function nextTradingSessionDate(base44, sessionDate) {
 async function upsertMany(base44, entity, incoming, fields, existingFilter = null) {
   const unique = [...new Map(incoming.map((row) => [keyFor(row, fields), row])).values()];
   const existing = rows(existingFilter
-    ? await base44.asServiceRole.entities[entity].filter(existingFilter)
+    ? await base44.asServiceRole.entities[entity].filter(existingFilter, "-updated_date", 5e3)
     : await base44.asServiceRole.entities[entity].list("-updated_date", 5e3));
   const byKey = new Map(existing.map((row) => [keyFor(row, fields), row]));
   const creates = unique.filter((row) => !byKey.has(keyFor(row, fields)));
@@ -213,21 +213,27 @@ function normalizeChart(symbol, result, now) {
   const quote = result?.indicators?.quote?.[0] || {};
   const sessionDate = nyClock(now).date;
   const visibleThroughMs = delayedCutoffMs(now);
-  const barsByTime = new Map();
+  const barsBySession = new Map();
   for (let index = 0; index < timestamps.length; index += 1) {
     const time = new Date(Number(timestamps[index]) * 1000);
     const clock = nyClock(time);
     const minute = clock.hour * 60 + clock.minute;
-    if (clock.date !== sessionDate || minute < 570 || minute >= 960 || !isCompletedDelayedBar(time, now)) continue;
+    if (minute < 570 || minute >= 960 || !isCompletedDelayedBar(time, now)) continue;
     const open = validNumber(quote.open?.[index]);
     const high = validNumber(quote.high?.[index]);
     const low = validNumber(quote.low?.[index]);
     const close = validNumber(quote.close?.[index]);
     if (![open, high, low, close].every(Boolean) || high < Math.max(open, close) || low > Math.min(open, close)) continue;
     const iso = time.toISOString();
-    barsByTime.set(iso, { time: iso, open, high, low, close, volume: validVolume(quote.volume?.[index]) });
+    const sessionBars = barsBySession.get(clock.date) || new Map();
+    sessionBars.set(iso, { time: iso, open, high, low, close, volume: validVolume(quote.volume?.[index]) });
+    barsBySession.set(clock.date, sessionBars);
   }
-  const bars = [...barsByTime.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time));
+  const sessions = [...barsBySession.entries()].map(([date, sessionBars]) => ({
+    sessionDate: date,
+    bars: [...sessionBars.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time)),
+  })).filter((session) => session.bars.length).sort((left, right) => left.sessionDate.localeCompare(right.sessionDate));
+  const bars = sessions.find((session) => session.sessionDate === sessionDate)?.bars || [];
   if (!bars.length) throw new Error("no_current_session_bars");
   const providerAsOf = new Date(visibleThroughMs).toISOString();
   const previousClose = validNumber(result?.meta?.chartPreviousClose ?? result?.meta?.previousClose);
@@ -241,6 +247,7 @@ function normalizeChart(symbol, result, now) {
     providerAsOf,
     lastTradeTime: last.time,
     bars,
+    sessions,
     quote: {
       last_price: last.close,
       previous_close: previousClose,
@@ -374,18 +381,21 @@ Deno.serve(async (req) => {
         quality_status: freshnessStatus === "fresh" ? "verified" : "stale", snapshot_version: snapshotVersion,
         market_phase: isFinal ? "closed" : "continuous", freshness_status: freshnessStatus, is_final: isFinal, run_id: run.id,
       });
-      chunks.push({
-        instrument_id: instrument.id, market_code: US_OPTIONS_MARKET_CODE, symbol: item.symbol, interval: "15m",
-        chunk_key: `${US_OPTIONS_MARKET_CODE}:${item.symbol}:15m:${item.sessionDate}`, session_date: item.sessionDate,
-        start_time: item.bars[0].time, end_time: item.bars.at(-1).time, bars: item.bars,
-        bar_count: item.bars.length, checksum: await checksum(item.bars), source_id: source.id, run_id: run.id,
-        snapshot_version: snapshotVersion, provider_as_of: item.providerAsOf, received_time: received,
-        quality_status: freshnessStatus === "fresh" ? "verified" : "stale", canonical_version: "us-options-intraday-v1", is_final: isFinal,
-        bucket_count: item.bars.length, completeness_status: "complete", is_historical_archive: false, adjustment_mode: "none",
-      });
+      for (const session of item.sessions) {
+        const sessionFinal = session.sessionDate !== item.sessionDate || isFinal;
+        chunks.push({
+          instrument_id: instrument.id, market_code: US_OPTIONS_MARKET_CODE, symbol: item.symbol, interval: "15m",
+          chunk_key: `${US_OPTIONS_MARKET_CODE}:${item.symbol}:15m:${session.sessionDate}`, session_date: session.sessionDate,
+          start_time: session.bars[0].time, end_time: session.bars.at(-1).time, bars: session.bars,
+          bar_count: session.bars.length, checksum: await checksum(session.bars), source_id: source.id, run_id: run.id,
+          snapshot_version: snapshotVersion, provider_as_of: sessionFinal ? session.bars.at(-1).time : item.providerAsOf, received_time: received,
+          quality_status: sessionFinal ? "verified" : freshnessStatus === "fresh" ? "verified" : "stale", canonical_version: "us-options-intraday-v2", is_final: sessionFinal,
+          bucket_count: session.bars.length, completeness_status: sessionFinal ? "complete" : "partial", is_historical_archive: session.sessionDate !== item.sessionDate, adjustment_mode: "none",
+        });
+      }
     }
     const quoteResult = await upsertMany(base44, "QuoteLatest", acceptedQuotes, ["instrument_id"], { market_code: US_OPTIONS_MARKET_CODE });
-    const candleResult = await upsertMany(base44, "CandleChunk", chunks, ["instrument_id", "interval", "chunk_key"], { market_code: US_OPTIONS_MARKET_CODE, interval: "15m", session_date: clock.date });
+    const candleResult = await upsertMany(base44, "CandleChunk", chunks, ["instrument_id", "interval", "chunk_key"], { market_code: US_OPTIONS_MARKET_CODE, interval: "15m" });
     const acceptedIds = new Set(acceptedQuotes.map((quote) => quote.instrument_id));
     const stale = rows(await base44.asServiceRole.entities.QuoteLatest.filter({ market_code: US_OPTIONS_MARKET_CODE }))
       .filter((quote) => batchInstruments.some((instrument) => instrument.id === quote.instrument_id) && !acceptedIds.has(quote.instrument_id))

@@ -45,8 +45,10 @@ export default function CompanyPanel({ symbol, marketCode, requestedTimeframe = 
   }, [symbol]);
 
   if (!symbol) return <section className="company-panel-empty"><Building2 size={34} /><h2>{isArabic ? "اختر شركة" : "Select a company"}</h2><p>{isArabic ? "اضغط على أي شركة أو على شريط السوق لعرض السعر والشموع والمعلومات والمؤشر هنا." : "Open any company to view its quote, candles, company information and indicator here."}</p></section>;
-  if (state.loading && !state.data?.instrument) return <section className="company-panel-empty"><Loader2 className="animate-spin" /><p>{isArabic ? "جارٍ تحميل معلومات الشركة…" : "Loading company information…"}</p></section>;
-  if ((state.error && state.dataSymbol !== symbol) || !state.data?.instrument) return <section className="company-panel-empty text-red-600"><Info /><h2>{isArabic ? "تعذر تحميل الشركة" : "Company unavailable"}</h2><p>{isArabic ? "لم نضع بيانات بديلة. أعد المحاولة بعد عودة خدمة البيانات." : "No substitute data was shown. Retry when the data service returns."}</p></section>;
+  if ((state.loading || state.error) && !state.data?.instrument) return <div className="space-y-4">
+    <section className={state.error ? "company-panel-empty text-red-600" : "company-panel-empty"}>{state.loading ? <Loader2 className="animate-spin" /> : <Info />}<h2>{state.loading ? (isArabic ? "جارٍ تحميل معلومات الشركة…" : "Loading company information…") : (isArabic ? "تعذر تحديث معلومات الشركة" : "Company summary unavailable")}</h2><p>{isArabic ? "يبقى الشارت وأدوات تغيير الفاصل متاحة أثناء استعادة خدمة الملخص." : "The chart and timeframe controls remain available while the summary service recovers."}</p></section>
+    <CompanyChart symbol={symbol} marketCode={marketCode} requestedInterval={requestedTimeframe} onResetWidth={onResetWidth} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} />
+  </div>;
 
   const { instrument, quote = {}, financials = [], actions = [], announcements = [], shareholders = [], loss_classification: loss } = state.data;
   const direction = quoteDirection(quote.change_percent);
