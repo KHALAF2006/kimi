@@ -260,8 +260,8 @@ assert.doesNotMatch(chartStyles, /\.chart-type-popover\s*\{[^}]*absolute/, "the 
 assert.match(chartStyles, /@media\s*\(max-width:\s*480px\)\s*\{[\s\S]*?\.indicator-hub-popover\s*\{\s*width:\s*calc\(100vw\s*-\s*48px\);/, "the indicator menu must stay inside narrow mobile viewports");
 assert.match(chartStyles, /\.indicator-hub-toggle > span:nth-child\(2\)\s*\{[^}]*whitespace-normal[^}]*break-words/, "indicator names must remain readable instead of being clipped to icons");
 assert.doesNotMatch(chartStyles, /\.chart-shell:fullscreen \.chart-company-navigation\s*\{[^}]*hidden/, "fullscreen must never hide previous/next company navigation");
-assert.match(chartStyles, /\.chart-shell:fullscreen \.chart-company-navigation > button:not\(\.secondary-button\)\s*\{[^}]*min-h-8/, "fullscreen company navigation must remain present in a compact form");
-assert.match(chartStyles, /\.chart-shell:fullscreen \.chart-canvas-wrap\s*\{[^}]*flex-1/, "fullscreen chart must consume the remaining viewport instead of leaving dead space");
+assert.match(chartStyles, /\.chart-shell:fullscreen \.chart-company-navigation > button:not\(\.secondary-button\)[^{]*\{[^}]*min-h-8/, "fullscreen company navigation must remain present in a compact form");
+assert.match(chartStyles, /\.chart-shell:fullscreen \.chart-canvas-wrap[^{]*\{[^}]*flex-1/, "fullscreen chart must consume the remaining viewport instead of leaving dead space");
 
 assert.deepEqual(chartControlTransition(closedChartControls, { type: "toggle-menu", menu: "candle-type" }), { menu: "candle-type", panel: "" }, "candle menu must open from the shared control state");
 assert.deepEqual(chartControlTransition({ menu: "candle-type", panel: "" }, { type: "toggle-menu", menu: "indicators" }), { menu: "indicators", panel: "" }, "opening indicators must close the candle chooser");
@@ -369,7 +369,7 @@ assert.match(screenerPage, /Number\.isFinite\(candleTimestamp\)/, "the screener 
 assert.match(screenerPage, /آخر 3 شموع محفوظة/, "the screener must tell customers the exact three-candle search window");
 assert.match(screenerPage, /detailsTimeframe=\{timeframe\}/, "strategy results must preserve the selected timeframe when opening a company");
 assert.match(customerMarketTable, /companyDashboardPath\(row\.symbol, detailsTimeframe, marketCode\)/, "company links must carry explicit strategy timeframe and market identity");
-assert.match(companyChart, /wrapperRef\.current\.requestFullscreen\(\)/, "fullscreen must target only the chart shell so the page itself does not require vertical scrolling");
+assert.match(companyChart, /const wrapper = wrapperRef\.current;[\s\S]*?wrapper\.requestFullscreen\(\)/, "fullscreen must target only the chart shell so the page itself does not require vertical scrolling");
 assert.match(companyChart, /bullishColor/, "reversal candle rendering must use a distinct bullish color");
 assert.match(companyChart, /bearishColor/, "reversal candle rendering must use a distinct bearish color");
 assert.match(companyChart, /reversalPatternMap\(visibleOrderedCandles, \{ limitPerType: 3 \}\)/, "bar replay must calculate reversal patterns only from candles visible at the replay cursor");
@@ -423,6 +423,14 @@ for (const relativePath of internalLinkFiles) {
   const content = await readFile(new URL(relativePath, import.meta.url), "utf8");
   assert.doesNotMatch(content, /import\s*\{[^}]*\b(?:Link|NavLink)\b[^}]*\}\s*from\s*["']react-router-dom["']/, `${relativePath} must use the shared authenticated internal-link component`);
 }
+const landingPage = await readFile(new URL("../src/pages/Landing.jsx", import.meta.url), "utf8");
+const customerPreferences = await readFile(new URL("../src/lib/preferences.jsx", import.meta.url), "utf8");
+for (const requiredCopy of ["قراراتك الاستثمارية الأوضح", "Clearer investment decisions", "التنبيهات الذكية", "Smart alerts", "إنشاء حساب جديد", "Create a new account"]) assert.match(landingPage, new RegExp(requiredCopy), `landing copy must include ${requiredCopy} in its bilingual customer journey`);
+for (const prohibitedClaim of ["بيانات لا تقبل الشك", "حية ومباشرة", "أجزاء من الثانية", "بدون أي أخطاء بشرية", "أعلى معايير الأمان"]) assert.doesNotMatch(landingPage, new RegExp(prohibitedClaim), `landing copy must not publish the unsupported claim ${prohibitedClaim}`);
+assert.match(customerPreferences, /market:\s*"الأسواق"/);
+assert.match(customerPreferences, /market:\s*"Markets"/);
+assert.match(customerPreferences, /alerts:\s*"التنبيهات الذكية"/);
+assert.match(customerPreferences, /alerts:\s*"Smart alerts"/);
 assert.match(marketReadFunction, /body\.action === "instrument_search"/, "watchlists and alerts must use the protected canonical instrument search");
 assert.match(marketReadFunction, /"2h", "3h", "4h"/, "chart reads must accept the new session-aware intraday intervals");
 const watchlistFunction = await readFile(new URL("../base44/functions/screeningWatchlists/entry.ts", import.meta.url), "utf8");

@@ -459,18 +459,22 @@
   .feature-checks { @apply grid gap-3 self-center sm:grid-cols-2; }
   .feature-checks span { @apply flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm font-bold dark:border-slate-700 dark:bg-slate-900; }
   .feature-checks svg { @apply text-emerald-600 dark:text-emerald-400; }
-  .landing-section-muted { @apply max-w-none bg-slate-950 text-white; padding-left:max(1.25rem,calc((100vw - 1500px)/2)); padding-right:max(1.25rem,calc((100vw - 1500px)/2)); }
+  .landing-section-muted { @apply relative max-w-none overflow-hidden border-y border-slate-200 bg-slate-50 text-slate-950 dark:border-slate-800 dark:bg-[#08111f] dark:text-white; padding-left:max(1.25rem,calc((100vw - 1500px)/2)); padding-right:max(1.25rem,calc((100vw - 1500px)/2)); }
+  .landing-section-muted::before { content:""; @apply pointer-events-none absolute inset-0 opacity-70 dark:opacity-50; background:radial-gradient(circle at 85% 20%,rgba(56,189,248,.16),transparent 30%),radial-gradient(circle at 12% 85%,rgba(16,185,129,.12),transparent 28%); }
+  .workflow-glow { @apply pointer-events-none absolute -end-28 top-8 h-64 w-64 rounded-full bg-sky-300/20 blur-3xl dark:bg-sky-400/10; }
   .workflow-grid { @apply mt-10 grid gap-4 md:grid-cols-4; }
-  .workflow-grid article { @apply relative rounded-2xl border border-white/10 bg-white/5 p-6; }
-  .workflow-grid article > span { @apply absolute end-5 top-4 font-mono text-3xl font-black text-white/10; }
-  .workflow-grid article > svg { @apply text-sky-400; }
+  .workflow-grid article { @apply relative rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5 dark:shadow-none; }
+  .workflow-grid article > span { @apply absolute end-5 top-4 font-mono text-3xl font-black text-slate-200 dark:text-white/10; }
+  .workflow-grid article > svg { @apply text-sky-600 dark:text-sky-400; }
   .workflow-grid h3 { @apply mt-8 font-black; }
-  .workflow-grid p { @apply mt-2 text-sm leading-7 text-slate-400; }
-  .cta-panel { @apply flex flex-col items-start justify-between gap-8 rounded-[2rem] bg-sky-400 p-8 text-slate-950 sm:p-12 lg:flex-row lg:items-center; }
-  .cta-panel .section-kicker { @apply border-slate-950/10 bg-slate-950/10 text-slate-950; }
+  .workflow-grid p { @apply mt-2 text-sm leading-7 text-slate-600 dark:text-slate-400; }
+  .cta-panel { @apply relative flex flex-col items-start justify-between gap-8 overflow-hidden rounded-[2rem] border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-8 text-slate-950 shadow-xl shadow-sky-950/10 sm:p-12 lg:flex-row lg:items-center dark:border-sky-400/20 dark:from-slate-900 dark:via-[#0d192a] dark:to-sky-950/70 dark:text-white dark:shadow-black/20; }
+  .cta-panel::after { content:""; @apply pointer-events-none absolute -end-16 -top-20 h-64 w-64 rounded-full bg-sky-300/25 blur-3xl dark:bg-sky-400/10; }
+  .cta-panel > * { @apply relative z-10; }
+  .cta-panel .section-kicker { @apply border-sky-200 bg-white/70 text-sky-700 dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-300; }
   .cta-panel h2 { @apply mt-5 text-3xl font-black; }
   .cta-panel p { @apply mt-3 max-w-2xl text-sm leading-7; }
-  .cta-panel .primary-button { @apply bg-slate-950 text-white shadow-slate-950/20 hover:bg-slate-800; }
+  .cta-panel .primary-button { @apply bg-sky-600 text-white shadow-sky-950/20 hover:bg-sky-700 dark:bg-sky-400 dark:text-slate-950 dark:hover:bg-sky-300; }
   .landing-footer { @apply mx-auto flex max-w-[1500px] flex-col items-start justify-between gap-5 border-t border-slate-200 px-5 py-8 text-xs text-slate-500 sm:flex-row sm:items-center dark:border-slate-800; }
 }
 

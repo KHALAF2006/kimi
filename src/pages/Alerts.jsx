@@ -25,8 +25,8 @@ export default function Alerts() {
   const [form, setForm] = useState({ symbol: "", interval: "15m", condition: "crosses_above", threshold: "", frequency: "repeat", cooldown_minutes: 15 });
   const [selectedInstrument, setSelectedInstrument] = useState(null);
   const text = isArabic
-    ? { title: "مركز التنبيهات", description: "أنشئ قواعد السعر وأوقفها أو فعّلها واحذفها من مكان واحد.", symbol: "رمز الشركة", price: "السعر", create: "إنشاء تنبيه", empty: "لا توجد تنبيهات", delete: "حذف التنبيه", confirm: "هل تريد حذف هذا التنبيه؟", repeat: "متكرر", once: "مرة واحدة", cooldown: "التهدئة بالدقائق" }
-    : { title: "Alert center", description: "Create, enable, disable and delete price rules in one place.", symbol: "Company symbol", price: "Price", create: "Create alert", empty: "No alerts yet", delete: "Delete alert", confirm: "Delete this alert?", repeat: "Repeat", once: "Once", cooldown: "Cooldown in minutes" };
+    ? { title: "مركز التنبيهات الذكية", description: "أنشئ قواعد السعر وأوقفها أو فعّلها واحذفها من مكان واحد.", symbol: "رمز الشركة", price: "السعر", create: "إنشاء تنبيه", empty: "لا توجد تنبيهات", delete: "حذف التنبيه", confirm: "هل تريد حذف هذا التنبيه؟", repeat: "متكرر", once: "مرة واحدة", cooldown: "التهدئة بالدقائق" }
+    : { title: "Smart alert center", description: "Create, enable, disable and delete price rules in one place.", symbol: "Company symbol", price: "Price", create: "Create alert", empty: "No alerts yet", delete: "Delete alert", confirm: "Delete this alert?", repeat: "Repeat", once: "Once", cooldown: "Cooldown in minutes" };
 
   async function load() {
     if (!marketCode) return;

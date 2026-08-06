@@ -4,12 +4,12 @@ const PreferencesContext = createContext(null);
 
 const copy = {
   ar: {
-    market: "السوق", search: "البحث", watchlists: "المتابعة", alerts: "التنبيهات",
+    market: "الأسواق", search: "البحث", watchlists: "المتابعة", alerts: "التنبيهات الذكية",
     account: "الحساب", screener: "الاستراتيجيات", dataQuality: "جودة البيانات",
     companies: "الشركات", movers: "الأكثر ارتفاعًا / انخفاضًا", momentum: "مناطق المستثمر",
   },
   en: {
-    market: "Market", search: "Search", watchlists: "Watchlists", alerts: "Alerts",
+    market: "Markets", search: "Search", watchlists: "Watchlists", alerts: "Smart alerts",
     account: "Account", screener: "Strategies", dataQuality: "Data quality",
     companies: "Companies", movers: "Gainers / Losers", momentum: "Investor zones",
   },
