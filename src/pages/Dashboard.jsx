@@ -256,9 +256,9 @@ export default function Dashboard() {
             ? "تعذر تحديث قائمة شركات القطاع؛ سيبقى آخر شارت محفوظ ظاهرًا إن كان متاحًا."
             : selectedSymbol
               ? "تعذر تحديث ملخص الشركة؛ سيبقى آخر شارت محفوظ ظاهرًا إن كان متاحًا."
-              : "تعذر تحديث ملخص السوق. أعد المحاولة، وستبقى آخر بيانات محفوظة ظاهرة إن كانت متاحة."
+              : "تعذر تحديث ملخص السوق الآن. أعد المحاولة بعد قليل."
         : "The latest summary could not be refreshed. Previously stored data remains visible when available."}</div>}
-      {state.refreshWarning && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200" role="status">{isArabic ? "لم تصل نسخة أحدث بعد؛ المعروض هو آخر ملخص سوق محفوظ بنجاح." : "A newer snapshot has not arrived yet; the last successfully stored market summary remains visible."}</div>}
+      {state.refreshWarning && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200" role="status">{isArabic ? "تعذر التحديث الآن؛ نعرض لك أحدث معلومات متاحة." : "The latest refresh is delayed; you are viewing the most recent available information."}</div>}
 
       <section className="dashboard-grid" style={/** @type {React.CSSProperties} */ ({ "--profile-width": profileWidth + "px" })}>
         <aside id="company-profile" className="min-w-0 scroll-mt-28">{selectedSymbol
@@ -266,7 +266,7 @@ export default function Dashboard() {
           : selectedIndexCode
             ? <MarketIndexPanel indexCode={selectedIndexCode} marketCode={marketCode} onResetWidth={resetWidth} />
           : sector
-            ? <SectorPanel sector={sector} marketCode={marketCode} onResetWidth={resetWidth} onSelectCompany={selectCompany} />
+            ? <SectorPanel sector={sector} marketCode={marketCode} onResetWidth={resetWidth} />
             : <CompanyPanel symbol="" marketCode={marketCode} onResetWidth={resetWidth} onSelectCompany={selectCompany} />}</aside>
         <button type="button" className="dashboard-resizer" aria-label={isArabic ? "اسحب لتغيير عرض لوحة الشركة" : "Drag to resize company panel"} onPointerDown={beginResize} onPointerMove={resize} onPointerUp={finishResize} onDoubleClick={resetWidth}><GripVertical size={18} /></button>
 

@@ -33,6 +33,12 @@ assert.equal(catalog.companies.length, 110, "the isolated U.S. options universe 
 assert.equal(new Set(symbols).size, 110, "the U.S. options universe must not contain duplicate symbols");
 assert.equal(symbols.includes("NFLX"), false, "NFLX must remain excluded by the owner's selection rule");
 assert.ok(catalog.companies.every((item) => item.nameEn && item.sectorEn && item.industryEn && item.nasdaqUrl), "every U.S. company must have catalog metadata");
+assert.ok(catalog.companies.every((item) => /[\u0600-\u06ff]/.test(item.nameAr)), "every U.S. company must have an Arabic display name");
+assert.ok(catalog.companies.every((item) => /[\u0600-\u06ff]/.test(item.sectorAr)), "every U.S. company must have an Arabic sector label");
+assert.deepEqual(new Set(catalog.companies.map((item) => item.sectorAr)), new Set(["المواد الأساسية", "السلع الاستهلاكية الكمالية", "السلع الاستهلاكية الأساسية", "الطاقة", "الخدمات المالية", "الرعاية الصحية", "الصناعات", "العقارات", "تقنية المعلومات", "خدمات الاتصالات", "المرافق العامة"]));
+assert.equal(catalog.companies.find((item) => item.symbol === "MRVL")?.nameAr, "مارفل تكنولوجي");
+assert.equal(catalog.companies.find((item) => item.symbol === "PLTR")?.nameAr, "بالانتير تكنولوجيز");
+assert.equal(catalog.companies.find((item) => item.symbol === "AAPL")?.nameEn, "Apple Inc. Common Stock", "English legal display names must remain unchanged");
 assert.ok(catalog.companies.every((item) => !Object.hasOwn(item, "last_price") && !Object.hasOwn(item, "price")), "selection prices must never be persisted as live quotes");
 const cycleNow = new Date("2026-08-04T14:15:00.000Z");
 assert.equal(new Date(timingModule.delayedCutoffMs(cycleNow)).toISOString(), "2026-08-04T14:00:00.000Z");
@@ -108,6 +114,8 @@ assert.match(subscriptionsAdmin, /\["suspended", "expired", "banned"\]\.includes
 assert.doesNotMatch(subscriptionsAdmin, /status === "banned" \|\|/);
 
 const marketRead = await source("base44/functions/marketRead/entry.ts");
+assert.match(marketRead, /function localizedInstrument/, "U.S. Arabic catalog labels must be projected at read time without waiting for the next ingestion cycle");
+assert.match(marketRead, /\.map\(localizedInstrument\)/, "all U.S. company collections must use the localized catalog projection");
 assert.match(marketRead, /requireMarketEntitlement\(context, body\.market_code\)/);
 assert.match(marketRead, /CROSS_MARKET_ACCESS_DENIED/);
 assert.match(marketRead, /CATALOG_ISOLATION_FAILED/);

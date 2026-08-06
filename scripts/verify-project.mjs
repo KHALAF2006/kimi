@@ -365,8 +365,8 @@ for (const signal of ["bullish_pin_bar", "bearish_pin_bar", "bullish_engulfing",
 }
 assert.match(screenerPage, /row\.screener_match\?\.timeframe === timeframe/, "the screener UI must render the backend-proven matching candle instead of re-filtering the complete signal snapshot");
 assert.doesNotMatch(screenerPage, /\.filter\(\(row\) => row\.signals\?\.\[timeframe\]/, "the frontend must not discard valid backend screener results when full snapshots are omitted from transport");
-assert.match(screenerPage, /Number\.isFinite\(candleTimestamp\)/, "the screener must not render an invalid candle date");
-assert.match(screenerPage, /آخر 3 شموع محفوظة/, "the screener must tell customers the exact three-candle search window");
+assert.doesNotMatch(screenerPage, /function SignalEvidence|screener-evidence/, "strategy results must not be duplicated as non-actionable evidence cards");
+assert.equal((screenerPage.match(/<MarketTable/g) || []).length, 1, "strategy results must have exactly one actionable company list");
 assert.match(screenerPage, /detailsTimeframe=\{timeframe\}/, "strategy results must preserve the selected timeframe when opening a company");
 assert.match(customerMarketTable, /companyDashboardPath\(row\.symbol, detailsTimeframe, marketCode\)/, "company links must carry explicit strategy timeframe and market identity");
 assert.match(companyChart, /const wrapper = wrapperRef\.current;[\s\S]*?wrapper\.requestFullscreen\(\)/, "fullscreen must target only the chart shell so the page itself does not require vertical scrolling");
@@ -424,9 +424,12 @@ for (const relativePath of internalLinkFiles) {
   assert.doesNotMatch(content, /import\s*\{[^}]*\b(?:Link|NavLink)\b[^}]*\}\s*from\s*["']react-router-dom["']/, `${relativePath} must use the shared authenticated internal-link component`);
 }
 const landingPage = await readFile(new URL("../src/pages/Landing.jsx", import.meta.url), "utf8");
+const sectorPanel = await readFile(new URL("../src/components/market/SectorPanel.jsx", import.meta.url), "utf8");
 const customerPreferences = await readFile(new URL("../src/lib/preferences.jsx", import.meta.url), "utf8");
 for (const requiredCopy of ["قراراتك الاستثمارية الأوضح", "Clearer investment decisions", "التنبيهات الذكية", "Smart alerts", "إنشاء حساب جديد", "Create a new account"]) assert.match(landingPage, new RegExp(requiredCopy), `landing copy must include ${requiredCopy} in its bilingual customer journey`);
 for (const prohibitedClaim of ["بيانات لا تقبل الشك", "حية ومباشرة", "أجزاء من الثانية", "بدون أي أخطاء بشرية", "أعلى معايير الأمان"]) assert.doesNotMatch(landingPage, new RegExp(prohibitedClaim), `landing copy must not publish the unsupported claim ${prohibitedClaim}`);
+assert.doesNotMatch(landingPage, /third-party-notices|إشعارات البرمجيات|Software notices/, "software notices must not appear in the customer interface");
+assert.doesNotMatch(sectorPanel, /MarketTable/, "the sector panel must not duplicate the dashboard company list");
 assert.match(customerPreferences, /market:\s*"الأسواق"/);
 assert.match(customerPreferences, /market:\s*"Markets"/);
 assert.match(customerPreferences, /alerts:\s*"التنبيهات الذكية"/);

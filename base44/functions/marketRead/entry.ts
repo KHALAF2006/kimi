@@ -14,6 +14,19 @@ import {
   riyadhClock
 } from "../../shared/market-data.ts";
 import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from "../../shared/momentum.ts";
+const US_OPTIONS_COMPANY_BY_SYMBOL = new Map(US_OPTIONS_CATALOG.companies.map((company) => [company.symbol, company]));
+function localizedInstrument(instrument) {
+  if (instrument?.market_code !== US_OPTIONS_MARKET_CODE) return instrument;
+  const catalogCompany = US_OPTIONS_COMPANY_BY_SYMBOL.get(String(instrument.symbol || "").toUpperCase());
+  if (!catalogCompany) return instrument;
+  return {
+    ...instrument,
+    name_ar: catalogCompany.nameAr,
+    name_en: catalogCompany.nameEn,
+    sector_ar: catalogCompany.sectorAr,
+    sector_en: catalogCompany.sectorEn,
+  };
+}
 var official_main_market_catalog_2026_07_21_default = {
   source: "Saudi Exchange",
   sourceUrl: "https://www.saudiexchange.sa/Resources/Reports-v2/DetailedDaily_en.html",
@@ -5281,7 +5294,7 @@ async function instrumentFor(base44, body) {
       if (legacyRows[0]) return legacyRows[0];
     }
     if (!rows[0]) throw Object.assign(new Error("Instrument not found"), { status: 404, code: "INSTRUMENT_NOT_FOUND" });
-    return rows[0];
+    return localizedInstrument(rows[0]);
   }
   const symbol = String(body.symbol || "").trim();
   if (symbol) {
@@ -5289,7 +5302,7 @@ async function instrumentFor(base44, body) {
     if (marketCode === US_OPTIONS_MARKET_CODE && !US_OPTIONS_SYMBOLS.has(symbol.toUpperCase())) throw Object.assign(new Error("Instrument is outside the U.S. options catalog"), { status: 400, code: "INSTRUMENT_OUT_OF_MARKET" });
     const rows = await base44.asServiceRole.entities.Instrument.filter({ symbol: symbol.toUpperCase(), market_code: marketCode });
     if (!rows[0]) throw Object.assign(new Error("Instrument not found"), { status: 404 });
-    return rows[0];
+    return localizedInstrument(rows[0]);
   }
   if (!body.instrument_id) throw Object.assign(new Error("symbol or instrument_id is required"), { status: 400 });
   const instrument = await base44.asServiceRole.entities.Instrument.get(String(body.instrument_id));
@@ -5581,6 +5594,7 @@ async function sectorInstruments(base44, body) {
   const requestedMarket = String(body.market_code || "SA_MAIN");
   const sector = cleanSectorName(body.sector);
   const instruments = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.Instrument.filter({ market_code: requestedMarket }, "symbol", 500)))
+    .map(localizedInstrument)
     .filter((item) => item.sector_ar === sector || item.sector_en === sector);
   if (!instruments.length) throw Object.assign(new Error("Sector not found"), { status: 404, code: "SECTOR_NOT_FOUND" });
   return { requestedMarket, sector, instruments };
@@ -5814,6 +5828,7 @@ Deno.serve(async (req) => {
         optionalRows(() => base44.asServiceRole.entities.InstrumentAlias.filter({ market_code: requestedMarket, active: true }, "alias", 5e3), "instrument aliases")
       ]);
       const instruments = entityRows(storedInstruments)
+        .map(localizedInstrument)
         .filter((item) => item.status !== "delisted");
       const quotes = await base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((item) => item.id) } }, "-quote_time", 1000);
       const aliasesByInstrument = new Map();
@@ -5967,6 +5982,7 @@ Deno.serve(async (req) => {
     const limit = Math.min(Math.max(Number(body.limit || 500), 1), 500);
     const requestedMarket = String(body.market_code || "").toUpperCase();
     const instruments = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.Instrument.filter({ market_code: requestedMarket }, "symbol", 500)))
+      .map(localizedInstrument)
       .filter((item) => requestedMarket !== "SA_MAIN" || MAIN_MARKET_SYMBOLS.has(item.symbol));
     if (requestedMarket === US_OPTIONS_MARKET_CODE && instruments.some((item) => !US_OPTIONS_SYMBOLS.has(item.symbol))) {
       throw Object.assign(new Error("U.S. options catalog contains an out-of-scope instrument"), { status: 503, code: "CATALOG_ISOLATION_FAILED" });

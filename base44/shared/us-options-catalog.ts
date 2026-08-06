@@ -1,6 +1,41 @@
 export const US_OPTIONS_MARKET_CODE = "US_OPTIONS";
 
-export const US_OPTIONS_CATALOG = {
+const COMPANY_NAMES_AR: Record<string, string> = {
+  NVDA: "إنفيديا", GOOGL: "ألفابت", AAPL: "أبل", MSFT: "مايكروسوفت", AMZN: "أمازون",
+  TSM: "تايوان لأشباه الموصلات", AVGO: "برودكوم", SPCX: "سبيس إكس", TSLA: "تسلا", JPM: "جي بي مورغان تشيس",
+  WMT: "وول مارت", AMD: "إيه إم دي", V: "فيزا", XOM: "إكسون موبيل", JNJ: "جونسون آند جونسون",
+  CSCO: "سيسكو سيستمز", ABBV: "آبفي", ORCL: "أوراكل", CVX: "شيفرون", GE: "جي إي إيروسبيس",
+  UNH: "يونايتد هيلث غروب", HSBC: "إتش إس بي سي", LRCX: "لام ريسيرش", HD: "هوم ديبوت", PG: "بروكتر آند غامبل",
+  MS: "مورغان ستانلي", MRK: "ميرك", PLTR: "بالانتير تكنولوجيز", TM: "تويوتا موتور", NVS: "نوفارتس",
+  RY: "رويال بنك أوف كندا", PM: "فيليب موريس إنترناشيونال", RTX: "آر تي إكس", PANW: "بالو ألتو نتوركس", DELL: "دِل تكنولوجيز",
+  TXN: "تكساس إنسترومنتس", AZN: "أسترازينيكا", KLAC: "كيه إل إيه", SAP: "إس إيه بي", ANET: "أريستا نتوركس",
+  AXP: "أمريكان إكسبريس", C: "سيتي غروب", LIN: "ليندي", IBM: "آي بي إم", CRWD: "كراود سترايك",
+  AMGN: "أمجين", APH: "أمفينول", TD: "تورونتو دومينيون بنك", PEP: "بيبسيكو", TMUS: "تي موبايل الولايات المتحدة",
+  MCD: "ماكدونالدز", ABT: "أبوت لابوراتوريز", BA: "بوينغ", SCHW: "تشارلز شواب", ADI: "أنالوغ ديفايسز",
+  TJX: "تي جيه إكس", UNP: "يونيون باسيفيك", ETN: "إيتون", MRVL: "مارفل تكنولوجي", WELL: "ويلتاور",
+  GILD: "غيلياد ساينسز", QCOM: "كوالكوم", SCCO: "ساذرن كوبر", CRM: "سيلزفورس", SHOP: "شوبيفاي",
+  BKNG: "بوكينغ هولدينغز", COP: "كونوكو فيليبس", DHR: "داناهر", APP: "آب لوفين", PLD: "برولوجيس",
+  CVS: "سي في إس هيلث", CB: "تشب", COF: "كابيتال ون فايننشال", ISRG: "إنتويتيف سيرجيكال", SYK: "سترايكر",
+  BMO: "بنك أوف مونتريال", GLW: "كورنينغ", PGR: "بروغريسيف", SPGI: "إس آند بي غلوبال", FTNT: "فورتينت",
+  VRTX: "فيرتكس فارماسيوتيكلز", LOW: "لوز", NOW: "سيرفس ناو", SBUX: "ستاربكس", HWM: "هاومت إيروسبيس",
+  ACN: "أكسنتشر", CM: "البنك الإمبراطوري الكندي للتجارة", ADP: "أوتوماتيك داتا بروسيسنغ", BNY: "بنك أوف نيويورك ميلون", SNOW: "سنوفليك",
+  GD: "جنرال دايناميكس", TT: "ترين تكنولوجيز", VRT: "فيرتيف", PNC: "بي إن سي للخدمات المالية", SPOT: "سبوتيفاي",
+  BX: "بلاكستون", NET: "كلاودفلير", ADBE: "أدوبي", CEG: "كونستليشن إنرجي", DDOG: "داتا دوغ",
+  DUK: "ديوك إنرجي", CME: "سي إم إي غروب", KKR: "كيه كيه آر", RACE: "فيراري", CDNS: "كادنس ديزاين سيستمز",
+  MRSH: "مارش", MAR: "ماريوت إنترناشيونال", MMM: "ثري إم", UPS: "يو بي إس", ABNB: "إير بي إن بي",
+};
+
+const SECTOR_LABELS: Record<string, { en: string; ar: string }> = {
+  "Basic Materials": { en: "Materials", ar: "المواد الأساسية" },
+  "Consumer Discretionary": { en: "Consumer Discretionary", ar: "السلع الاستهلاكية الكمالية" },
+  "Consumer Staples": { en: "Consumer Staples", ar: "السلع الاستهلاكية الأساسية" },
+  Energy: { en: "Energy", ar: "الطاقة" }, Finance: { en: "Financials", ar: "الخدمات المالية" },
+  "Health Care": { en: "Health Care", ar: "الرعاية الصحية" }, Industrials: { en: "Industrials", ar: "الصناعات" },
+  "Real Estate": { en: "Real Estate", ar: "العقارات" }, Technology: { en: "Information Technology", ar: "تقنية المعلومات" },
+  Telecommunications: { en: "Communication Services", ar: "خدمات الاتصالات" }, Utilities: { en: "Utilities", ar: "المرافق العامة" },
+};
+
+const RAW_US_OPTIONS_CATALOG = {
   "source": {
     "optionability": "Cboe Listed Options Symbol Directory",
     "companyMetadata": "Nasdaq Stock Screener",
@@ -1346,6 +1381,16 @@ export const US_OPTIONS_CATALOG = {
       "nasdaqUrl": "https://www.nasdaq.com/market-activity/stocks/abnb"
     }
   ]
+} as const;
+
+export const US_OPTIONS_CATALOG = {
+  ...RAW_US_OPTIONS_CATALOG,
+  companies: RAW_US_OPTIONS_CATALOG.companies.map((company) => ({
+    ...company,
+    nameAr: COMPANY_NAMES_AR[company.symbol],
+    sectorEn: SECTOR_LABELS[company.sectorEn]?.en || company.sectorEn,
+    sectorAr: SECTOR_LABELS[company.sectorEn]?.ar || company.sectorEn,
+  })),
 } as const;
 
 export const US_OPTIONS_SYMBOLS = new Set(US_OPTIONS_CATALOG.companies.map((company) => company.symbol));

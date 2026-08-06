@@ -2,7 +2,6 @@ import React, { useMemo, useState } from "react";
 import { Activity, CandlestickChart, Search, TrendingUp } from "lucide-react";
 import ServicePage from "@/components/ServicePage";
 import MarketTable from "@/components/market/MarketTable";
-import { formatNumber } from "@/lib/market";
 import { usePreferences } from "@/lib/preferences";
 import { useActiveMarket } from "@/lib/MarketContext";
 
@@ -28,24 +27,8 @@ const timeframeOptions = [
   { value: "1mo", ar: "شهري", en: "Monthly" },
 ];
 
-function SignalEvidence({ row, timeframe, language, isArabic }) {
-  const values = row.screener_match?.values || row.signals?.[timeframe]?.values || {};
-  const candleTimestamp = Date.parse(values.candle_time || "");
-  return <div className="screener-evidence">
-    <b>{row.symbol} · {isArabic ? row.name_ar : row.name_en}</b>
-    <span>{isArabic ? "الإغلاق" : "Close"}: {formatNumber(values.close, language)}</span>
-    <span>SMA 20: {formatNumber(values.sma20, language)}</span>
-    <span>SMA 50: {formatNumber(values.sma50, language)}</span>
-    {values.matching_zone && <span>{isArabic ? values.matching_zone.name_ar : values.matching_zone.name_en}</span>}
-    {values.pin_bar?.matches && <span className={values.pin_bar.direction === "bullish" ? "signal-bullish" : "signal-bearish"}>{isArabic ? `بن بار ${values.pin_bar.direction === "bullish" ? "شرائية" : "بيعية"}` : `${values.pin_bar.direction} pin bar`}</span>}
-    {values.engulfing?.matches && <span className={values.engulfing.direction === "bullish" ? "signal-bullish" : "signal-bearish"}>{isArabic ? `شمعة بالعة ${values.engulfing.direction === "bullish" ? "شرائية" : "بيعية"}` : `${values.engulfing.direction} engulfing`}</span>}
-    <span>{isArabic ? "تاريخ الإشارة" : "Signal date"}: {Number.isFinite(candleTimestamp) ? new Date(candleTimestamp).toLocaleDateString(isArabic ? "ar-SA" : "en-US") : "—"}</span>
-    <span>{values.is_final === false ? (isArabic ? "الفترة قيد التكوين" : "Forming period") : (isArabic ? "فترة مكتملة" : "Completed period")}</span>
-  </div>;
-}
-
 export default function Screener() {
-  const { language, isArabic } = usePreferences();
+  const { isArabic } = usePreferences();
   const { marketCode } = useActiveMarket();
   const [signal, setSignal] = useState("");
   const [timeframe, setTimeframe] = useState("1d");
@@ -54,7 +37,7 @@ export default function Screener() {
 
   return <ServicePage
     title={isArabic ? "ماسح الاستراتيجيات" : "Strategy screener"}
-    description={isArabic ? "يفحص آخر 3 شموع محفوظة من الفاصل المختار دون طلب بيانات جديد عند البحث." : "Scans the latest 3 stored candles in the selected timeframe without fetching market data per search."}
+    description={isArabic ? "اكتشف الشركات التي تتوافق مع استراتيجيتك على الفاصل الذي تختاره." : "Discover companies that match your strategy on the timeframe you choose."}
     functionName="marketRead"
     payload={payload}
   >
@@ -100,16 +83,13 @@ export default function Screener() {
 
         {data.signal_coverage && data.signal_coverage.snapshot_count < data.signal_coverage.instrument_count && <div className="warning-banner" role="status">
           {isArabic
-            ? `تغطية الماسح ${data.signal_coverage.snapshot_count} من ${data.signal_coverage.instrument_count} شركة. الإشارات الناقصة لا تُعرض كأنها نتائج سالبة.`
-            : `Scanner coverage is ${data.signal_coverage.snapshot_count} of ${data.signal_coverage.instrument_count} instruments. Missing signals are not reported as negative matches.`}
+            ? "قد تظهر نتائج إضافية بعد اكتمال تحديث هذا الفاصل."
+            : "More results may appear when this timeframe finishes updating."}
         </div>}
 
         <p className="text-sm font-bold text-slate-500">
-          {isArabic ? `${rows.length} شركة مطابقة` : `${rows.length} matching companies`}
+          {isArabic ? `النتائج: ${rows.length}` : `Results: ${rows.length}`}
         </p>
-        {!!rows.length && <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {rows.slice(0, 9).map((row) => <SignalEvidence key={row.id || row.symbol} row={row} timeframe={timeframe} language={language} isArabic={isArabic} />)}
-        </div>}
         <MarketTable rows={rows} marketCode={marketCode} detailsTimeframe={timeframe} />
       </div>;
     }}

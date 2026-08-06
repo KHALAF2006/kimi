@@ -1194,7 +1194,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     <div className="chart-toolbar-grid">
       <div className="chart-control-group"><span>{isArabic ? "الفاصل" : "Interval"}</span><div>{intervalOptions.map((item) => {
         const unavailable = symbol === "TASI" && intradayIntervals.has(item.value);
-        return <button type="button" key={item.value} disabled={unavailable} title={unavailable ? (isArabic ? "لا يوجد مصدر شموع لحظية موثق لتاسي حاليًا" : "No verified intraday TASI candle source is configured") : undefined} onClick={() => changeInterval(item.value)} className={"chart-chip " + (interval === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>;
+        return <button type="button" key={item.value} disabled={unavailable} title={unavailable ? (isArabic ? "هذا الفاصل غير متاح لتاسي حالياً" : "This timeframe is not available for TASI right now") : undefined} onClick={() => changeInterval(item.value)} className={"chart-chip " + (interval === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>;
       })}</div></div>
       <div className="chart-control-group"><span>{isArabic ? "النطاق" : "Range"}</span><div>{rangeOptions.map((item) => {
         const switchesToDaily = !item.intervals.includes(interval);
@@ -1241,7 +1241,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     </section>}
 
     <div className={"ohlc-strip " + (hovered ? "" : "invisible")} dir="ltr" aria-hidden={!hovered}>{hovered ? <><time>{formatChartDate(hovered.time, isArabic ? "ar-SA" : "en-GB", interval === "15m" || interval === "1h")}</time>{chartPreferences.candleType === "heikin_ashi" && <b>HA</b>}<span>O {formatNumber(hovered.open, "en")}</span><span>H {formatNumber(hovered.high, "en")}</span><span>L {formatNumber(hovered.low, "en")}</span><span>C {formatNumber(hovered.close, "en")}</span>{Number.isFinite(Number(hovered.volume)) && <span>VOL {formatNumber(hovered.volume, "en", 0)}</span>}{Number.isFinite(Number(hovered.rsi)) && <span>RSI {formatNumber(hovered.rsi, "en")}</span>}</> : <span>&nbsp;</span>}</div>
-    {loading && <div className="chart-message">{isArabic ? "جارٍ تحميل الشموع الحقيقية…" : "Loading verified candles…"}</div>}
+    {loading && <div className="chart-message">{isArabic ? "جارٍ التحميل…" : "Loading…"}</div>}
     {(error || recoveryNotice) && <div className="chart-message chart-recovery-message text-red-600" role="alert">
       <span>{recoveryNotice || (isArabic
         ? sector
@@ -1255,7 +1255,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       <button type="button" className="secondary-button" onClick={() => setRetryKey((value) => value + 1)}>{isArabic ? "إعادة المحاولة" : "Retry"}</button>
       {(interval !== "1d" || range !== "1y") && <button type="button" className="secondary-button" onClick={() => { setError(""); setRecoveryNotice(""); setInterval("1d"); setRange("1y"); }}>{isArabic ? "العودة إلى اليومي" : "Back to daily"}</button>}
     </div>}
-    {!loading && !error && !candles.length && <div className="chart-message">{isArabic ? "لا توجد شموع موثقة لهذا النطاق." : "No verified candles for this range."}</div>}
+    {!loading && !error && !candles.length && <div className="chart-message">{isArabic ? "لا توجد بيانات لهذا النطاق حالياً." : "No data is available for this range right now."}</div>}
     {!loading && !error && range === "max" && historyMeta?.history_complete === false && <div className="chart-history-status" role="status">{isArabic ? "السجل التاريخي لهذا السهم غير مكتمل بعد؛ المعروض هو الجزء المحفوظ فقط." : "This instrument's historical archive is not complete yet; only stored candles are shown."}</div>}
 
     <div ref={canvasWrapRef} className="chart-canvas-wrap" style={!fullscreen ? { height: chartHeight } : undefined}>

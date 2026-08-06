@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Activity, Building2, Info, Loader2, PieChart } from "lucide-react";
+import { Info, Loader2, PieChart } from "lucide-react";
 import CompanyChart from "@/components/market/CompanyChart";
-import MarketTable from "@/components/market/MarketTable";
 import { formatNumber, marketSummary, quoteDirection } from "@/lib/market";
 import { usePreferences } from "@/lib/preferences";
 import { invokeAppFunction } from "@/services/marketService";
@@ -10,7 +9,7 @@ function SectorMetric({ label, value, tone = "" }) {
   return <div className="metric-card"><span>{label}</span><b className={tone}>{value}</b></div>;
 }
 
-export default function SectorPanel({ sector, marketCode = "SA_MAIN", onSelectCompany = () => {}, onResetWidth = () => {} }) {
+export default function SectorPanel({ sector, marketCode = "SA_MAIN", onResetWidth = () => {} }) {
   const { language, isArabic } = usePreferences();
   const [state, setState] = useState({ loading: true, data: null, error: "" });
   const [retryKey, setRetryKey] = useState(0);
@@ -33,7 +32,7 @@ export default function SectorPanel({ sector, marketCode = "SA_MAIN", onSelectCo
   const sectorName = state.data?.sector ? (isArabic ? state.data.sector.name_ar : state.data.sector.name_en) : sector;
   return <div className="space-y-4">
     {state.loading && <section className="company-refresh-status" role="status"><Loader2 size={14} className="animate-spin" />{isArabic ? "جارٍ تحديث بيانات القطاع…" : "Refreshing sector data…"}</section>}
-    {state.error && <section className="chart-message chart-recovery-message text-red-600" role="alert"><Info size={18} /><span>{isArabic ? "تعذر تحديث ملخص القطاع؛ بقي الشارت وأدوات الفواصل متاحة." : "Sector summary refresh failed; the chart and timeframe controls remain available."}</span><button type="button" className="secondary-button" onClick={() => setRetryKey((value) => value + 1)}>{isArabic ? "إعادة المحاولة" : "Retry"}</button></section>}
+    {state.error && <section className="chart-message chart-recovery-message text-red-600" role="alert"><Info size={18} /><span>{isArabic ? "تعذر عرض ملخص القطاع الآن. حاول مرة أخرى بعد قليل." : "The sector summary is unavailable right now. Please try again shortly."}</span><button type="button" className="secondary-button" onClick={() => setRetryKey((value) => value + 1)}>{isArabic ? "إعادة المحاولة" : "Retry"}</button></section>}
     {state.data?.sector && <section className="company-hero-card sector-hero-card">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div><span className="eyebrow"><PieChart size={14} />{isArabic ? "مؤشر القطاع" : "Sector index"}</span><h2 className="mt-3 text-2xl font-black">{sectorName}</h2><p className="mt-1 font-mono text-xs font-black text-sky-700 dark:text-sky-300" dir="ltr">{state.data.sector.symbol}</p><p className="mt-1 text-sm text-slate-500">{isArabic ? "مؤشر مرجّح لشركات القطاع" : "Weighted index of sector constituents"}</p></div>
@@ -49,10 +48,5 @@ export default function SectorPanel({ sector, marketCode = "SA_MAIN", onSelectCo
 
     <CompanyChart sector={sector} marketCode={marketCode} onResetWidth={onResetWidth} />
 
-    {state.data?.sector && <section className="content-card">
-      <div className="section-heading"><Building2 size={18} /><div><h3>{isArabic ? "شركات القطاع" : "Sector companies"}</h3><p>{isArabic ? "مرتبة حسب نسبة التغير، ويمكن فتح أي شركة مباشرة." : "Sorted by change; open any company directly."}</p></div></div>
-      <div className="mt-4"><MarketTable rows={[...constituents].sort((a, b) => Number(b.quote?.change_percent || 0) - Number(a.quote?.change_percent || 0))} selectedSymbol="" onSelect={onSelectCompany} /></div>
-      {!constituents.length && <p className="mt-3 flex items-center gap-2 text-sm text-slate-500"><Activity size={15} />{isArabic ? "لا توجد شركات في هذا القطاع." : "No companies in this sector."}</p>}
-    </section>}
   </div>;
 }
