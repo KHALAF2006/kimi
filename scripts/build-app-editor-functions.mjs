@@ -15,6 +15,7 @@ const generatedFunctions = [
   "usOptionsHistoricalBackfill",
   "usOptionsMarketIngestion",
   "usOptionsSignalRefresh",
+  "usBenchmarksSignalRefresh",
 ];
 
 for (const functionName of generatedFunctions) {
@@ -49,7 +50,7 @@ const sourceEntries = (await readdir(sourceRoot, { withFileTypes: true }))
   .map((item) => item.name)
   .sort();
 
-assert.equal(sourceEntries.length, 26, "expected 26 Base44 backend functions");
+assert.equal(sourceEntries.length, 28, "expected 28 Base44 backend functions");
 
 for (const functionName of sourceEntries) {
   const entryPoint = join(sourceRoot, functionName, "entry.ts");

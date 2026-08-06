@@ -1,0 +1,23 @@
+{
+  "definition": {
+    "document": { "dsl": "1.0.0", "name": "us_benchmarks_daily_refresh", "version": "1.0", "namespace": "base44" },
+    "do": [{
+      "refresh_us_benchmarks_daily": {
+        "call": "invoke_backend_function",
+        "with": { "function_name": "usBenchmarksMarketIngestion", "args": { "market_code": "US_BENCHMARKS", "action": "daily_refresh" } },
+        "then": "end"
+      }
+    }]
+  },
+  "description": "يضيف إغلاق الجلسة الجديدة إلى الأرشيف اليومي المخزن دون إعادة تحميل التاريخ الكامل.",
+  "name": "المؤشرات والصناديق الأمريكية — تحديث الإغلاق اليومي",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled", "events": [], "schedule_mode": "recurring",
+      "cron_expression": "45 17 * * 1-5", "one_time_date": null,
+      "timezone": "America/New_York", "interval_value": null, "interval_unit": null,
+      "interval_anchor": null, "ends_type": "never", "ends_on_date": null, "ends_after_count": null
+    }
+  }
+}

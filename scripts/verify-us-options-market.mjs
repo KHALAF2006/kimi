@@ -142,7 +142,10 @@ assert.match(drawingService, /market_code: marketCode/);
 assert.match(drawingService, /kmy_chart_drawings_\$\{marketCode\}_\$\{symbol\}/);
 
 const ingestion = await source("base44/functions/usOptionsMarketIngestion/source.ts");
-assert.match(ingestion, /interval", "15m"/);
+assert.match(ingestion, /url\.searchParams\.set\("interval", "5m"\)/);
+assert.match(ingestion, /new Set\(bar\.component_times\)\.size === 3/, "a published 15-minute candle must contain all three five-minute components");
+assert.match(ingestion, /QuoteObservation\.bulkCreate/, "accepted provider observations must remain auditable before promotion");
+assert.match(ingestion, /preserved_last_good/, "failed batch coverage must preserve the previous public snapshot");
 assert.match(ingestion, /delayedCutoffMs/);
 assert.match(ingestion, /isCompletedDelayedBar/);
 assert.match(ingestion, /alertIntervalDue/);
@@ -181,9 +184,9 @@ assert.match(companyIntelligence, /data\.sec\.gov/);
 assert.match(companyIntelligence, /institutional-holdings/);
 assert.match(companyIntelligence, /const complete = failures\.length === 0/);
 const adminMarketData = await source("base44/functions/adminMarketData/entry.ts");
-assert.match(adminMarketData, /source\.code === "REFERENCE_YAHOO_US_OPTIONS_T15"/);
+assert.match(adminMarketData, /REFERENCE_YAHOO_US_OPTIONS_T15/);
 assert.match(adminMarketData, /refresh_company_intelligence/);
-assert.match(adminMarketData, /monthlyRuns: 756/);
+assert.match(adminMarketData, /runsPerDay: 59, monthlyRuns: 1314/);
 
 const signals = await source("base44/functions/usOptionsSignalRefresh/source.ts");
 assert.match(signals, /dedupeDailyBars/);
@@ -214,7 +217,7 @@ assert.deepEqual(marketAccess.resolveAvailableMarkets(null), [], "an authorizati
 assert.deepEqual(marketAccess.resolveAvailableMarkets({ market_access: [] }), [], "an explicit empty entitlement list must remain empty");
 assert.equal(marketAccess.resolveAvailableMarkets({ identity: { user_id: "legacy-user" } })[0]?.market_code, "SA_MAIN", "a legacy authenticated identity response must retain Saudi access only");
 assert.deepEqual(marketAccess.resolveAvailableMarkets({ market_access: [{ market_code: "US_OPTIONS" }] }).map((market) => market.market_code), ["US_OPTIONS"], "an explicit U.S. entitlement must remain isolated");
-assert.deepEqual(marketAccess.resolveAvailableMarkets({ identity: { role: "owner" }, market_access: [] }).map((market) => market.market_code), ["SA_MAIN", "US_OPTIONS"], "the owner must retain every supported market even when the entitlement array is empty");
+assert.deepEqual(marketAccess.resolveAvailableMarkets({ identity: { role: "owner" }, market_access: [] }).map((market) => market.market_code), ["SA_MAIN", "US_OPTIONS", "US_BENCHMARKS"], "the owner must retain every supported market even when the entitlement array is empty");
 const marketAccessSelect = await source("src/components/MarketAccessSelect.jsx");
 assert.match(marketAccessSelect, /SUPPORTED_MARKETS\.map/);
 assert.ok(marketAccessSelect.indexOf("if (!allowed.has(nextCode))") < marketAccessSelect.indexOf("setMarketCode(nextCode)"), "a locked market must open subscription guidance before any active-market mutation");
@@ -241,8 +244,8 @@ const ingestionBatch2Workflow = JSON.parse(await source("base44/workflows/UsOpti
 const signalWorkflow = JSON.parse(await source("base44/workflows/UsOptionsSignalsDaily.jsonc"));
 const historyWorkflow = JSON.parse(await source("base44/workflows/UsOptionsHistoricalBootstrap.jsonc"));
 const companyWorkflow = JSON.parse(await source("base44/workflows/UsOptionsCompanyIntelligenceDaily.jsonc"));
-assert.equal(ingestionWorkflow.trigger.config.cron_expression, "0,15,30,45 10-16 * * 1-5");
-assert.equal(ingestionBatch2Workflow.trigger.config.cron_expression, "2,17,32,47 10-16 * * 1-5");
+assert.equal(ingestionWorkflow.trigger.config.cron_expression, "5,20,35,50 10-16 * * 1-5");
+assert.equal(ingestionBatch2Workflow.trigger.config.cron_expression, "7,22,37,52 10-16 * * 1-5");
 assert.equal(Object.values(ingestionWorkflow.definition.do[0])[0].with.args.batch_index, 0);
 assert.equal(Object.values(ingestionBatch2Workflow.definition.do[0])[0].with.args.batch_index, 1);
 assert.equal(signalWorkflow.trigger.config.cron_expression, "0 18 * * 1-5");

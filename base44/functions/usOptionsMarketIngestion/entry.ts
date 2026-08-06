@@ -50,7 +50,8 @@ var MAX_JSON_BODY_BYTES = 256 * 1024;
 var SESSION_TOKEN_PREFIX = "kmy1";
 var MARKET_ACCESS = {
   SA_MAIN: { entitlement: "market.saudi", name_ar: "\u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629", name_en: "Saudi Main Market", currency: "SAR" },
-  US_OPTIONS: { entitlement: "market.us.options", name_ar: "\u0634\u0631\u0643\u0627\u062A \u0639\u0642\u0648\u062F \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A", name_en: "U.S. Optionable Companies", currency: "USD" }
+  US_OPTIONS: { entitlement: "market.us.options", name_ar: "\u0634\u0631\u0643\u0627\u062A \u0639\u0642\u0648\u062F \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A", name_en: "U.S. Optionable Companies", currency: "USD" },
+  US_BENCHMARKS: { entitlement: "market.us.benchmarks", name_ar: "\u0627\u0644\u0645\u0624\u0634\u0631\u0627\u062A \u0648\u0627\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0623\u0645\u0631\u064A\u0643\u064A\u0629", name_en: "U.S. Indices & ETFs", currency: "USD" }
 };
 async function sha256(value) {
   const bytes = new TextEncoder().encode(String(value));
@@ -282,6 +283,7 @@ async function subscriptionContext(base44, profile, account) {
     const codes = new Set(group.map((item) => item.code));
     const explicitMarkets = [...codes].filter((code) => code.startsWith("market."));
     if (codes.has("market.us.options")) marketCodes.add("US_OPTIONS");
+    if (codes.has("market.us.benchmarks")) marketCodes.add("US_BENCHMARKS");
     if ([...codes].some((code) => ["market.saudi", "market.saudi.delayed", "market.saudi.realtime"].includes(code))) marketCodes.add("SA_MAIN");
     if (!explicitMarkets.length) marketCodes.add("SA_MAIN");
   });
@@ -2094,23 +2096,25 @@ function normalizeChart(symbol, result, now) {
     const bucketIso = new Date(bucketTime).toISOString();
     const sessionBars = barsBySession.get(clock.date) || /* @__PURE__ */ new Map();
     const current = sessionBars.get(bucketIso);
+    const componentKey = time.toISOString();
     sessionBars.set(bucketIso, current ? {
       ...current,
       high: Math.max(current.high, high),
       low: Math.min(current.low, low),
       close,
-      volume: current.volume + validVolume(quote.volume?.[index])
-    } : { time: bucketIso, open, high, low, close, volume: validVolume(quote.volume?.[index]) });
+      volume: current.volume + validVolume(quote.volume?.[index]),
+      component_times: [...current.component_times, componentKey]
+    } : { time: bucketIso, open, high, low, close, volume: validVolume(quote.volume?.[index]), component_times: [componentKey] });
     barsBySession.set(clock.date, sessionBars);
     latestObservedAt = Math.max(latestObservedAt, time.getTime() + PROVIDER_BAR_INTERVAL_MS);
   }
   const sessions = [...barsBySession.entries()].map(([date, sessionBars]) => ({
     sessionDate: date,
-    bars: [...sessionBars.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time))
+    bars: [...sessionBars.values()].filter((bar) => new Set(bar.component_times).size === 3).map(({ component_times: _componentTimes, ...bar }) => bar).sort((left, right) => Date.parse(left.time) - Date.parse(right.time))
   })).filter((session) => session.bars.length).sort((left, right) => left.sessionDate.localeCompare(right.sessionDate));
   const bars = sessions.find((session) => session.sessionDate === sessionDate)?.bars || [];
   if (!bars.length || !latestObservedAt) throw new Error("no_current_session_bars");
-  const providerAsOf = new Date(latestObservedAt).toISOString();
+  const providerAsOf = new Date(Date.parse(bars.at(-1).time) + 15 * 60 * 1e3).toISOString();
   const previousClose = validNumber(result?.meta?.chartPreviousClose ?? result?.meta?.previousClose);
   if (!previousClose) throw new Error("missing_previous_close");
   const first = bars[0];
@@ -2326,14 +2330,41 @@ Deno.serve(async (req) => {
         });
       }
     }
-    const quoteResult = await upsertMany(base44, "QuoteLatest", acceptedQuotes, ["instrument_id"], { market_code: US_OPTIONS_MARKET_CODE });
-    const candleResult = await upsertMany(base44, "CandleChunk", chunks, ["instrument_id", "interval", "chunk_key"], { market_code: US_OPTIONS_MARKET_CODE, interval: "15m" });
+    const observations = acceptedQuotes.map((quote) => ({
+      run_id: quote.run_id,
+      snapshot_version: quote.snapshot_version,
+      market_code: quote.market_code,
+      session_date: quote.session_date,
+      instrument_id: quote.instrument_id,
+      symbol: quote.symbol,
+      last_price: quote.last_price,
+      previous_close: quote.previous_close,
+      change_value: quote.change_value,
+      change_percent: quote.change_percent,
+      open: quote.open,
+      high: quote.high,
+      low: quote.low,
+      volume: quote.volume,
+      market_cap: quote.market_cap,
+      source_id: quote.source_id,
+      provider_as_of: quote.provider_as_of,
+      last_trade_time: quote.last_trade_time,
+      received_time: quote.received_time,
+      delay_seconds: quote.delay_seconds,
+      market_phase: quote.market_phase,
+      freshness_status: quote.freshness_status,
+      quality_status: quote.quality_status,
+      is_final: quote.is_final
+    }));
+    if (observations.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(observations);
+    const coverage = acceptedQuotes.length / batchInstruments.length * 100;
+    const status = coverage >= 99 ? "success" : coverage >= 95 ? "partial" : "failed";
+    const quoteResult = status === "failed" ? { created: 0, updated: 0, preserved_last_good: true } : await upsertMany(base44, "QuoteLatest", acceptedQuotes, ["instrument_id"], { market_code: US_OPTIONS_MARKET_CODE });
+    const candleResult = status === "failed" ? { created: 0, updated: 0, preserved_last_good: true } : await upsertMany(base44, "CandleChunk", chunks, ["instrument_id", "interval", "chunk_key"], { market_code: US_OPTIONS_MARKET_CODE, interval: "15m" });
     const acceptedIds = new Set(acceptedQuotes.map((quote) => quote.instrument_id));
     const stale = rows(await base44.asServiceRole.entities.QuoteLatest.filter({ market_code: US_OPTIONS_MARKET_CODE })).filter((quote) => batchInstruments.some((instrument) => instrument.id === quote.instrument_id) && !acceptedIds.has(quote.instrument_id)).map((quote) => ({ id: quote.id, freshness_status: "stale", quality_status: "stale" }));
     if (stale.length) await base44.asServiceRole.entities.QuoteLatest.bulkUpdate([...new Map(stale.map((row) => [row.id, row])).values()]);
     await evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate);
-    const coverage = acceptedQuotes.length / batchInstruments.length * 100;
-    const status = coverage >= 99 ? "success" : coverage >= 95 ? "partial" : "failed";
     await base44.asServiceRole.entities.IngestionRun.update(run.id, {
       status,
       finished_at: (/* @__PURE__ */ new Date()).toISOString(),

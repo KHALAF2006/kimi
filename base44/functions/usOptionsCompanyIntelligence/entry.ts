@@ -50,7 +50,8 @@ var MAX_JSON_BODY_BYTES = 256 * 1024;
 var SESSION_TOKEN_PREFIX = "kmy1";
 var MARKET_ACCESS = {
   SA_MAIN: { entitlement: "market.saudi", name_ar: "\u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629", name_en: "Saudi Main Market", currency: "SAR" },
-  US_OPTIONS: { entitlement: "market.us.options", name_ar: "\u0634\u0631\u0643\u0627\u062A \u0639\u0642\u0648\u062F \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A", name_en: "U.S. Optionable Companies", currency: "USD" }
+  US_OPTIONS: { entitlement: "market.us.options", name_ar: "\u0634\u0631\u0643\u0627\u062A \u0639\u0642\u0648\u062F \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A", name_en: "U.S. Optionable Companies", currency: "USD" },
+  US_BENCHMARKS: { entitlement: "market.us.benchmarks", name_ar: "\u0627\u0644\u0645\u0624\u0634\u0631\u0627\u062A \u0648\u0627\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0623\u0645\u0631\u064A\u0643\u064A\u0629", name_en: "U.S. Indices & ETFs", currency: "USD" }
 };
 async function sha256(value) {
   const bytes = new TextEncoder().encode(String(value));
@@ -282,6 +283,7 @@ async function subscriptionContext(base44, profile, account) {
     const codes = new Set(group.map((item) => item.code));
     const explicitMarkets = [...codes].filter((code) => code.startsWith("market."));
     if (codes.has("market.us.options")) marketCodes.add("US_OPTIONS");
+    if (codes.has("market.us.benchmarks")) marketCodes.add("US_BENCHMARKS");
     if ([...codes].some((code) => ["market.saudi", "market.saudi.delayed", "market.saudi.realtime"].includes(code))) marketCodes.add("SA_MAIN");
     if (!explicitMarkets.length) marketCodes.add("SA_MAIN");
   });

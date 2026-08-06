@@ -4,6 +4,7 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 import { authorizationContext, marketAccessForContext, readJsonBody, replyError, requireMarketEntitlement } from "../../shared/security.ts";
 import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE, US_OPTIONS_SYMBOLS } from "../../shared/us-options-catalog.ts";
+import { US_BENCHMARKS_CATALOG, US_BENCHMARKS_MARKET_CODE, US_BENCHMARKS_SYMBOLS } from "../../shared/us-benchmarks-catalog.ts";
 import {
   COVERAGE_FAILED_PERCENT,
   COVERAGE_HEALTHY_PERCENT,
@@ -5295,6 +5296,7 @@ async function instrumentFor(base44, body) {
   if (symbol) {
     if (marketCode === "SA_MAIN" && !/^\d{4}$/.test(symbol) && symbol !== TASI_SYMBOL) throw Object.assign(new Error("Invalid Saudi market instrument symbol"), { status: 400 });
     if (marketCode === US_OPTIONS_MARKET_CODE && !US_OPTIONS_SYMBOLS.has(symbol.toUpperCase())) throw Object.assign(new Error("Instrument is outside the U.S. options catalog"), { status: 400, code: "INSTRUMENT_OUT_OF_MARKET" });
+    if (marketCode === US_BENCHMARKS_MARKET_CODE && !US_BENCHMARKS_SYMBOLS.has(symbol.toUpperCase())) throw Object.assign(new Error("Instrument is outside the U.S. benchmarks catalog"), { status: 400, code: "INSTRUMENT_OUT_OF_MARKET" });
     const rows = await base44.asServiceRole.entities.Instrument.filter({ symbol: symbol.toUpperCase(), market_code: marketCode });
     if (!rows[0]) throw Object.assign(new Error("Instrument not found"), { status: 404 });
     return localizedInstrument(rows[0]);
@@ -5381,7 +5383,7 @@ async function storedCandlesForInterval(base44, instrumentId, interval, marketCo
   const series = [];
   const allChunks = [];
   for (const storedInterval of fallbackIntervals(interval)) {
-    const chunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrumentId, interval: storedInterval }, "-end_time", 500)))
+    const chunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: marketCode, instrument_id: instrumentId, interval: storedInterval }, "-end_time", 500)))
       .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
       .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
     if (!chunks.length) continue;
@@ -5407,7 +5409,7 @@ async function storedCandlesForInstruments(base44, instrumentIds, interval, mark
   const requestedIds = new Set(instrumentIds);
   const chunksByInstrument = new Map(instrumentIds.map((id) => [id, []]));
   for (const storedInterval of fallbackIntervals(interval)) {
-    const chunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: { $in: instrumentIds }, interval: storedInterval }, "-end_time", 5e3)))
+    const chunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: marketCode, instrument_id: { $in: instrumentIds }, interval: storedInterval }, "-end_time", 5e3)))
       .filter((chunk) => requestedIds.has(chunk.instrument_id) && chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
     for (const chunk of chunks) chunksByInstrument.get(chunk.instrument_id)?.push(chunk);
   }
@@ -5598,9 +5600,9 @@ function sectorWeights(instruments, quoteByInstrument) {
   return new Map(instruments.map((instrument, index) => [instrument.id, total > 0 ? caps[index] / total : 1 / instruments.length]));
 }
 async function sectorSummaries(base44, instruments, quoteByInstrument, marketCode) {
-  const equities = instruments.filter((instrument) => (instrument.instrument_type || "equity") === "equity");
+  const equities = instruments.filter((instrument) => instrument.status !== "delisted");
   const equityIds = new Set(equities.map((instrument) => instrument.id));
-  const recentDailyChunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: { $in: equities.map((instrument) => instrument.id) }, interval: "1d" }, "-end_time", 1e3)))
+  const recentDailyChunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: marketCode, instrument_id: { $in: equities.map((instrument) => instrument.id) }, interval: "1d" }, "-end_time", 1e3)))
     .filter((chunk) => equityIds.has(chunk.instrument_id) && chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
   const chunksByInstrument = new Map();
   for (const chunk of recentDailyChunks) {
@@ -5663,7 +5665,7 @@ async function sectorSummaries(base44, instruments, quoteByInstrument, marketCod
 }
 async function sectorResponse(base44, body, sourceById) {
   const { requestedMarket, sector, instruments } = await sectorInstruments(base44, body);
-  const quotes = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((instrument) => instrument.id) } }, "-quote_time", 1000)));
+  const quotes = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ market_code: requestedMarket, instrument_id: { $in: instruments.map((instrument) => instrument.id) } }, "-quote_time", 1000)));
   const quoteByInstrument = new Map();
   for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
   const weights = sectorWeights(instruments, quoteByInstrument);
@@ -5703,17 +5705,17 @@ async function sectorResponse(base44, body, sourceById) {
   };
 }
 async function sectorChartResponse(base44, body) {
-  const { sector, instruments } = await sectorInstruments(base44, body);
+  const { requestedMarket, sector, instruments } = await sectorInstruments(base44, body);
   const interval = String(body.interval || "1d");
   const range = String(body.range || "3mo");
   if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range)) {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
-  const quotes = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((instrument) => instrument.id) } }, "-quote_time", 1000)));
+  const quotes = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ market_code: requestedMarket, instrument_id: { $in: instruments.map((instrument) => instrument.id) } }, "-quote_time", 1000)));
   const quoteByInstrument = new Map();
   for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
   const weights = sectorWeights(instruments, quoteByInstrument);
-  const storedByInstrument = await storedCandlesForInstruments(base44, instruments.map((instrument) => instrument.id), interval, body.market_code);
+  const storedByInstrument = await storedCandlesForInstruments(base44, instruments.map((instrument) => instrument.id), interval, requestedMarket);
   const candlesByInstrument = instruments.map((instrument) => ({
     instrument,
     stored: storedByInstrument.get(instrument.id) || { bars: [] }
@@ -5791,7 +5793,10 @@ Deno.serve(async (req) => {
       if (requestedMarket === US_OPTIONS_MARKET_CODE && instruments.length !== US_OPTIONS_CATALOG.companies.length) {
         throw Object.assign(new Error(`U.S. options catalog mismatch: ${instruments.length}/${US_OPTIONS_CATALOG.companies.length}`), { status: 503, code: "US_OPTIONS_CATALOG_INCOMPLETE" });
       }
-      const quotes = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((item) => item.id) } }, "-quote_time", 1000)));
+      if (requestedMarket === US_BENCHMARKS_MARKET_CODE && (instruments.length !== US_BENCHMARKS_CATALOG.instruments.length || instruments.some((item) => !US_BENCHMARKS_SYMBOLS.has(item.symbol)))) {
+        throw Object.assign(new Error(`U.S. benchmarks catalog mismatch: ${instruments.length}/${US_BENCHMARKS_CATALOG.instruments.length}`), { status: 503, code: "US_BENCHMARKS_CATALOG_INCOMPLETE" });
+      }
+      const quotes = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ market_code: requestedMarket, instrument_id: { $in: instruments.map((item) => item.id) } }, "-quote_time", 1000)));
       const quoteByInstrument = new Map();
       for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
       return Response.json({
@@ -5823,7 +5828,7 @@ Deno.serve(async (req) => {
       const instruments = entityRows(storedInstruments)
         .map(localizedInstrument)
         .filter((item) => item.status !== "delisted");
-      const quotes = await base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instruments.map((item) => item.id) } }, "-quote_time", 1000);
+      const quotes = await base44.asServiceRole.entities.QuoteLatest.filter({ market_code: requestedMarket, instrument_id: { $in: instruments.map((item) => item.id) } }, "-quote_time", 1000);
       const aliasesByInstrument = new Map();
       for (const alias of entityRows(aliases)) {
         if (!aliasesByInstrument.has(alias.instrument_id)) aliasesByInstrument.set(alias.instrument_id, []);
@@ -5835,7 +5840,7 @@ Deno.serve(async (req) => {
         search_aliases: aliasesByInstrument.get(instrument.id) || []
       }));
       const sectors = new Map();
-      for (const instrument of instruments.filter((item) => (item.instrument_type || "equity") === "equity")) {
+      for (const instrument of instruments) {
         const key = instrument.sector_ar || instrument.sector_en;
         if (!key) continue;
         if (!sectors.has(key)) sectors.set(key, { instruments: [], sample: instrument });
@@ -5913,12 +5918,12 @@ Deno.serve(async (req) => {
     if (body.symbol || body.instrument_id) {
       const instrument = await instrumentFor(base44, body);
       const [quotes2, indicators2, financials, actions, announcements, shareholders, losses2] = await Promise.all([
-        base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: instrument.id }),
-        optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: instrument.id }), "company indicators"),
-        optionalRows(() => base44.asServiceRole.entities.CompanyFinancial.filter({ instrument_id: instrument.id }), "company financials"),
-        optionalRows(() => base44.asServiceRole.entities.CorporateAction.filter({ instrument_id: instrument.id }), "company actions"),
-        optionalRows(() => base44.asServiceRole.entities.CompanyAnnouncement.filter({ instrument_id: instrument.id }), "company announcements"),
-        optionalRows(() => base44.asServiceRole.entities.MajorShareholder.filter({ instrument_id: instrument.id }), "company shareholders"),
+        base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: instrument.id, market_code: body.market_code }),
+        optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company indicators"),
+        optionalRows(() => base44.asServiceRole.entities.CompanyFinancial.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company financials"),
+        optionalRows(() => base44.asServiceRole.entities.CorporateAction.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company actions"),
+        optionalRows(() => base44.asServiceRole.entities.CompanyAnnouncement.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company announcements"),
+        optionalRows(() => base44.asServiceRole.entities.MajorShareholder.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company shareholders"),
         optionalRows(() => base44.asServiceRole.entities.LossClassification.filter({ instrument_id: instrument.id }), "company loss classification")
       ]);
       let quote = quotes2.filter(usableQuote).sort((a, b) => new Date(b.quote_time).getTime() - new Date(a.quote_time).getTime())[0] || null;
@@ -5983,9 +5988,10 @@ Deno.serve(async (req) => {
     const instrumentIds = instruments.map((item) => item.id);
     const screenerTimeframe = ["1d", "1wk", "1mo"].includes(String(body.timeframe || "1d")) ? String(body.timeframe || "1d") : "1d";
     const [quotes, indicators, losses] = await Promise.all([
-      entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: { $in: instrumentIds } }, "-quote_time", 1000)),
+      entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ market_code: requestedMarket, instrument_id: { $in: instrumentIds } }, "-quote_time", 1000)),
       body.mode === "screener"
         ? optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.filter({
+          market_code: requestedMarket,
           instrument_id: { $in: instrumentIds },
           indicator_key: "technical_signals",
           timeframe: screenerTimeframe,
@@ -5998,6 +6004,9 @@ Deno.serve(async (req) => {
     }
     if (requestedMarket === US_OPTIONS_MARKET_CODE && instruments.length !== US_OPTIONS_CATALOG.companies.length) {
       throw Object.assign(new Error(`U.S. options catalog mismatch: ${instruments.length}/${US_OPTIONS_CATALOG.companies.length}`), { status: 503, code: "US_OPTIONS_CATALOG_INCOMPLETE" });
+    }
+    if (requestedMarket === US_BENCHMARKS_MARKET_CODE && (instruments.length !== US_BENCHMARKS_CATALOG.instruments.length || instruments.some((item) => !US_BENCHMARKS_SYMBOLS.has(item.symbol)))) {
+      throw Object.assign(new Error(`U.S. benchmarks catalog mismatch: ${instruments.length}/${US_BENCHMARKS_CATALOG.instruments.length}`), { status: 503, code: "US_BENCHMARKS_CATALOG_INCOMPLETE" });
     }
     const quoteByInstrument = /* @__PURE__ */ new Map();
     for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);

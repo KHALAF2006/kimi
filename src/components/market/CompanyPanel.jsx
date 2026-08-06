@@ -68,7 +68,7 @@ export default function CompanyPanel({ symbol, marketCode, requestedTimeframe = 
     <section className="company-hero-card">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div><span className="eyebrow"><Building2 size={14} />{isArabic ? "ملف الشركة" : "Company profile"}</span><h2 className="mt-3 text-2xl font-black">{instrument.symbol}</h2><p className="mt-1 text-lg font-bold">{isArabic ? instrument.name_ar : instrument.name_en}</p><p className="mt-1 text-sm text-slate-500">{companyMeta}</p><div className="mt-3"><LossFlagBadge flag={instrument.warning_flag || loss?.level} /></div></div>
-        <div className="text-left" dir="ltr"><b className="block text-3xl font-black">{formatNumber(quote.last_price, language)} <small className="text-sm text-slate-500">{instrument.currency || (marketCode === "US_OPTIONS" ? "USD" : "SAR")}</small></b><span className={"mt-2 block text-base font-black market-" + direction}>{Number(quote.change_percent || 0) > 0 ? "+" : ""}{formatNumber(quote.change_percent, language)}%</span></div>
+        <div className="text-left" dir="ltr"><b className="block text-3xl font-black">{formatNumber(quote.last_price, language)} <small className="text-sm text-slate-500">{instrument.currency || (marketCode.startsWith("US_") ? "USD" : "SAR")}</small></b><span className={"mt-2 block text-base font-black market-" + direction}>{Number(quote.change_percent || 0) > 0 ? "+" : ""}{formatNumber(quote.change_percent, language)}%</span></div>
       </div>
       <div className="mt-5 grid grid-cols-2 gap-2 xl:grid-cols-4">
         <Metric label={isArabic ? "الافتتاح" : "Open"} value={formatNumber(quote.open, language)} />

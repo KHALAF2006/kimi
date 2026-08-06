@@ -151,6 +151,7 @@ async function projectionChunk({
   const normalized = normalizeTechnicalBars(bars);
   return {
     instrument_id: instrument.id,
+    market_code: MARKET_CODE,
     symbol: instrument.symbol,
     interval,
     chunk_key: chunkKey,
@@ -181,9 +182,9 @@ async function projectInstrumentBatch(
   const idQuery = { $in: instrumentIds };
   const [instrumentsRaw, quotesRaw, chunksRaw, snapshotsRaw] = await Promise.all([
     base44.asServiceRole.entities.Instrument.filter({ id: idQuery }, "symbol", PROJECTION_BATCH_SIZE),
-    base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: idQuery }, "-updated_date", PROJECTION_BATCH_SIZE * 3),
-    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery }, "-end_time", 1200),
-    base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery }, "-source_as_of", PROJECTION_BATCH_SIZE * 12),
+    base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-updated_date", PROJECTION_BATCH_SIZE * 3),
+    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-end_time", 1200),
+    base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-source_as_of", PROJECTION_BATCH_SIZE * 12),
   ]);
   const instruments = entityRows(instrumentsRaw)
     .filter((item) => item.market_code === MARKET_CODE && item.status !== "delisted")
@@ -274,6 +275,7 @@ async function projectInstrumentBatch(
       values.is_final = currentPeriodIsFinal;
       indicatorRows.push({
         instrument_id: instrument.id,
+        market_code: MARKET_CODE,
         symbol: instrument.symbol,
         indicator_key: "technical_signals",
         timeframe,
@@ -290,6 +292,7 @@ async function projectInstrumentBatch(
       if (momentumValues) {
         indicatorRows.push({
           instrument_id: instrument.id,
+          market_code: MARKET_CODE,
           symbol: instrument.symbol,
           indicator_key: "momentum_zones",
           timeframe,
@@ -379,23 +382,8 @@ Deno.serve(async (req) => {
       source_id: "canonical-projection",
       notes: "Canonical daily, weekly, monthly candle and technical signal projection",
     });
-    const instrumentsRaw = await base44.asServiceRole.entities.Instrument.list("symbol", 500);
-    const allInstruments = entityRows(instrumentsRaw);
-    const instruments = allInstruments.filter((item) => item.market_code === MARKET_CODE && item.status !== "delisted");
-    const outOfScopeIds = allInstruments.filter((item) => item.market_code !== MARKET_CODE).map((item) => item.id).filter(Boolean);
-    const cleanup = outOfScopeIds.length
-      ? await Promise.all([
-        base44.asServiceRole.entities.IndicatorSnapshot.deleteMany({
-          indicator_key: "technical_signals",
-          instrument_id: { $in: outOfScopeIds },
-        }),
-        base44.asServiceRole.entities.CandleChunk.deleteMany({
-          canonical_version: CANONICAL_VERSION,
-          instrument_id: { $in: outOfScopeIds },
-          interval: { $in: ["1wk", "1mo"] },
-        }),
-      ])
-      : [{ deleted: 0 }, { deleted: 0 }];
+    const instrumentsRaw = await base44.asServiceRole.entities.Instrument.filter({ market_code: MARKET_CODE }, "symbol", 500);
+    const instruments = entityRows(instrumentsRaw).filter((item) => item.status !== "delisted");
     const batches = [];
     for (let offset = 0; offset < instruments.length; offset += PROJECTION_BATCH_SIZE) {
       batches.push(instruments.slice(offset, offset + PROJECTION_BATCH_SIZE).map((instrument) => instrument.id));
@@ -404,15 +392,8 @@ Deno.serve(async (req) => {
     const failedBatches: Array<{ batch_index: number; instrument_ids: string[]; error: string }> = [];
     for (let offset = 0; offset < batches.length; offset += PROJECTION_CONCURRENCY) {
       const group = batches.slice(offset, offset + PROJECTION_CONCURRENCY);
-      const settled = await Promise.allSettled(group.map((instrumentIds, groupIndex) =>
-        base44.asServiceRole.functions.invoke("marketSignalRefresh", {
-          mode: "projection_batch",
-          session_date: sessionDate,
-          run_id: run.id,
-          batch_index: offset + groupIndex,
-          instrument_ids: instrumentIds,
-          session_id: body.session_id || undefined,
-        })
+      const settled = await Promise.allSettled(group.map((instrumentIds) =>
+        projectInstrumentBatch(base44, instrumentIds, sessionDate)
       ));
       settled.forEach((result, groupIndex) => {
         const batchIndex = offset + groupIndex;
@@ -453,8 +434,7 @@ Deno.serve(async (req) => {
         skipped_count: skippedInstrumentCount,
         batch_count: batches.length,
         failed_batches: failedBatches,
-        removed_out_of_scope_signals: Number(cleanup[0]?.deleted || 0),
-        removed_out_of_scope_candles: Number(cleanup[1]?.deleted || 0),
+        cross_market_cleanup_performed: false,
         canonical_version: CANONICAL_VERSION,
       }),
     });
@@ -467,10 +447,7 @@ Deno.serve(async (req) => {
       signals: signalResult,
       skipped_count: skippedInstrumentCount,
       failed_batch_count: failedBatches.length,
-      cleanup: {
-        signals: Number(cleanup[0]?.deleted || 0),
-        candles: Number(cleanup[1]?.deleted || 0),
-      },
+      cleanup: { signals: 0, candles: 0, scoped_market_only: true },
       skipped: skippedRows.slice(0, 100),
       run_id: run.id,
       formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION,

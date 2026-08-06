@@ -1,97 +1,7 @@
-// GENERATED from marketSignalRefresh/source.ts. Do not edit directly.
+// GENERATED from usBenchmarksSignalRefresh/source.ts. Do not edit directly.
 
-// base44/functions/marketSignalRefresh/source.ts
+// base44/functions/usBenchmarksSignalRefresh/source.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-
-// base44/shared/market-data.ts
-var SAUDI_DELAY_SECONDS = 15 * 60;
-var PROVIDER_FRESHNESS_GRACE_SECONDS = 5 * 60;
-var EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
-var PUBLIC_CANDLE_OVERLAP_MILLISECONDS = 15 * 60 * 1e3;
-var PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS = 8 * 24 * 60 * 60 * 1e3;
-var MARKET_AUTOMATION_SPECS = Object.freeze([
-  { name: "saudi_t15_1015_1045_riyadh", cron: "15,30,45 7 * * 0-4", slotKind: "quarter_hour", active: false },
-  { name: "saudi_t15_1100_1445_riyadh", cron: "0,15,30,45 8-11 * * 0-4", slotKind: "quarter_hour", active: false },
-  { name: "saudi_t15_1500_1515_riyadh", cron: "0,15 12 * * 0-4", slotKind: "quarter_hour", active: false },
-  { name: "saudi_close_price_1526_riyadh", cron: "26 12 * * 0-4", slotKind: "close_price", active: false },
-  { name: "saudi_session_final_1536_riyadh", cron: "36 12 * * 0-4", slotKind: "session_final", active: false }
-]);
-var RIYADH_TIMEZONE = "Asia/Riyadh";
-var SAUDI_CANDLE_OPTIONS = Object.freeze({ timeZone: "Asia/Riyadh", sessionStartMinutes: 600, weekStartsOn: 0 });
-function normalizedCandleBar(bar) {
-  const time = new Date(bar?.time).getTime();
-  const open = positiveNumber(bar?.open);
-  const high = positiveNumber(bar?.high);
-  const low = positiveNumber(bar?.low);
-  const close = positiveNumber(bar?.close);
-  const volume = nonNegativeNumber(bar?.volume);
-  if (!Number.isFinite(time) || [open, high, low, close].some((value) => value === null) || high < Math.max(open, close) || low > Math.min(open, close)) return null;
-  return {
-    time: new Date(time).toISOString(),
-    open,
-    high,
-    low,
-    close,
-    volume
-  };
-}
-function finiteNumber(value) {
-  if (value === null || value === void 0 || value === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-function positiveNumber(value) {
-  const parsed = finiteNumber(value);
-  return parsed !== null && parsed > 0 ? parsed : null;
-}
-function nonNegativeNumber(value, fallback = 0) {
-  const parsed = finiteNumber(value);
-  return parsed !== null && parsed >= 0 ? parsed : fallback;
-}
-function riyadhClock(now = /* @__PURE__ */ new Date()) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
-    timeZone: RIYADH_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23"
-  }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
-  return {
-    date: `${parts.year}-${parts.month}-${parts.day}`,
-    weekday: parts.weekday,
-    hour: Number(parts.hour),
-    minute: Number(parts.minute),
-    second: Number(parts.second)
-  };
-}
-var QUARTER_HOUR_MILLISECONDS = 15 * 60 * 1e3;
-function canonicalizeQuarterHourBars(bars) {
-  const byBucket = /* @__PURE__ */ new Map();
-  for (const rawBar of Array.isArray(bars) ? bars : []) {
-    const bar = normalizedCandleBar(rawBar);
-    if (!bar) continue;
-    const rawTime = new Date(bar.time).getTime();
-    const bucketTime = Math.floor(rawTime / QUARTER_HOUR_MILLISECONDS) * QUARTER_HOUR_MILLISECONDS;
-    const exactGridTime = rawTime === bucketTime;
-    const current = byBucket.get(bucketTime);
-    if (current && (current.exactGridTime && !exactGridTime || current.exactGridTime === exactGridTime && current.rawTime > rawTime)) continue;
-    const bucketDate = new Date(bucketTime);
-    byBucket.set(bucketTime, {
-      bar: {
-        ...bar,
-        time: bucketDate.toISOString(),
-        session_date: rawBar?.session_date || riyadhClock(bucketDate).date
-      },
-      exactGridTime,
-      rawTime
-    });
-  }
-  return [...byBucket.values()].sort((a, b) => new Date(a.bar.time).getTime() - new Date(b.bar.time).getTime()).map(({ bar }) => bar);
-}
 
 // base44/shared/permissions.ts
 var PERMISSION_CATALOG = [
@@ -146,7 +56,7 @@ var MARKET_ACCESS = {
 async function sha256(value) {
   const bytes = new TextEncoder().encode(String(value));
   const digest2 = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest2), (item) => item.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(digest2), (item2) => item2.toString(16).padStart(2, "0")).join("");
 }
 function fixedTimeEqual(left, right) {
   const a = String(left || "");
@@ -207,8 +117,8 @@ async function requireTrustedOwner(base44) {
   return { user, profile, role: "owner" };
 }
 async function profileFor(base44, user) {
-  const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  return rows[0] || null;
+  const rows2 = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
+  return rows2[0] || null;
 }
 function hasTrustedOwnerMarker(user, profile) {
   return user?.role === "admin" && profile?.acquisition_source === "platform_owner_bootstrap" && Array.isArray(profile?.tags) && profile.tags.includes("owner");
@@ -320,7 +230,7 @@ async function ensurePersonalAccount(base44, profile, userId) {
   }
   if (account.status !== "active") throw Object.assign(new Error("Active account required"), { status: 403, code: "ACCOUNT_INACTIVE" });
   const memberships = await base44.asServiceRole.entities.AccountMember.filter({ account_id: account.id, customer_id: profile.id });
-  let membership = memberships.find((item) => item.status === "active") || null;
+  let membership = memberships.find((item2) => item2.status === "active") || null;
   if (!membership) {
     membership = await base44.asServiceRole.entities.AccountMember.create({
       account_id: account.id,
@@ -349,9 +259,9 @@ async function subscriptionContext(base44, profile, account) {
   const accountSubscriptions = await base44.asServiceRole.entities.Subscription.filter({ account_id: account.id, status: "active" });
   const customerSubscriptions = await base44.asServiceRole.entities.Subscription.filter({ customer_id: profile.id, status: "active" });
   const now = Date.now();
-  const subscriptions = [...new Map([...accountSubscriptions, ...customerSubscriptions].filter((item) => !item.ends_at || new Date(item.ends_at).getTime() > now).map((item) => [item.id, item])).values()];
+  const subscriptions = [...new Map([...accountSubscriptions, ...customerSubscriptions].filter((item2) => !item2.ends_at || new Date(item2.ends_at).getTime() > now).map((item2) => [item2.id, item2])).values()];
   if (!subscriptions.length) return { subscription: null, subscriptions: [], plan: null, plans: [], entitlements: [], marketAccess: [] };
-  const planIds = [...new Set(subscriptions.map((item) => item.plan_id).filter(Boolean))];
+  const planIds = [...new Set(subscriptions.map((item2) => item2.plan_id).filter(Boolean))];
   const plans = (await Promise.all(planIds.map(async (planId) => {
     try {
       return await base44.asServiceRole.entities.SubscriptionPlan.get(planId);
@@ -363,14 +273,14 @@ async function subscriptionContext(base44, profile, account) {
     (planId) => base44.asServiceRole.entities.PlanEntitlement.filter({ plan_id: planId, enabled: true })
   ));
   const entitlementsByCode = /* @__PURE__ */ new Map();
-  entitlementGroups.flat().forEach((item) => {
-    const current = entitlementsByCode.get(item.code);
-    if (!current || Number(item.limit_value || 0) > Number(current.limit_value || 0)) entitlementsByCode.set(item.code, item);
+  entitlementGroups.flat().forEach((item2) => {
+    const current = entitlementsByCode.get(item2.code);
+    if (!current || Number(item2.limit_value || 0) > Number(current.limit_value || 0)) entitlementsByCode.set(item2.code, item2);
   });
   const entitlements = [...entitlementsByCode.values()];
   const marketCodes = /* @__PURE__ */ new Set();
   entitlementGroups.forEach((group) => {
-    const codes = new Set(group.map((item) => item.code));
+    const codes = new Set(group.map((item2) => item2.code));
     const explicitMarkets = [...codes].filter((code) => code.startsWith("market."));
     if (codes.has("market.us.options")) marketCodes.add("US_OPTIONS");
     if (codes.has("market.us.benchmarks")) marketCodes.add("US_BENCHMARKS");
@@ -381,7 +291,7 @@ async function subscriptionContext(base44, profile, account) {
   return {
     subscription: subscriptions[0] || null,
     subscriptions,
-    plan: plans.find((item) => item.id === subscriptions[0]?.plan_id) || null,
+    plan: plans.find((item2) => item2.id === subscriptions[0]?.plan_id) || null,
     plans,
     entitlements,
     marketAccess
@@ -784,7 +694,7 @@ function detectEngulfingPattern(rawPrevious, rawCurrent) {
   };
 }
 function latestValueByTime(values) {
-  return new Map(values.map((item) => [item.time, item.value]));
+  return new Map(values.map((item2) => [item2.time, item2.value]));
 }
 function calculateTechnicalSnapshot(bars) {
   const sma20 = calculateSmaSeries(bars, 20);
@@ -862,278 +772,151 @@ function calculateTechnicalSignals(inputBars, windowSize = TECHNICAL_SIGNAL_WIND
   };
 }
 
-// base44/functions/marketSignalRefresh/source.ts
-var CANONICAL_VERSION = "candle-projection-v1";
-var MARKET_CODE = "SA_MAIN";
-var BATCH_SIZE = 500;
-var PROJECTION_BATCH_SIZE = 24;
-var PROJECTION_CONCURRENCY = 3;
-function entityRows(value) {
+// base44/shared/us-benchmarks-catalog.ts
+var US_BENCHMARKS_MARKET_CODE = "US_BENCHMARKS";
+var item = (symbol, providerSymbol, type, nameAr, nameEn, categoryAr, categoryEn, aliases, relatedAr, relatedEn) => ({
+  symbol,
+  providerSymbol,
+  type,
+  nameAr,
+  nameEn,
+  categoryAr,
+  categoryEn,
+  aliases,
+  relatedAr,
+  relatedEn,
+  officialUrl: `https://finance.yahoo.com/quote/${encodeURIComponent(providerSymbol)}`
+});
+var US_BENCHMARKS_CATALOG = {
+  source: { asOf: "2026-08-06", name: "Yahoo Finance reference adapter", baseUrl: "https://query1.finance.yahoo.com" },
+  market: { market_code: US_BENCHMARKS_MARKET_CODE, country_code: "US", name_ar: "\u0627\u0644\u0645\u0624\u0634\u0631\u0627\u062A \u0648\u0627\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0623\u0645\u0631\u064A\u0643\u064A\u0629", name_en: "U.S. Indices & ETFs", currency: "USD", timezone: "America/New_York", quote_mode: "delayed", delay_seconds: 900, license_status: "pending", active: true },
+  instruments: [
+    item("SPX", "^GSPC", "market_index", "\u0645\u0624\u0634\u0631 \u0625\u0633 \u0622\u0646\u062F \u0628\u064A 500", "S&P 500 Index", "\u0645\u0624\u0634\u0631\u0627\u062A \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0648\u0627\u0633\u0639\u0629", "Broad Market Indices", ["SPX500", "SPX500USD", "US500", "S&P500"], ["\u0623\u0628\u0644", "\u0645\u0627\u064A\u0643\u0631\u0648\u0633\u0648\u0641\u062A", "\u0625\u0646\u0641\u064A\u062F\u064A\u0627", "\u0623\u0645\u0627\u0632\u0648\u0646", "\u0623\u0644\u0641\u0627\u0628\u062A", "\u0645\u064A\u062A\u0627", "\u0628\u0631\u0648\u062F\u0643\u0648\u0645", "\u0628\u064A\u0631\u0643\u0634\u0627\u064A\u0631 \u0647\u0627\u062B\u0627\u0648\u0627\u064A"], ["Apple", "Microsoft", "NVIDIA", "Amazon", "Alphabet", "Meta", "Broadcom", "Berkshire Hathaway"]),
+    item("DJI", "^DJI", "market_index", "\u0645\u0624\u0634\u0631 \u062F\u0627\u0648 \u062C\u0648\u0646\u0632 \u0627\u0644\u0635\u0646\u0627\u0639\u064A", "Dow Jones Industrial Average", "\u0645\u0624\u0634\u0631\u0627\u062A \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0648\u0627\u0633\u0639\u0629", "Broad Market Indices", ["DJIA", "DOW30", "US30"], ["\u063A\u0648\u0644\u062F\u0645\u0627\u0646 \u0633\u0627\u0643\u0633", "\u0645\u0627\u064A\u0643\u0631\u0648\u0633\u0648\u0641\u062A", "\u0643\u0627\u062A\u0631\u0628\u064A\u0644\u0631", "\u0641\u064A\u0632\u0627", "\u0623\u0645\u062C\u0646", "\u0628\u0648\u064A\u0646\u063A"], ["Goldman Sachs", "Microsoft", "Caterpillar", "Visa", "Amgen", "Boeing"]),
+    item("IXIC", "^IXIC", "market_index", "\u0645\u0624\u0634\u0631 \u0646\u0627\u0633\u062F\u0627\u0643 \u0627\u0644\u0645\u0631\u0643\u0628", "Nasdaq Composite Index", "\u0645\u0624\u0634\u0631\u0627\u062A \u0646\u0627\u0633\u062F\u0627\u0643", "Nasdaq Indices", ["NASDAQ", "NASDAQCOMPOSITE"], ["\u0625\u0646\u0641\u064A\u062F\u064A\u0627", "\u0645\u0627\u064A\u0643\u0631\u0648\u0633\u0648\u0641\u062A", "\u0623\u0628\u0644", "\u0623\u0645\u0627\u0632\u0648\u0646", "\u0623\u0644\u0641\u0627\u0628\u062A", "\u0645\u064A\u062A\u0627", "\u062A\u0633\u0644\u0627"], ["NVIDIA", "Microsoft", "Apple", "Amazon", "Alphabet", "Meta", "Tesla"]),
+    item("NDX", "^NDX", "market_index", "\u0645\u0624\u0634\u0631 \u0646\u0627\u0633\u062F\u0627\u0643 100", "Nasdaq-100 Index", "\u0645\u0624\u0634\u0631\u0627\u062A \u0646\u0627\u0633\u062F\u0627\u0643", "Nasdaq Indices", ["NASDAQ100", "US100", "NAS100"], ["\u0625\u0646\u0641\u064A\u062F\u064A\u0627", "\u0645\u0627\u064A\u0643\u0631\u0648\u0633\u0648\u0641\u062A", "\u0623\u0628\u0644", "\u0623\u0645\u0627\u0632\u0648\u0646", "\u0628\u0631\u0648\u062F\u0643\u0648\u0645", "\u0645\u064A\u062A\u0627", "\u0646\u062A\u0641\u0644\u0643\u0633"], ["NVIDIA", "Microsoft", "Apple", "Amazon", "Broadcom", "Meta", "Netflix"]),
+    item("RUT", "^RUT", "market_index", "\u0645\u0624\u0634\u0631 \u0631\u0627\u0633\u0644 2000", "Russell 2000 Index", "\u0645\u0624\u0634\u0631\u0627\u062A \u0627\u0644\u0634\u0631\u0643\u0627\u062A \u0627\u0644\u0635\u063A\u064A\u0631\u0629", "Small-Cap Indices", ["RUSSELL2000", "US2000"], ["\u0634\u0631\u0643\u0627\u062A \u0623\u0645\u0631\u064A\u0643\u064A\u0629 \u0635\u063A\u064A\u0631\u0629 \u0645\u062F\u0631\u062C\u0629", "\u0627\u0644\u062E\u062F\u0645\u0627\u062A \u0627\u0644\u0645\u0627\u0644\u064A\u0629 \u0627\u0644\u0625\u0642\u0644\u064A\u0645\u064A\u0629", "\u0627\u0644\u0635\u0646\u0627\u0639\u0629", "\u0627\u0644\u0631\u0639\u0627\u064A\u0629 \u0627\u0644\u0635\u062D\u064A\u0629"], ["U.S. small-cap companies", "Regional financials", "Industrials", "Health care"]),
+    item("VIX", "^VIX", "market_index", "\u0645\u0624\u0634\u0631 \u062A\u0642\u0644\u0628\u0627\u062A \u0627\u0644\u0633\u0648\u0642 \u0641\u064A\u0643\u0633", "CBOE Volatility Index", "\u0645\u0624\u0634\u0631\u0627\u062A \u0627\u0644\u062A\u0642\u0644\u0628", "Volatility Indices", ["FEARINDEX", "VOLATILITYINDEX"], ["\u062E\u064A\u0627\u0631\u0627\u062A \u0625\u0633 \u0622\u0646\u062F \u0628\u064A 500", "\u062A\u0642\u0644\u0628\u0627\u062A \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0645\u062A\u0648\u0642\u0639\u0629 \u062E\u0644\u0627\u0644 30 \u064A\u0648\u0645\u064B\u0627"], ["S&P 500 options", "Expected 30-day market volatility"]),
+    item("NYA", "^NYA", "market_index", "\u0645\u0624\u0634\u0631 \u0628\u0648\u0631\u0635\u0629 \u0646\u064A\u0648\u064A\u0648\u0631\u0643 \u0627\u0644\u0645\u0631\u0643\u0628", "NYSE Composite Index", "\u0645\u0624\u0634\u0631\u0627\u062A \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0648\u0627\u0633\u0639\u0629", "Broad Market Indices", ["NYSECOMPOSITE"], ["\u0627\u0644\u0634\u0631\u0643\u0627\u062A \u0627\u0644\u0645\u062F\u0631\u062C\u0629 \u0641\u064A \u0628\u0648\u0631\u0635\u0629 \u0646\u064A\u0648\u064A\u0648\u0631\u0643", "\u0627\u0644\u0635\u0646\u0627\u0639\u0629", "\u0627\u0644\u0645\u0627\u0644", "\u0627\u0644\u0637\u0627\u0642\u0629"], ["NYSE-listed companies", "Industrials", "Financials", "Energy"]),
+    item("MID", "^MID", "market_index", "\u0645\u0624\u0634\u0631 \u0625\u0633 \u0622\u0646\u062F \u0628\u064A 400 \u0644\u0644\u0634\u0631\u0643\u0627\u062A \u0627\u0644\u0645\u062A\u0648\u0633\u0637\u0629", "S&P MidCap 400 Index", "\u0645\u0624\u0634\u0631\u0627\u062A \u0627\u0644\u0634\u0631\u0643\u0627\u062A \u0627\u0644\u0645\u062A\u0648\u0633\u0637\u0629", "Mid-Cap Indices", ["SP400", "MIDCAP400"], ["\u0634\u0631\u0643\u0627\u062A \u0623\u0645\u0631\u064A\u0643\u064A\u0629 \u0645\u062A\u0648\u0633\u0637\u0629 \u0627\u0644\u0642\u064A\u0645\u0629 \u0627\u0644\u0633\u0648\u0642\u064A\u0629", "\u0627\u0644\u0635\u0646\u0627\u0639\u0629", "\u0627\u0644\u0645\u0627\u0644", "\u0627\u0644\u062A\u0642\u0646\u064A\u0629"], ["U.S. mid-cap companies", "Industrials", "Financials", "Technology"]),
+    item("SPY", "SPY", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0625\u0633 \u0628\u064A \u062F\u064A \u0622\u0631 \u0625\u0633 \u0622\u0646\u062F \u0628\u064A 500", "SPDR S&P 500 ETF Trust", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0648\u0627\u0633\u0639\u0629", "Broad Market ETFs", ["SP500ETF"], ["\u0623\u0628\u0644", "\u0645\u0627\u064A\u0643\u0631\u0648\u0633\u0648\u0641\u062A", "\u0625\u0646\u0641\u064A\u062F\u064A\u0627", "\u0623\u0645\u0627\u0632\u0648\u0646", "\u0623\u0644\u0641\u0627\u0628\u062A", "\u0645\u064A\u062A\u0627"], ["Apple", "Microsoft", "NVIDIA", "Amazon", "Alphabet", "Meta"]),
+    item("VOO", "VOO", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0641\u0627\u0646\u063A\u0627\u0631\u062F \u0625\u0633 \u0622\u0646\u062F \u0628\u064A 500", "Vanguard S&P 500 ETF", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0648\u0627\u0633\u0639\u0629", "Broad Market ETFs", [], ["\u0623\u0628\u0644", "\u0645\u0627\u064A\u0643\u0631\u0648\u0633\u0648\u0641\u062A", "\u0625\u0646\u0641\u064A\u062F\u064A\u0627", "\u0623\u0645\u0627\u0632\u0648\u0646", "\u0623\u0644\u0641\u0627\u0628\u062A"], ["Apple", "Microsoft", "NVIDIA", "Amazon", "Alphabet"]),
+    item("IVV", "IVV", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0622\u064A \u0634\u064A\u0631\u0632 \u0643\u0648\u0631 \u0625\u0633 \u0622\u0646\u062F \u0628\u064A 500", "iShares Core S&P 500 ETF", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0648\u0627\u0633\u0639\u0629", "Broad Market ETFs", [], ["\u0623\u0628\u0644", "\u0645\u0627\u064A\u0643\u0631\u0648\u0633\u0648\u0641\u062A", "\u0625\u0646\u0641\u064A\u062F\u064A\u0627", "\u0623\u0645\u0627\u0632\u0648\u0646", "\u0623\u0644\u0641\u0627\u0628\u062A"], ["Apple", "Microsoft", "NVIDIA", "Amazon", "Alphabet"]),
+    item("QQQ", "QQQ", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0625\u0646\u0641\u064A\u0633\u0643\u0648 \u0643\u064A\u0648 \u0643\u064A\u0648 \u0643\u064A\u0648", "Invesco QQQ Trust", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0646\u0627\u0633\u062F\u0627\u0643", "Nasdaq ETFs", ["NASDAQ100ETF"], ["\u0625\u0646\u0641\u064A\u062F\u064A\u0627", "\u0645\u0627\u064A\u0643\u0631\u0648\u0633\u0648\u0641\u062A", "\u0623\u0628\u0644", "\u0623\u0645\u0627\u0632\u0648\u0646", "\u0628\u0631\u0648\u062F\u0643\u0648\u0645", "\u0645\u064A\u062A\u0627"], ["NVIDIA", "Microsoft", "Apple", "Amazon", "Broadcom", "Meta"]),
+    item("DIA", "DIA", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0625\u0633 \u0628\u064A \u062F\u064A \u0622\u0631 \u062F\u0627\u0648 \u062C\u0648\u0646\u0632", "SPDR Dow Jones Industrial Average ETF", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0648\u0627\u0633\u0639\u0629", "Broad Market ETFs", ["DOWETF"], ["\u063A\u0648\u0644\u062F\u0645\u0627\u0646 \u0633\u0627\u0643\u0633", "\u0645\u0627\u064A\u0643\u0631\u0648\u0633\u0648\u0641\u062A", "\u0643\u0627\u062A\u0631\u0628\u064A\u0644\u0631", "\u0641\u064A\u0632\u0627", "\u0628\u0648\u064A\u0646\u063A"], ["Goldman Sachs", "Microsoft", "Caterpillar", "Visa", "Boeing"]),
+    item("IWM", "IWM", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0622\u064A \u0634\u064A\u0631\u0632 \u0631\u0627\u0633\u0644 2000", "iShares Russell 2000 ETF", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0634\u0631\u0643\u0627\u062A \u0627\u0644\u0635\u063A\u064A\u0631\u0629", "Small-Cap ETFs", ["RUSSELL2000ETF"], ["\u0634\u0631\u0643\u0627\u062A \u0623\u0645\u0631\u064A\u0643\u064A\u0629 \u0635\u063A\u064A\u0631\u0629", "\u0627\u0644\u0645\u0627\u0644", "\u0627\u0644\u0635\u0646\u0627\u0639\u0629", "\u0627\u0644\u0631\u0639\u0627\u064A\u0629 \u0627\u0644\u0635\u062D\u064A\u0629"], ["U.S. small caps", "Financials", "Industrials", "Health care"]),
+    item("VTI", "VTI", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0641\u0627\u0646\u063A\u0627\u0631\u062F \u0644\u0644\u0633\u0648\u0642 \u0627\u0644\u0623\u0645\u0631\u064A\u0643\u064A \u0627\u0644\u0643\u0627\u0645\u0644", "Vanguard Total Stock Market ETF", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0648\u0627\u0633\u0639\u0629", "Broad Market ETFs", [], ["\u0623\u0628\u0644", "\u0645\u0627\u064A\u0643\u0631\u0648\u0633\u0648\u0641\u062A", "\u0625\u0646\u0641\u064A\u062F\u064A\u0627", "\u0623\u0645\u0627\u0632\u0648\u0646", "\u0623\u0644\u0641\u0627\u0628\u062A", "\u0622\u0644\u0627\u0641 \u0627\u0644\u0634\u0631\u0643\u0627\u062A \u0627\u0644\u0623\u0645\u0631\u064A\u0643\u064A\u0629"], ["Apple", "Microsoft", "NVIDIA", "Amazon", "Alphabet", "Thousands of U.S. companies"]),
+    item("RSP", "RSP", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0625\u0633 \u0622\u0646\u062F \u0628\u064A 500 \u0645\u062A\u0633\u0627\u0648\u064A \u0627\u0644\u0623\u0648\u0632\u0627\u0646", "Invesco S&P 500 Equal Weight ETF", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0648\u0627\u0633\u0639\u0629", "Broad Market ETFs", [], ["\u0634\u0631\u0643\u0627\u062A \u0625\u0633 \u0622\u0646\u062F \u0628\u064A 500 \u0628\u0623\u0648\u0632\u0627\u0646 \u0645\u062A\u0633\u0627\u0648\u064A\u0629"], ["S&P 500 companies at equal weights"]),
+    item("MDY", "MDY", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0625\u0633 \u0628\u064A \u062F\u064A \u0622\u0631 \u0625\u0633 \u0622\u0646\u062F \u0628\u064A 400", "SPDR S&P MidCap 400 ETF", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0634\u0631\u0643\u0627\u062A \u0627\u0644\u0645\u062A\u0648\u0633\u0637\u0629", "Mid-Cap ETFs", [], ["\u0634\u0631\u0643\u0627\u062A \u0623\u0645\u0631\u064A\u0643\u064A\u0629 \u0645\u062A\u0648\u0633\u0637\u0629 \u0627\u0644\u0642\u064A\u0645\u0629 \u0627\u0644\u0633\u0648\u0642\u064A\u0629"], ["U.S. mid-cap companies"]),
+    item("XLK", "XLK", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0642\u0637\u0627\u0639 \u0627\u0644\u062A\u0642\u0646\u064A\u0629", "Technology Select Sector SPDR Fund", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0642\u0637\u0627\u0639\u0627\u062A", "Sector ETFs", [], ["\u0625\u0646\u0641\u064A\u062F\u064A\u0627", "\u0645\u0627\u064A\u0643\u0631\u0648\u0633\u0648\u0641\u062A", "\u0623\u0628\u0644", "\u0628\u0631\u0648\u062F\u0643\u0648\u0645", "\u0623\u0648\u0631\u0627\u0643\u0644"], ["NVIDIA", "Microsoft", "Apple", "Broadcom", "Oracle"]),
+    item("XLF", "XLF", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0627\u0644\u0642\u0637\u0627\u0639 \u0627\u0644\u0645\u0627\u0644\u064A", "Financial Select Sector SPDR Fund", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0642\u0637\u0627\u0639\u0627\u062A", "Sector ETFs", [], ["\u0628\u064A\u0631\u0643\u0634\u0627\u064A\u0631 \u0647\u0627\u062B\u0627\u0648\u0627\u064A", "\u062C\u064A \u0628\u064A \u0645\u0648\u0631\u063A\u0627\u0646", "\u0641\u064A\u0632\u0627", "\u0645\u0627\u0633\u062A\u0631\u0643\u0627\u0631\u062F", "\u0628\u0646\u0643 \u0623\u0648\u0641 \u0623\u0645\u0631\u064A\u0643\u0627"], ["Berkshire Hathaway", "JPMorgan", "Visa", "Mastercard", "Bank of America"]),
+    item("XLE", "XLE", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0642\u0637\u0627\u0639 \u0627\u0644\u0637\u0627\u0642\u0629", "Energy Select Sector SPDR Fund", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0642\u0637\u0627\u0639\u0627\u062A", "Sector ETFs", [], ["\u0625\u0643\u0633\u0648\u0646 \u0645\u0648\u0628\u064A\u0644", "\u0634\u064A\u0641\u0631\u0648\u0646", "\u0643\u0648\u0646\u0648\u0643\u0648 \u0641\u064A\u0644\u064A\u0628\u0633", "\u0648\u064A\u0644\u064A\u0627\u0645\u0632"], ["Exxon Mobil", "Chevron", "ConocoPhillips", "Williams"]),
+    item("XLV", "XLV", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0642\u0637\u0627\u0639 \u0627\u0644\u0631\u0639\u0627\u064A\u0629 \u0627\u0644\u0635\u062D\u064A\u0629", "Health Care Select Sector SPDR Fund", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0642\u0637\u0627\u0639\u0627\u062A", "Sector ETFs", [], ["\u0625\u064A\u0644\u064A \u0644\u064A\u0644\u064A", "\u062C\u0648\u0646\u0633\u0648\u0646 \u0622\u0646\u062F \u062C\u0648\u0646\u0633\u0648\u0646", "\u0622\u0628\u0641\u064A", "\u0645\u064A\u0631\u0643", "\u064A\u0648\u0646\u0627\u064A\u062A\u062F \u0647\u064A\u0644\u062B"], ["Eli Lilly", "Johnson & Johnson", "AbbVie", "Merck", "UnitedHealth"]),
+    item("XLI", "XLI", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0627\u0644\u0642\u0637\u0627\u0639 \u0627\u0644\u0635\u0646\u0627\u0639\u064A", "Industrial Select Sector SPDR Fund", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0642\u0637\u0627\u0639\u0627\u062A", "Sector ETFs", [], ["\u062C\u064A \u0625\u064A \u0625\u064A\u0631\u0648\u0633\u0628\u064A\u0633", "\u0643\u0627\u062A\u0631\u0628\u064A\u0644\u0631", "\u0622\u0631 \u062A\u064A \u0625\u0643\u0633", "\u0628\u0648\u064A\u0646\u063A", "\u064A\u0648\u0646\u064A\u0648\u0646 \u0628\u0627\u0633\u064A\u0641\u064A\u0643"], ["GE Aerospace", "Caterpillar", "RTX", "Boeing", "Union Pacific"]),
+    item("XLP", "XLP", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0627\u0644\u0633\u0644\u0639 \u0627\u0644\u0627\u0633\u062A\u0647\u0644\u0627\u0643\u064A\u0629 \u0627\u0644\u0623\u0633\u0627\u0633\u064A\u0629", "Consumer Staples Select Sector SPDR Fund", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0642\u0637\u0627\u0639\u0627\u062A", "Sector ETFs", [], ["\u0648\u0648\u0644 \u0645\u0627\u0631\u062A", "\u0643\u0648\u0633\u062A\u0643\u0648", "\u0628\u0631\u0648\u0643\u062A\u0631 \u0622\u0646\u062F \u063A\u0627\u0645\u0628\u0644", "\u0643\u0648\u0643\u0627\u0643\u0648\u0644\u0627", "\u0628\u064A\u0628\u0633\u064A\u0643\u0648"], ["Walmart", "Costco", "Procter & Gamble", "Coca-Cola", "PepsiCo"]),
+    item("XLY", "XLY", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0627\u0644\u0633\u0644\u0639 \u0627\u0644\u0627\u0633\u062A\u0647\u0644\u0627\u0643\u064A\u0629 \u0627\u0644\u0643\u0645\u0627\u0644\u064A\u0629", "Consumer Discretionary Select Sector SPDR Fund", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0642\u0637\u0627\u0639\u0627\u062A", "Sector ETFs", [], ["\u0623\u0645\u0627\u0632\u0648\u0646", "\u062A\u0633\u0644\u0627", "\u0647\u0648\u0645 \u062F\u064A\u0628\u0648\u062A", "\u0645\u0627\u0643\u062F\u0648\u0646\u0627\u0644\u062F\u0632", "\u0628\u0648\u0643\u064A\u0646\u063A"], ["Amazon", "Tesla", "Home Depot", "McDonald's", "Booking"]),
+    item("XLC", "XLC", "etf", "\u0635\u0646\u062F\u0648\u0642 \u062E\u062F\u0645\u0627\u062A \u0627\u0644\u0627\u062A\u0635\u0627\u0644\u0627\u062A", "Communication Services Select Sector SPDR Fund", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0642\u0637\u0627\u0639\u0627\u062A", "Sector ETFs", [], ["\u0645\u064A\u062A\u0627", "\u0623\u0644\u0641\u0627\u0628\u062A", "\u0646\u062A\u0641\u0644\u0643\u0633", "\u062F\u064A\u0632\u0646\u064A", "\u0641\u064A\u0631\u0627\u064A\u0632\u0648\u0646"], ["Meta", "Alphabet", "Netflix", "Disney", "Verizon"]),
+    item("XLU", "XLU", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0642\u0637\u0627\u0639 \u0627\u0644\u0645\u0631\u0627\u0641\u0642", "Utilities Select Sector SPDR Fund", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0642\u0637\u0627\u0639\u0627\u062A", "Sector ETFs", [], ["\u0646\u064A\u0643\u0633\u062A \u0625\u064A\u0631\u0627 \u0625\u0646\u0631\u062C\u064A", "\u0633\u0627\u0630\u0631\u0646", "\u062F\u064A\u0648\u0643 \u0625\u0646\u0631\u062C\u064A", "\u0643\u0648\u0646\u0633\u062A\u0644\u064A\u0634\u0646 \u0625\u0646\u0631\u062C\u064A"], ["NextEra Energy", "Southern", "Duke Energy", "Constellation Energy"]),
+    item("XLRE", "XLRE", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0627\u0644\u0642\u0637\u0627\u0639 \u0627\u0644\u0639\u0642\u0627\u0631\u064A", "Real Estate Select Sector SPDR Fund", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0642\u0637\u0627\u0639\u0627\u062A", "Sector ETFs", [], ["\u0628\u0631\u0648\u0644\u0648\u062C\u064A\u0633", "\u0623\u0645\u0631\u064A\u0643\u0627\u0646 \u062A\u0627\u0648\u0631", "\u0625\u0643\u0648\u064A\u0646\u0643\u0633", "\u0648\u064A\u0644\u062A\u0627\u0648\u0631"], ["Prologis", "American Tower", "Equinix", "Welltower"]),
+    item("XLB", "XLB", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0642\u0637\u0627\u0639 \u0627\u0644\u0645\u0648\u0627\u062F", "Materials Select Sector SPDR Fund", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0642\u0637\u0627\u0639\u0627\u062A", "Sector ETFs", [], ["\u0644\u064A\u0646\u062F\u064A", "\u0646\u064A\u0648\u0643\u0648\u0631", "\u0625\u064A\u0631 \u0628\u0631\u0648\u062F\u0643\u062A\u0633", "\u0641\u0631\u064A\u0628\u0648\u0631\u062A-\u0645\u0627\u0643\u0645\u0648\u0631\u0627\u0646"], ["Linde", "Nucor", "Air Products", "Freeport-McMoRan"]),
+    item("SOXX", "SOXX", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0622\u064A \u0634\u064A\u0631\u0632 \u0644\u0623\u0634\u0628\u0627\u0647 \u0627\u0644\u0645\u0648\u0635\u0644\u0627\u062A", "iShares Semiconductor ETF", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0623\u0634\u0628\u0627\u0647 \u0627\u0644\u0645\u0648\u0635\u0644\u0627\u062A", "Semiconductor ETFs", [], ["\u0625\u0646\u0641\u064A\u062F\u064A\u0627", "\u0628\u0631\u0648\u062F\u0643\u0648\u0645", "\u0625\u064A\u0647 \u0625\u0645 \u062F\u064A", "\u0643\u0648\u0627\u0644\u0643\u0648\u0645", "\u0645\u064A\u0643\u0631\u0648\u0646"], ["NVIDIA", "Broadcom", "AMD", "Qualcomm", "Micron"]),
+    item("SMH", "SMH", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0641\u0627\u0646 \u0625\u064A\u0643 \u0644\u0623\u0634\u0628\u0627\u0647 \u0627\u0644\u0645\u0648\u0635\u0644\u0627\u062A", "VanEck Semiconductor ETF", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0623\u0634\u0628\u0627\u0647 \u0627\u0644\u0645\u0648\u0635\u0644\u0627\u062A", "Semiconductor ETFs", [], ["\u0625\u0646\u0641\u064A\u062F\u064A\u0627", "\u062A\u064A \u0625\u0633 \u0625\u0645 \u0633\u064A", "\u0628\u0631\u0648\u062F\u0643\u0648\u0645", "\u0625\u064A\u0647 \u0625\u0633 \u0625\u0645 \u0625\u0644", "\u0644\u0627\u0645 \u0631\u064A\u0633\u064A\u0631\u0634"], ["NVIDIA", "TSMC", "Broadcom", "ASML", "Lam Research"]),
+    item("TLT", "TLT", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0633\u0646\u062F\u0627\u062A \u0627\u0644\u062E\u0632\u0627\u0646\u0629 \u0627\u0644\u0623\u0645\u0631\u064A\u0643\u064A\u0629 \u0637\u0648\u064A\u0644\u0629 \u0627\u0644\u0623\u062C\u0644", "iShares 20+ Year Treasury Bond ETF", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0633\u0646\u062F\u0627\u062A", "Bond ETFs", [], ["\u0633\u0646\u062F\u0627\u062A \u062E\u0632\u0627\u0646\u0629 \u0623\u0645\u0631\u064A\u0643\u064A\u0629 \u0628\u0623\u062C\u0644 20 \u0633\u0646\u0629 \u0641\u0623\u0643\u062B\u0631"], ["U.S. Treasury bonds with 20+ year maturities"]),
+    item("HYG", "HYG", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0633\u0646\u062F\u0627\u062A \u0627\u0644\u0634\u0631\u0643\u0627\u062A \u0645\u0631\u062A\u0641\u0639\u0629 \u0627\u0644\u0639\u0627\u0626\u062F", "iShares iBoxx High Yield Corporate Bond ETF", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0633\u0646\u062F\u0627\u062A", "Bond ETFs", [], ["\u0633\u0646\u062F\u0627\u062A \u0634\u0631\u0643\u0627\u062A \u0623\u0645\u0631\u064A\u0643\u064A\u0629 \u062F\u0648\u0646 \u0627\u0644\u062F\u0631\u062C\u0629 \u0627\u0644\u0627\u0633\u062A\u062B\u0645\u0627\u0631\u064A\u0629"], ["U.S. below-investment-grade corporate bonds"]),
+    item("GLD", "GLD", "etf", "\u0635\u0646\u062F\u0648\u0642 \u0625\u0633 \u0628\u064A \u062F\u064A \u0622\u0631 \u0644\u0644\u0630\u0647\u0628", "SPDR Gold Shares", "\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0633\u0644\u0639", "Commodity ETFs", [], ["\u0633\u0628\u0627\u0626\u0643 \u0627\u0644\u0630\u0647\u0628 \u0627\u0644\u0641\u0639\u0644\u064A\u0629"], ["Physical gold bullion"])
+  ]
+};
+var US_BENCHMARKS_SYMBOLS = new Set(US_BENCHMARKS_CATALOG.instruments.map((instrument) => instrument.symbol));
+
+// base44/functions/usBenchmarksSignalRefresh/source.ts
+var MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
+var BATCH_SIZE = 6;
+var CONCURRENCY = 2;
+function rows(value) {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.items)) return value.items;
   return [];
 }
-function riyadhDate(value = /* @__PURE__ */ new Date()) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Riyadh",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(value);
+function nyDate(value = /* @__PURE__ */ new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: MARKET_OPTIONS.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
 }
 async function digest(value) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
-  return [...new Uint8Array(bytes)].map((item) => item.toString(16).padStart(2, "0")).join("");
+  return [...new Uint8Array(bytes)].map((item2) => item2.toString(16).padStart(2, "0")).join("");
 }
-async function inBatches(rows, operation) {
-  for (let offset = 0; offset < rows.length; offset += BATCH_SIZE) {
-    await operation(rows.slice(offset, offset + BATCH_SIZE));
-  }
-}
-function rowKey(row, fields) {
-  return fields.map((field) => String(row[field] ?? "")).join("|");
-}
-async function upsertRows(base44, entity, rows, existing, keyFields) {
-  const unique = new Map(rows.map((row) => [rowKey(row, keyFields), row]));
-  const existingByKey = new Map(existing.map((row) => [rowKey(row, keyFields), row]));
-  const creates = [];
-  const updates = [];
-  for (const [key, row] of unique) {
-    const current = existingByKey.get(key);
-    if (current) updates.push({ id: current.id, ...row });
-    else creates.push(row);
-  }
-  await inBatches(creates, (batch) => base44.asServiceRole.entities[entity].bulkCreate(batch));
-  await inBatches(updates, (batch) => base44.asServiceRole.entities[entity].bulkUpdate(batch));
-  return { created: creates.length, updated: updates.length };
-}
-function quoteIsFinalForSession(quote, sessionDate) {
-  return Boolean(
-    quote && quote.session_date === sessionDate && quote.quality_status === "verified" && quote.is_final === true
-  );
-}
-function isThursday(sessionDate) {
-  return (/* @__PURE__ */ new Date(`${sessionDate}T00:00:00.000Z`)).getUTCDay() === 4;
-}
-function finalDailyBar(bars, quote) {
-  const canonical = canonicalizeQuarterHourBars(bars);
-  if (!canonical.length) return null;
-  const first = canonical[0];
-  const last = canonical.at(-1);
-  const open = Number(quote.open) > 0 ? Number(quote.open) : Number(first.open);
-  const close = Number(quote.last_price) > 0 ? Number(quote.last_price) : Number(last.close);
-  const high = Math.max(Number(quote.high) || 0, ...canonical.map((bar) => Number(bar.high)), open, close);
-  const lowCandidates = [Number(quote.low), ...canonical.map((bar) => Number(bar.low)), open, close].filter((value) => value > 0);
-  const low = Math.min(...lowCandidates);
-  return {
-    time: first.time,
-    open,
-    high,
-    low,
-    close,
-    volume: Math.max(0, Number(quote.volume || 0))
-  };
-}
-function barsByInstrument(chunks, interval) {
-  const grouped = /* @__PURE__ */ new Map();
-  for (const chunk of chunks) {
-    if (chunk.interval !== interval || chunk.quality_status === "quarantined") continue;
-    if (!grouped.has(chunk.instrument_id)) grouped.set(chunk.instrument_id, []);
-    grouped.get(chunk.instrument_id)?.push(...Array.isArray(chunk.bars) ? chunk.bars : []);
-  }
-  return grouped;
-}
-function isLastSaudiTradingWeekdayOfMonth(sessionDate) {
-  const current = /* @__PURE__ */ new Date(`${sessionDate}T00:00:00.000Z`);
-  const month = current.getUTCMonth();
-  const next = new Date(current);
-  do {
-    next.setUTCDate(next.getUTCDate() + 1);
-  } while ([5, 6].includes(next.getUTCDay()));
-  return next.getUTCMonth() !== month;
-}
-function firstByInstrument(rows) {
-  const result = /* @__PURE__ */ new Map();
-  for (const row of rows) {
-    if (row.instrument_id && !result.has(row.instrument_id)) result.set(row.instrument_id, row);
-  }
+function batches(values, size) {
+  const result = [];
+  for (let index = 0; index < values.length; index += size) result.push(values.slice(index, index + size));
   return result;
 }
-async function projectionChunk({
-  instrument,
-  interval,
-  chunkKey,
-  bars,
-  source,
-  sessionDate,
-  isFinal
-}) {
-  const normalized = normalizeTechnicalBars(bars);
-  return {
-    instrument_id: instrument.id,
-    market_code: MARKET_CODE,
-    symbol: instrument.symbol,
-    interval,
-    chunk_key: chunkKey,
-    ...sessionDate ? { session_date: sessionDate } : {},
-    start_time: normalized[0].time,
-    end_time: normalized.at(-1)?.time,
-    bars: normalized,
-    bar_count: normalized.length,
-    checksum: await digest(normalized),
-    source_id: source?.source_id || "canonical-projection",
-    run_id: source?.run_id || `projection-${Date.now()}`,
-    snapshot_version: source?.snapshot_version || `projection-${Date.now()}`,
-    provider_as_of: source?.provider_as_of || normalized.at(-1)?.time,
-    received_time: (/* @__PURE__ */ new Date()).toISOString(),
-    quality_status: "verified",
-    canonical_version: CANONICAL_VERSION,
-    is_final: isFinal,
-    bucket_count: normalized.length,
-    completeness_status: normalized.length >= 50 ? "complete" : "degraded"
-  };
+function dailyBars(values) {
+  const byDate = /* @__PURE__ */ new Map();
+  for (const bar of normalizeTechnicalBars(values)) byDate.set(nyDate(new Date(bar.time)), bar);
+  return [...byDate.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time));
 }
-async function projectInstrumentBatch(base44, instrumentIds, sessionDate) {
-  const idQuery = { $in: instrumentIds };
-  const [instrumentsRaw, quotesRaw, chunksRaw, snapshotsRaw] = await Promise.all([
-    base44.asServiceRole.entities.Instrument.filter({ id: idQuery }, "symbol", PROJECTION_BATCH_SIZE),
-    base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-updated_date", PROJECTION_BATCH_SIZE * 3),
-    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-end_time", 1200),
-    base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-source_as_of", PROJECTION_BATCH_SIZE * 12)
+function aggregateSession(values) {
+  const bars = normalizeTechnicalBars(values);
+  if (!bars.length) return null;
+  return { time: bars[0].time, open: bars[0].open, high: Math.max(...bars.map((bar) => bar.high)), low: Math.min(...bars.map((bar) => bar.low)), close: bars.at(-1).close, volume: bars.reduce((sum, bar) => sum + Number(bar.volume || 0), 0) };
+}
+async function upsert(base44, entity, values, existing, fields) {
+  const key = (row) => fields.map((field) => String(row[field] ?? "")).join("|");
+  const existingByKey = new Map(existing.map((row) => [key(row), row]));
+  const unique = [...new Map(values.map((row) => [key(row), row])).values()];
+  const creates = unique.filter((row) => !existingByKey.has(key(row)));
+  const updates = unique.filter((row) => existingByKey.has(key(row))).map((row) => ({ id: existingByKey.get(key(row)).id, ...row }));
+  if (creates.length) await base44.asServiceRole.entities[entity].bulkCreate(creates);
+  if (updates.length) await base44.asServiceRole.entities[entity].bulkUpdate(updates);
+  return { created: creates.length, updated: updates.length };
+}
+async function projectionSource(base44) {
+  const code = "US_BENCHMARKS_CANONICAL_PROJECTION";
+  const existing = rows(await base44.asServiceRole.entities.DataSource.filter({ code }));
+  const payload = { name: "U.S. benchmarks canonical candles and signals", market_code: US_BENCHMARKS_MARKET_CODE, quote_mode: "end_of_day", delay_seconds: 0, public_enabled: false, source_type: "reference", license_status: "restricted", last_verified_at: (/* @__PURE__ */ new Date()).toISOString() };
+  return existing[0] ? base44.asServiceRole.entities.DataSource.update(existing[0].id, payload) : base44.asServiceRole.entities.DataSource.create({ code, ...payload });
+}
+async function projectBatch(base44, instruments, sessionDate, sourceId, runId) {
+  const ids = instruments.map((item2) => item2.id);
+  const idQuery = { $in: ids };
+  const [candleRows, snapshotRows] = await Promise.all([
+    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE }, "start_time", 2e3),
+    base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE }, "-source_as_of", 500)
   ]);
-  const instruments = entityRows(instrumentsRaw).filter((item) => item.market_code === MARKET_CODE && item.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
-  const quotes = entityRows(quotesRaw);
-  const chunks = entityRows(chunksRaw);
-  const snapshots = entityRows(snapshotsRaw);
-  const quoteByInstrument = firstByInstrument(quotes);
-  const latestSourceByInstrument = /* @__PURE__ */ new Map();
-  for (const chunk of [...chunks].sort((left, right) => Date.parse(left.end_time || 0) - Date.parse(right.end_time || 0))) {
-    if (chunk.quality_status !== "quarantined") latestSourceByInstrument.set(chunk.instrument_id, chunk);
-  }
-  const quarterBars = barsByInstrument(
-    chunks.filter((chunk) => chunk.session_date === sessionDate || String(chunk.chunk_key || "").endsWith(`-${sessionDate}`)),
-    "15m"
-  );
-  const intradayHistory = barsByInstrument(chunks, "15m");
-  const dailyHistory = barsByInstrument(chunks, "1d");
-  const newDailyChunks = [];
-  const higherTimeframeChunks = [];
-  const indicatorRows = [];
+  const chunks = rows(candleRows).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+  const existingSnapshots = rows(snapshotRows);
+  const projectedCandles = [];
+  const snapshots = [];
   const skipped = [];
   for (const instrument of instruments) {
-    const quote = quoteByInstrument.get(instrument.id) || null;
-    const dailyFromStoredIntraday = aggregateTechnicalBars(intradayHistory.get(instrument.id) || [], "1d");
-    const existingDaily = aggregateTechnicalBars([
-      ...dailyHistory.get(instrument.id) || [],
-      ...dailyFromStoredIntraday
-    ], "1d");
-    let canonicalDaily = existingDaily;
-    if (quoteIsFinalForSession(quote, sessionDate)) {
-      const today = finalDailyBar(quarterBars.get(instrument.id) || [], quote);
-      if (today) {
-        canonicalDaily = aggregateTechnicalBars([...existingDaily, today], "1d");
-        newDailyChunks.push(await projectionChunk({
-          instrument,
-          interval: "1d",
-          chunkKey: `${instrument.symbol}-1d-${sessionDate}`,
-          bars: [canonicalDaily.at(-1)],
-          source: quote,
-          sessionDate,
-          isFinal: true
-        }));
-      } else {
-        skipped.push({ instrument_id: instrument.id, symbol: instrument.symbol, reason: "missing_quarter_bars" });
-      }
-    } else {
-      skipped.push({ instrument_id: instrument.id, symbol: instrument.symbol, reason: "final_quote_unavailable" });
-    }
-    if (!canonicalDaily.length) {
-      skipped.push({ instrument_id: instrument.id, symbol: instrument.symbol, reason: "missing_daily_history" });
+    const instrumentChunks = chunks.filter((chunk) => chunk.instrument_id === instrument.id);
+    const storedDaily = instrumentChunks.filter((chunk) => chunk.interval === "1d").flatMap((chunk) => chunk.bars || []);
+    const intraday = instrumentChunks.filter((chunk) => chunk.interval === "15m" && chunk.session_date === sessionDate).flatMap((chunk) => chunk.bars || []);
+    const currentDaily = aggregateSession(intraday);
+    const canonicalDaily = dailyBars([...storedDaily, ...currentDaily ? [currentDaily] : []]);
+    if (canonicalDaily.length < 2) {
+      skipped.push({ instrument_id: instrument.id, symbol: instrument.symbol, reason: "daily_history_missing" });
       continue;
     }
-    const frames = {
-      "1d": canonicalDaily,
-      "1wk": aggregateTechnicalBars(canonicalDaily, "1wk"),
-      "1mo": aggregateTechnicalBars(canonicalDaily, "1mo")
-    };
-    for (const [timeframe, frameBars] of Object.entries(frames)) {
-      if (!frameBars.length) continue;
-      if (timeframe !== "1d") {
-        higherTimeframeChunks.push(await projectionChunk({
-          instrument,
-          interval: timeframe,
-          chunkKey: `${instrument.symbol}-${timeframe}-canonical`,
-          bars: frameBars,
-          source: quote || latestSourceByInstrument.get(instrument.id) || null,
-          isFinal: false
-        }));
-      }
-      const signalBars = frameBars;
-      if (!signalBars.length) continue;
-      const currentPeriodIsFinal = timeframe === "1d" ? quoteIsFinalForSession(quote, sessionDate) : timeframe === "1wk" ? isThursday(sessionDate) : isLastSaudiTradingWeekdayOfMonth(sessionDate);
-      const values = calculateTechnicalSignals(signalBars, TECHNICAL_SIGNAL_WINDOW_SIZE);
-      values.signal_window = (values.signal_window || []).map((item, index) => ({
-        ...item,
-        is_final: index === 0 ? currentPeriodIsFinal : true
-      }));
-      values.is_final = currentPeriodIsFinal;
-      indicatorRows.push({
-        instrument_id: instrument.id,
-        market_code: MARKET_CODE,
-        symbol: instrument.symbol,
-        indicator_key: "technical_signals",
-        timeframe,
-        values,
-        source_as_of: signalBars.at(-1)?.time,
-        calculated_at: (/* @__PURE__ */ new Date()).toISOString(),
-        formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION
-      });
-      const momentumBars = signalBars.map((bar, index) => ({
-        ...bar,
-        is_final: index < signalBars.length - 1 || currentPeriodIsFinal
-      }));
-      const momentumValues = calculateMomentumZones(momentumBars, 20, Number.POSITIVE_INFINITY);
-      if (momentumValues) {
-        indicatorRows.push({
-          instrument_id: instrument.id,
-          market_code: MARKET_CODE,
-          symbol: instrument.symbol,
-          indicator_key: "momentum_zones",
-          timeframe,
-          values: { ...momentumValues, is_final: currentPeriodIsFinal },
-          source_as_of: signalBars.at(-1)?.time,
-          calculated_at: (/* @__PURE__ */ new Date()).toISOString(),
-          formula_version: MOMENTUM_FORMULA_VERSION
-        });
-      }
+    const timeframes = { "1d": canonicalDaily, "1wk": aggregateTechnicalBars(canonicalDaily, "1wk", MARKET_OPTIONS), "1mo": aggregateTechnicalBars(canonicalDaily, "1mo", MARKET_OPTIONS) };
+    for (const [timeframe, bars] of Object.entries(timeframes)) {
+      if (!bars.length) continue;
+      const technical = calculateTechnicalSignals(bars);
+      snapshots.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, indicator_key: "technical_signals", timeframe, values: { ...technical, is_final: timeframe === "1d" }, source_as_of: bars.at(-1).time, calculated_at: (/* @__PURE__ */ new Date()).toISOString(), formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION });
+      const momentum = calculateMomentumZones(bars, 20, Number.POSITIVE_INFINITY);
+      if (momentum) snapshots.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, indicator_key: "momentum_zones", timeframe, values: { ...momentum, is_final: timeframe === "1d" }, source_as_of: bars.at(-1).time, calculated_at: (/* @__PURE__ */ new Date()).toISOString(), formula_version: MOMENTUM_FORMULA_VERSION });
+      if (timeframe !== "1d") projectedCandles.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, interval: timeframe, chunk_key: `${US_BENCHMARKS_MARKET_CODE}:${instrument.symbol}:${timeframe}:canonical`, start_time: bars[0].time, end_time: bars.at(-1).time, bars, bar_count: bars.length, checksum: await digest(bars), source_id: sourceId, run_id: runId, snapshot_version: `${US_BENCHMARKS_MARKET_CODE}:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`, provider_as_of: bars.at(-1).time, received_time: (/* @__PURE__ */ new Date()).toISOString(), quality_status: "verified", canonical_version: "us-benchmarks-candle-projection-v1", is_final: false, bucket_count: bars.length, completeness_status: "complete", is_historical_archive: false, adjustment_mode: "none" });
     }
   }
-  const candleResult = await upsertRows(
-    base44,
-    "CandleChunk",
-    [...newDailyChunks, ...higherTimeframeChunks],
-    chunks,
-    ["instrument_id", "interval", "chunk_key"]
-  );
-  const signalResult = await upsertRows(
-    base44,
-    "IndicatorSnapshot",
-    indicatorRows,
-    snapshots,
-    ["instrument_id", "indicator_key", "timeframe"]
-  );
-  const skippedRows = [...new Map(skipped.map((item) => [`${item.instrument_id}:${item.reason}`, item])).values()];
   return {
     instruments: instruments.length,
-    candles: candleResult,
-    signals: signalResult,
-    skipped: skippedRows,
-    source_id: quotes.find((quote) => quote.source_id)?.source_id || "canonical-projection",
-    snapshot_version: quotes.find((quote) => quote.snapshot_version)?.snapshot_version || null
+    candles: await upsert(base44, "CandleChunk", projectedCandles, chunks, ["instrument_id", "interval", "chunk_key"]),
+    signals: await upsert(base44, "IndicatorSnapshot", snapshots, existingSnapshots, ["instrument_id", "indicator_key", "timeframe"]),
+    skipped
   };
 }
 Deno.serve(async (req) => {
-  let base44 = null;
+  let base44;
   let run = null;
   try {
     base44 = createClientFromRequest(req);
@@ -1141,127 +924,34 @@ Deno.serve(async (req) => {
     const body = { ...requestBody, ...requestBody.args || {} };
     if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
     else await requireTrustedOwner(base44);
-    if (body.mode === "projection_batch") {
-      const instrumentIds = Array.isArray(body.instrument_ids) ? body.instrument_ids.map(String).filter(Boolean).slice(0, PROJECTION_BATCH_SIZE) : [];
-      if (!instrumentIds.length) throw Object.assign(new Error("instrument_ids are required"), { status: 400 });
-      return Response.json(await projectInstrumentBatch(base44, instrumentIds, String(body.session_date || riyadhDate())));
-    }
-    const sessionDate = String(body.session_date || riyadhDate());
-    const slotKey = `technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
-    const existingRuns = entityRows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
-    const completedRun = existingRuns.filter((item) => ["success", "partial"].includes(item.status)).sort((left, right) => Date.parse(right.finished_at || right.updated_date || 0) - Date.parse(left.finished_at || left.updated_date || 0))[0];
-    if (completedRun && body.force !== true) {
-      return Response.json({ status: "skipped", reason: "already_projected", session_date: sessionDate, run_id: completedRun.id });
-    }
-    const activeRun = existingRuns.find((item) => item.status === "running" && Date.parse(item.lease_expires_at || 0) > Date.now());
-    if (activeRun && body.force !== true) {
-      return Response.json({ status: "skipped", reason: "projection_in_progress", session_date: sessionDate, run_id: activeRun.id });
-    }
-    if (activeRun && body.force === true) {
-      await base44.asServiceRole.entities.IngestionRun.update(activeRun.id, {
-        status: "failed",
-        finished_at: (/* @__PURE__ */ new Date()).toISOString(),
-        failure_code: "SUPERSEDED_BY_FORCED_RUN",
-        notes: "A forced technical projection replaced a stale or interrupted run"
-      });
-    }
-    run = await base44.asServiceRole.entities.IngestionRun.create({
-      run_type: "technical_projection",
-      market_code: MARKET_CODE,
-      slot_key: slotKey,
-      slot_kind: "technical_projection",
-      scheduled_for: (/* @__PURE__ */ new Date()).toISOString(),
-      lease_expires_at: new Date(Date.now() + 5 * 60 * 1e3).toISOString(),
-      started_at: (/* @__PURE__ */ new Date()).toISOString(),
-      total_records: 0,
-      success_count: 0,
-      failed_count: 0,
-      status: "running",
-      source_id: "canonical-projection",
-      notes: "Canonical daily, weekly, monthly candle and technical signal projection"
-    });
-    const instrumentsRaw = await base44.asServiceRole.entities.Instrument.filter({ market_code: MARKET_CODE }, "symbol", 500);
-    const instruments = entityRows(instrumentsRaw).filter((item) => item.status !== "delisted");
-    const batches = [];
-    for (let offset = 0; offset < instruments.length; offset += PROJECTION_BATCH_SIZE) {
-      batches.push(instruments.slice(offset, offset + PROJECTION_BATCH_SIZE).map((instrument) => instrument.id));
-    }
-    const batchResults = [];
+    if (String(body.market_code || US_BENCHMARKS_MARKET_CODE) !== US_BENCHMARKS_MARKET_CODE) throw Object.assign(new Error("Wrong market"), { status: 400, code: "MARKET_MISMATCH" });
+    const sessionDate = String(body.session_date || nyDate());
+    const slotKey = `${US_BENCHMARKS_MARKET_CODE}:technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
+    const existingRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
+    if (existingRuns.some((item2) => ["success", "partial"].includes(item2.status)) && body.force !== true) return Response.json({ status: "skipped", reason: "already_projected", market_code: US_BENCHMARKS_MARKET_CODE, session_date: sessionDate });
+    for (const stale of existingRuns.filter((item2) => item2.status === "running" && Date.parse(item2.lease_expires_at || 0) <= Date.now())) await base44.asServiceRole.entities.IngestionRun.update(stale.id, { status: "failed", finished_at: (/* @__PURE__ */ new Date()).toISOString(), failure_code: "STALE_PROJECTION_LEASE", notes: "Expired projection lease was closed before retry" });
+    const instruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_BENCHMARKS_MARKET_CODE }, "symbol", 500)).filter((item2) => US_BENCHMARKS_SYMBOLS.has(item2.symbol) && item2.status !== "delisted");
+    if (instruments.length !== US_BENCHMARKS_CATALOG.instruments.length) throw Object.assign(new Error(`Benchmark catalog incomplete: ${instruments.length}/${US_BENCHMARKS_CATALOG.instruments.length}`), { status: 503, code: "US_BENCHMARKS_CATALOG_INCOMPLETE" });
+    const source = await projectionSource(base44);
+    run = await base44.asServiceRole.entities.IngestionRun.create({ run_type: "technical_projection", market_code: US_BENCHMARKS_MARKET_CODE, slot_key: slotKey, slot_kind: "technical_projection", scheduled_for: (/* @__PURE__ */ new Date()).toISOString(), lease_expires_at: new Date(Date.now() + 3 * 6e4).toISOString(), started_at: (/* @__PURE__ */ new Date()).toISOString(), total_records: instruments.length, success_count: 0, failed_count: 0, status: "running", source_id: source.id, notes: "U.S. indices and ETFs daily, weekly, monthly signal projection" });
+    const groups = batches(instruments, BATCH_SIZE);
+    const completed = [];
     const failedBatches = [];
-    for (let offset = 0; offset < batches.length; offset += PROJECTION_CONCURRENCY) {
-      const group = batches.slice(offset, offset + PROJECTION_CONCURRENCY);
-      const settled = await Promise.allSettled(group.map(
-        (instrumentIds) => projectInstrumentBatch(base44, instrumentIds, sessionDate)
-      ));
-      settled.forEach((result, groupIndex) => {
-        const batchIndex = offset + groupIndex;
-        if (result.status === "fulfilled") batchResults.push(result.value?.data || result.value || {});
-        else failedBatches.push({
-          batch_index: batchIndex,
-          instrument_ids: batches[batchIndex],
-          error: result.reason?.response?.data?.error || result.reason?.message || "projection_batch_failed"
-        });
-      });
+    for (let offset = 0; offset < groups.length; offset += CONCURRENCY) {
+      const settled = await Promise.allSettled(groups.slice(offset, offset + CONCURRENCY).map((group) => projectBatch(base44, group, sessionDate, source.id, run.id)));
+      settled.forEach((result, index) => result.status === "fulfilled" ? completed.push(result.value) : failedBatches.push({ batch_index: offset + index, count: groups[offset + index].length, error: result.reason?.message || "projection_batch_failed" }));
     }
-    const candleResult = batchResults.reduce((total, item) => ({
-      created: total.created + Number(item.candles?.created || 0),
-      updated: total.updated + Number(item.candles?.updated || 0)
-    }), { created: 0, updated: 0 });
-    const signalResult = batchResults.reduce((total, item) => ({
-      created: total.created + Number(item.signals?.created || 0),
-      updated: total.updated + Number(item.signals?.updated || 0)
-    }), { created: 0, updated: 0 });
-    const skippedRows = batchResults.flatMap((item) => Array.isArray(item.skipped) ? item.skipped : []);
-    const skippedInstrumentCount = new Set(skippedRows.map((item) => item.instrument_id)).size;
-    const failedInstrumentCount = failedBatches.reduce((total, item) => total + item.instrument_ids.length, 0);
-    const failureCount = Math.min(instruments.length, skippedInstrumentCount + failedInstrumentCount);
-    const finishedAt = (/* @__PURE__ */ new Date()).toISOString();
-    await base44.asServiceRole.entities.IngestionRun.update(run.id, {
-      finished_at: finishedAt,
-      total_records: instruments.length,
-      success_count: Math.max(0, instruments.length - failureCount),
-      failed_count: failureCount,
-      status: failureCount ? failureCount < instruments.length ? "partial" : "failed" : "success",
-      source_id: batchResults.find((item) => item.source_id)?.source_id || "canonical-projection",
-      snapshot_version: batchResults.find((item) => item.snapshot_version)?.snapshot_version,
-      coverage_percent: instruments.length ? (instruments.length - failureCount) / instruments.length * 100 : 0,
-      promoted_at: finishedAt,
-      notes: JSON.stringify({
-        candles: candleResult,
-        signals: signalResult,
-        skipped_count: skippedInstrumentCount,
-        batch_count: batches.length,
-        failed_batches: failedBatches,
-        cross_market_cleanup_performed: false,
-        canonical_version: CANONICAL_VERSION
-      })
-    });
-    return Response.json({
-      status: failureCount ? "degraded" : "success",
-      session_date: sessionDate,
-      instruments: instruments.length,
-      candles: candleResult,
-      signals: signalResult,
-      skipped_count: skippedInstrumentCount,
-      failed_batch_count: failedBatches.length,
-      cleanup: { signals: 0, candles: 0, scoped_market_only: true },
-      skipped: skippedRows.slice(0, 100),
-      run_id: run.id,
-      formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION,
-      canonical_version: CANONICAL_VERSION
-    });
+    const skipped = completed.flatMap((item2) => item2.skipped || []);
+    const failed = skipped.length + failedBatches.reduce((sum, item2) => sum + item2.count, 0);
+    const status = failed === 0 ? "success" : failed < instruments.length ? "partial" : "failed";
+    const candles = completed.reduce((sum, item2) => ({ created: sum.created + Number(item2.candles?.created || 0), updated: sum.updated + Number(item2.candles?.updated || 0) }), { created: 0, updated: 0 });
+    const signals = completed.reduce((sum, item2) => ({ created: sum.created + Number(item2.signals?.created || 0), updated: sum.updated + Number(item2.signals?.updated || 0) }), { created: 0, updated: 0 });
+    await base44.asServiceRole.entities.IngestionRun.update(run.id, { status, finished_at: (/* @__PURE__ */ new Date()).toISOString(), success_count: instruments.length - failed, failed_count: failed, coverage_percent: (instruments.length - failed) / instruments.length * 100, snapshot_version: slotKey, notes: JSON.stringify({ candles, signals, failed_batches: failedBatches, skipped_count: skipped.length }) });
+    return Response.json({ status, market_code: US_BENCHMARKS_MARKET_CODE, session_date: sessionDate, run_id: run.id, candles, signals, skipped, failed_batches: failedBatches });
   } catch (error) {
-    if (base44 && run?.id) {
-      try {
-        await base44.asServiceRole.entities.IngestionRun.update(run.id, {
-          finished_at: (/* @__PURE__ */ new Date()).toISOString(),
-          failed_count: 1,
-          status: "failed",
-          failure_code: error?.code || "TECHNICAL_PROJECTION_FAILED",
-          notes: error?.message || "Technical projection failed"
-        });
-      } catch {
-      }
+    if (base44 && run?.id) try {
+      await base44.asServiceRole.entities.IngestionRun.update(run.id, { status: "failed", finished_at: (/* @__PURE__ */ new Date()).toISOString(), failure_code: error?.code || "US_BENCHMARKS_SIGNAL_FAILED", notes: error?.message || "failed" });
+    } catch {
     }
     return replyError(error);
   }

@@ -2,9 +2,16 @@ import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 import { readJsonBody, replyError, requirePermission, requireTrustedOwner } from "../../shared/security.ts";
 import { entityRows as rows, upsertEntityRows as upsertMany } from "../../shared/entity-batch.ts";
 import { US_BENCHMARKS_CATALOG, US_BENCHMARKS_MARKET_CODE, US_BENCHMARKS_PROVIDER_CODE } from "../../shared/us-benchmarks-catalog.ts";
+import { alertIntervalDue } from "../../shared/us-options-timing.ts";
 
 const DELAY_SECONDS = 900;
+const FRESHNESS_GRACE_SECONDS = 8 * 60;
 const BASE_URL = "https://query1.finance.yahoo.com";
+const HOLIDAYS_2026 = new Set([
+  "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25",
+  "2026-06-19", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
+]);
+const EARLY_CLOSE_2026 = new Set(["2026-11-27", "2026-12-24"]);
 
 function nyClock(value = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
@@ -12,6 +19,38 @@ function nyClock(value = new Date()) {
     hour: "2-digit", minute: "2-digit", weekday: "short", hour12: false,
   }).formatToParts(value).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
   return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) % 24, minute: Number(parts.minute), weekday: parts.weekday };
+}
+
+function minuteFromClock(value, fallback) {
+  const match = /^(\d{1,2}):(\d{2})/.exec(String(value || ""));
+  if (!match) return fallback;
+  const minute = Number(match[1]) * 60 + Number(match[2]);
+  return Number.isFinite(minute) ? minute : fallback;
+}
+
+async function sessionDecision(base44, clock) {
+  const sessions = rows(await base44.asServiceRole.entities.MarketSession.filter({ market_code: US_BENCHMARKS_MARKET_CODE, session_date: clock.date }));
+  if (sessions[0]) return { tradingDay: sessions[0].is_trading_day === true, closeMinute: minuteFromClock(sessions[0].closes_at, 960), reason: sessions[0].reason || "market_session_calendar" };
+  const holidays = rows(await base44.asServiceRole.entities.MarketHoliday.filter({ market_code: US_BENCHMARKS_MARKET_CODE, holiday_date: clock.date }));
+  if (holidays.length) return { tradingDay: false, closeMinute: 960, reason: "market_holiday_calendar" };
+  const weekday = ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(clock.weekday);
+  if (!weekday || HOLIDAYS_2026.has(clock.date)) return { tradingDay: false, closeMinute: 960, reason: weekday ? "official_market_holiday" : "weekend" };
+  return { tradingDay: true, closeMinute: EARLY_CLOSE_2026.has(clock.date) ? 780 : 960, reason: "official_2026_fallback" };
+}
+
+async function nextTradingSessionDate(base44, sessionDate) {
+  const cursor = new Date(`${sessionDate}T12:00:00.000Z`);
+  for (let offset = 1; offset <= 10; offset += 1) {
+    const candidate = new Date(cursor);
+    candidate.setUTCDate(candidate.getUTCDate() + offset);
+    const clock = nyClock(candidate);
+    if ((await sessionDecision(base44, clock)).tradingDay) return clock.date;
+  }
+  throw Object.assign(new Error("Unable to resolve the next U.S. benchmark trading session"), { status: 503, code: "US_BENCHMARKS_CALENDAR_INCOMPLETE" });
+}
+
+function expectedSessionBars(sessionDate) {
+  return EARLY_CLOSE_2026.has(sessionDate) ? 14 : 26;
 }
 
 async function digest(value) {
@@ -105,20 +144,69 @@ function normalizeIntraday(item, result, now) {
     const bucket = Math.floor(start / (15 * 60 * 1000)) * 15 * 60 * 1000;
     const session = sessions.get(clock.date) || new Map();
     const current = session.get(bucket);
+    const componentTime = new Date(start).toISOString();
     const volume = Math.max(0, Number(quote.volume?.[index] || 0));
-    session.set(bucket, current ? { ...current, high: Math.max(current.high, high), low: Math.min(current.low, low), close, volume: current.volume + volume } : { time: new Date(bucket).toISOString(), open, high, low, close, volume });
+    session.set(bucket, current
+      ? { ...current, high: Math.max(current.high, high), low: Math.min(current.low, low), close, volume: current.volume + volume, component_times: [...current.component_times, componentTime] }
+      : { time: new Date(bucket).toISOString(), open, high, low, close, volume, component_times: [componentTime] });
     sessions.set(clock.date, session);
     providerAsOf = Math.max(providerAsOf, start + 5 * 60 * 1000);
   }
   const currentSessionDate = nyClock(now).date;
   const sessionDate = sessions.has(currentSessionDate) ? currentSessionDate : [...sessions.keys()].sort().at(-1);
-  const currentBars = [...(sessions.get(sessionDate)?.values() || [])].sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+  const completeBars = (values) => [...values.values()]
+    .filter((bar) => new Set(bar.component_times).size === 3)
+    .map(({ component_times: _componentTimes, ...bar }) => bar)
+    .sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+  const currentBars = sessionDate ? completeBars(sessions.get(sessionDate) || new Map()) : [];
   if (!sessionDate || !currentBars.length || !providerAsOf) throw new Error("no_eligible_session_bars");
   const previousClose = validPrice(result?.meta?.chartPreviousClose ?? result?.meta?.previousClose);
   if (!previousClose) throw new Error("missing_previous_close");
   const first = currentBars[0];
   const last = currentBars.at(-1);
-  return { item, sessionDate, providerAsOf: new Date(providerAsOf).toISOString(), sessions: [...sessions.entries()].map(([date, values]) => ({ date, bars: [...values.values()].sort((a, b) => Date.parse(a.time) - Date.parse(b.time)) })), quote: { last_price: last.close, previous_close: previousClose, change_value: last.close - previousClose, change_percent: (last.close - previousClose) / previousClose * 100, open: first.open, high: Math.max(...currentBars.map((bar) => bar.high)), low: Math.min(...currentBars.map((bar) => bar.low)), volume: currentBars.reduce((sum, bar) => sum + bar.volume, 0), market_cap: Math.max(0, Number(result?.meta?.marketCap || 0)) } };
+  const canonicalProviderAsOf = new Date(Date.parse(last.time) + 15 * 60 * 1000).toISOString();
+  return { item, sessionDate, providerAsOf: canonicalProviderAsOf, sessions: [...sessions.entries()].map(([date, values]) => ({ date, bars: completeBars(values) })).filter((session) => session.bars.length), quote: { last_price: last.close, previous_close: previousClose, change_value: last.close - previousClose, change_percent: (last.close - previousClose) / previousClose * 100, open: first.open, high: Math.max(...currentBars.map((bar) => bar.high)), low: Math.min(...currentBars.map((bar) => bar.low)), volume: currentBars.reduce((sum, bar) => sum + bar.volume, 0), market_cap: Math.max(0, Number(result?.meta?.marketCap || 0)) } };
+}
+
+async function queueAlertDeliveries(base44, rule, bucket) {
+  const destinations = rows(await base44.asServiceRole.entities.AlertDestination.filter({ customer_id: rule.customer_id, active: true }));
+  for (const destination of destinations) {
+    const dedupeKey = await digest(`${rule.id}:${destination.id}:${bucket}`);
+    const existing = rows(await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: dedupeKey }));
+    if (!existing.length) await base44.asServiceRole.entities.DeliveryEvent.create({
+      alert_rule_id: rule.id, destination_id: destination.id, dedupe_key: dedupeKey,
+      channel: destination.channel, status: "pending", attempt_count: 0,
+    });
+  }
+}
+
+async function evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate) {
+  const byInstrument = new Map(acceptedQuotes.map((quote) => [quote.instrument_id, quote]));
+  const rules = rows(await base44.asServiceRole.entities.AlertRule.list("-updated_date", 5e3))
+    .filter((rule) => rule.enabled && rule.market_code === US_BENCHMARKS_MARKET_CODE)
+    .filter((rule) => ["crosses_above", "crosses_below"].includes(rule.condition));
+  for (const rule of rules) {
+    const quote = byInstrument.get(rule.instrument_id);
+    const current = Number(quote?.last_price);
+    const previous = Number(rule.last_observed_price);
+    const threshold = Number(rule.threshold);
+    if (!quote || !Number.isFinite(current) || !Number.isFinite(threshold) || !alertIntervalDue(rule.interval || "15m", quote.provider_as_of, isFinal, { nextTradingDate })) continue;
+    const bucket = `${rule.interval || "15m"}:${quote.provider_as_of}`;
+    if (rule.last_evaluation_bucket === bucket) continue;
+    const crossed = rule.condition === "crosses_above"
+      ? Number.isFinite(previous) && previous <= threshold && current > threshold
+      : Number.isFinite(previous) && previous >= threshold && current < threshold;
+    const update = { last_observed_price: current, last_observed_at: quote.provider_as_of, last_evaluation_bucket: bucket };
+    if (crossed) {
+      const cooldown = Math.max(15, Number(rule.cooldown_minutes) || 15) * 60e3;
+      if (!rule.last_triggered_at || Date.parse(quote.provider_as_of) - Date.parse(rule.last_triggered_at) >= cooldown) {
+        await queueAlertDeliveries(base44, rule, bucket);
+        update.last_triggered_at = quote.provider_as_of;
+        if (rule.frequency === "once") update.enabled = false;
+      }
+    }
+    await base44.asServiceRole.entities.AlertRule.update(rule.id, update);
+  }
 }
 
 async function incremental(base44, catalog, source, now, options = {}) {
@@ -136,25 +224,39 @@ async function incremental(base44, catalog, source, now, options = {}) {
   }
   await Promise.all(Array.from({ length: 12 }, () => worker()));
   const clock = nyClock(now);
-  const run = await base44.asServiceRole.entities.IngestionRun.create({ run_type: range === "1mo" ? "intraday_backfill" : "quarter_hour", market_code: US_BENCHMARKS_MARKET_CODE, slot_key: `${US_BENCHMARKS_MARKET_CODE}:${clock.date}:15m:${Date.now()}`, slot_kind: range === "1mo" ? "historical_backfill" : "quarter_hour", scheduled_for: now.toISOString(), started_at: now.toISOString(), total_records: catalog.length, success_count: 0, failed_count: 0, status: "running", source_id: source.id, notes: range === "1mo" ? "U.S. benchmarks 15-minute one-month backfill" : "U.S. benchmarks phased T+15 update" });
+  const slotMinute = Math.floor(clock.minute / 15) * 15;
+  const slotKey = range === "1mo"
+    ? `${US_BENCHMARKS_MARKET_CODE}:${clock.date}:15m:archive`
+    : `${US_BENCHMARKS_MARKET_CODE}:${clock.date}:15m:${String(clock.hour).padStart(2, "0")}:${String(slotMinute).padStart(2, "0")}`;
+  const existingRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
+  if (existingRuns.some((item) => ["success", "partial"].includes(item.status)) && options.force !== true) return { status: "skipped", reason: "already_ingested", market_code: US_BENCHMARKS_MARKET_CODE, slot_key: slotKey };
+  const run = await base44.asServiceRole.entities.IngestionRun.create({ run_type: range === "1mo" ? "intraday_backfill" : "quarter_hour", market_code: US_BENCHMARKS_MARKET_CODE, slot_key: slotKey, slot_kind: range === "1mo" ? "historical_backfill" : "quarter_hour", scheduled_for: now.toISOString(), lease_expires_at: new Date(now.getTime() + 3 * 60 * 1000).toISOString(), started_at: now.toISOString(), total_records: catalog.length, success_count: 0, failed_count: 0, status: "running", source_id: source.id, notes: range === "1mo" ? "U.S. benchmarks 15-minute one-month backfill" : "U.S. benchmarks phased T+15 update" });
   const received = new Date().toISOString();
   const snapshotVersion = `${US_BENCHMARKS_MARKET_CODE}:${clock.date}:${Date.now()}`;
-  const isFinal = clock.hour * 60 + clock.minute >= 975;
+  const closeMinute = Number(options.closeMinute || 960);
+  const isFinal = clock.hour * 60 + clock.minute >= closeMinute + 15;
   const quotes = [];
   const chunks = [];
   for (const value of output) {
     const instrument = catalog.find((row) => row.symbol === value.item.symbol);
     const delay = Math.max(0, Math.floor((Date.now() - Date.parse(value.providerAsOf)) / 1000));
-    if (writeQuotes) quotes.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, session_date: value.sessionDate, symbol: value.item.symbol, ...value.quote, source_id: source.id, source_time: value.providerAsOf, provider_as_of: value.providerAsOf, last_trade_time: value.providerAsOf, received_time: received, delay_seconds: delay, license_status: "pending", quote_time: value.providerAsOf, quality_status: delay <= 1320 ? "verified" : "stale", snapshot_version: snapshotVersion, market_phase: isFinal ? "closed" : "continuous", freshness_status: delay <= 1320 ? "fresh" : "stale", is_final: isFinal, run_id: run.id });
+    const fresh = delay <= DELAY_SECONDS + FRESHNESS_GRACE_SECONDS;
+    if (writeQuotes) quotes.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, session_date: value.sessionDate, symbol: value.item.symbol, ...value.quote, source_id: source.id, source_time: value.providerAsOf, provider_as_of: value.providerAsOf, last_trade_time: value.providerAsOf, received_time: received, delay_seconds: delay, license_status: "pending", quote_time: value.providerAsOf, quality_status: fresh ? "verified" : "stale", snapshot_version: snapshotVersion, market_phase: isFinal ? "closed" : "continuous", freshness_status: fresh ? "fresh" : "stale", is_final: isFinal, run_id: run.id });
     for (const session of value.sessions) {
-      const sessionComplete = (session.date !== value.sessionDate || isFinal) && session.bars.length >= 20;
-      chunks.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: value.item.symbol, interval: "15m", chunk_key: `${US_BENCHMARKS_MARKET_CODE}:${value.item.symbol}:15m:${session.date}`, session_date: session.date, start_time: session.bars[0].time, end_time: session.bars.at(-1).time, bars: session.bars, bar_count: session.bars.length, checksum: await digest(session.bars), source_id: source.id, run_id: run.id, snapshot_version: snapshotVersion, provider_as_of: value.providerAsOf, received_time: received, quality_status: delay <= 1320 ? "verified" : "stale", canonical_version: "us-benchmarks-intraday-v2", is_final: sessionComplete, bucket_count: session.bars.length, completeness_status: sessionComplete ? "complete" : session.bars.length >= 4 ? "partial" : "incomplete", is_historical_archive: session.date !== value.sessionDate, adjustment_mode: "none" });
+      const sessionComplete = (session.date !== value.sessionDate || isFinal) && session.bars.length === expectedSessionBars(session.date);
+      chunks.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: value.item.symbol, interval: "15m", chunk_key: `${US_BENCHMARKS_MARKET_CODE}:${value.item.symbol}:15m:${session.date}`, session_date: session.date, start_time: session.bars[0].time, end_time: session.bars.at(-1).time, bars: session.bars, bar_count: session.bars.length, checksum: await digest(session.bars), source_id: source.id, run_id: run.id, snapshot_version: snapshotVersion, provider_as_of: value.providerAsOf, received_time: received, quality_status: fresh ? "verified" : "stale", canonical_version: "us-benchmarks-intraday-v3", is_final: sessionComplete, bucket_count: session.bars.length, completeness_status: sessionComplete ? "complete" : session.bars.length >= 4 ? "degraded" : "incomplete", is_historical_archive: session.date !== value.sessionDate, adjustment_mode: "none" });
     }
   }
-  const quoteResult = quotes.length ? await upsertMany(base44, "QuoteLatest", quotes, ["instrument_id"], { market_code: US_BENCHMARKS_MARKET_CODE }) : null;
-  const candleResult = await upsertMany(base44, "CandleChunk", chunks, ["instrument_id", "interval", "chunk_key"], { market_code: US_BENCHMARKS_MARKET_CODE, interval: "15m" });
   const coverage = output.length / catalog.length * 100;
-  const status = coverage >= 99 ? "success" : coverage >= 80 ? "partial" : "failed";
+  const status = coverage >= 99 ? "success" : coverage >= 95 ? "partial" : "failed";
+  const observations = quotes.map((quote) => ({ run_id: quote.run_id, snapshot_version: quote.snapshot_version, market_code: quote.market_code, session_date: quote.session_date, instrument_id: quote.instrument_id, symbol: quote.symbol, last_price: quote.last_price, previous_close: quote.previous_close, change_value: quote.change_value, change_percent: quote.change_percent, open: quote.open, high: quote.high, low: quote.low, volume: quote.volume, market_cap: quote.market_cap, source_id: quote.source_id, provider_as_of: quote.provider_as_of, last_trade_time: quote.last_trade_time, received_time: quote.received_time, delay_seconds: quote.delay_seconds, market_phase: quote.market_phase, freshness_status: quote.freshness_status, quality_status: quote.quality_status, is_final: quote.is_final }));
+  if (observations.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(observations);
+  const quoteResult = status === "failed" || !quotes.length ? { created: 0, updated: 0, preserved_last_good: status === "failed" } : await upsertMany(base44, "QuoteLatest", quotes, ["instrument_id"], { market_code: US_BENCHMARKS_MARKET_CODE });
+  const candleResult = status === "failed" ? { created: 0, updated: 0, preserved_last_good: true } : await upsertMany(base44, "CandleChunk", chunks, ["instrument_id", "interval", "chunk_key"], { market_code: US_BENCHMARKS_MARKET_CODE, interval: "15m" });
+  if (status !== "failed" && writeQuotes) {
+    const nextTradingDate = isFinal ? await nextTradingSessionDate(base44, clock.date) : "";
+    await evaluateAlerts(base44, quotes, isFinal, nextTradingDate);
+  }
   await base44.asServiceRole.entities.IngestionRun.update(run.id, { status, finished_at: new Date().toISOString(), success_count: output.length, failed_count: catalog.length - output.length, coverage_percent: coverage, provider_as_of: output.map((value) => value.providerAsOf).sort().at(-1) || null, snapshot_version: snapshotVersion, notes: JSON.stringify(failures).slice(0, 1000) });
   return { status, market_code: US_BENCHMARKS_MARKET_CODE, run_id: run.id, range, expected: catalog.length, accepted: output.length, rejected: failures.length, coverage_percent: coverage, quote_count: quotes.length, session_chunk_count: chunks.length, candle_bar_count: chunks.reduce((sum, chunk) => sum + chunk.bar_count, 0), quotes: quoteResult, candles: candleResult, failures };
 }
@@ -170,10 +272,47 @@ function normalizeDaily(result, currentDate) {
     const high = validPrice(quote.high?.[index]);
     const low = validPrice(quote.low?.[index]);
     const close = validPrice(quote.close?.[index]);
-    if (![open, high, low, close].every(Boolean)) continue;
+    if (![open, high, low, close].every(Boolean) || high < Math.max(open, close) || low > Math.min(open, close)) continue;
     bars.push({ time, open, high, low, close, volume: Math.max(0, Number(quote.volume?.[index] || 0)) });
   }
-  return bars;
+  return [...new Map(bars.map((bar) => [bar.time.slice(0, 10), bar])).values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time));
+}
+
+async function refreshRecentDaily(base44, catalog, source, now) {
+  const clock = nyClock(now);
+  const slotKey = `${US_BENCHMARKS_MARKET_CODE}:daily:${clock.date}`;
+  const existingRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ market_code: US_BENCHMARKS_MARKET_CODE, slot_key: slotKey }, "-started_at", 5));
+  if (existingRuns.some((item) => ["success", "partial"].includes(item.status))) return { status: "skipped", reason: "already_refreshed", market_code: US_BENCHMARKS_MARKET_CODE, slot_key: slotKey };
+  const run = await base44.asServiceRole.entities.IngestionRun.create({ run_type: "daily_refresh", market_code: US_BENCHMARKS_MARKET_CODE, slot_key: slotKey, slot_kind: "session_final", scheduled_for: now.toISOString(), lease_expires_at: new Date(now.getTime() + 3 * 60 * 1000).toISOString(), started_at: now.toISOString(), total_records: catalog.length, success_count: 0, failed_count: 0, status: "running", source_id: source.id, notes: "Incremental daily candle refresh; historical years remain stored" });
+  const syncRows = rows(await base44.asServiceRole.entities.HistoricalCandleSync.filter({ market_code: US_BENCHMARKS_MARKET_CODE, interval: "1d" }, "-completed_at", 500));
+  const output = [];
+  const failures = [];
+  let cursor = 0;
+  async function worker() {
+    while (cursor < catalog.length) {
+      const instrument = catalog[cursor++];
+      const item = US_BENCHMARKS_CATALOG.instruments.find((value) => value.symbol === instrument.symbol);
+      try {
+        const recent = normalizeDaily(await fetchChart(item.providerSymbol, "1d", "1mo"), clock.date);
+        if (!recent.length) throw new Error("recent_daily_empty");
+        const year = recent.at(-1).time.slice(0, 4);
+        const key = `${US_BENCHMARKS_MARKET_CODE}:${instrument.symbol}:1d:history:${year}`;
+        const existingChunks = rows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, interval: "1d", chunk_key: key }, "-end_time", 5));
+        const byDay = new Map([...(existingChunks[0]?.bars || []), ...recent].map((bar) => [String(bar.time).slice(0, 10), bar]));
+        const bars = [...byDay.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time));
+        const chunk = { instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, interval: "1d", chunk_key: key, start_time: bars[0].time, end_time: bars.at(-1).time, bars, bar_count: bars.length, checksum: await digest(bars), source_id: source.id, run_id: run.id, snapshot_version: await digest(recent), provider_as_of: bars.at(-1).time, received_time: new Date().toISOString(), quality_status: "verified", canonical_version: "us-benchmarks-daily-v2", is_final: true, bucket_count: bars.length, completeness_status: "complete", is_historical_archive: true, adjustment_mode: "none", history_from: bars[0].time.slice(0, 10), history_to: bars.at(-1).time.slice(0, 10) };
+        await upsertMany(base44, "CandleChunk", [chunk], ["instrument_id", "interval", "chunk_key"], { instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, interval: "1d" });
+        const sync = syncRows.find((row) => row.instrument_id === instrument.id);
+        if (sync) await base44.asServiceRole.entities.HistoricalCandleSync.update(sync.id, { latest_bar_time: bars.at(-1).time, requested_to: clock.date, bar_count: Math.max(Number(sync.bar_count || 0), Number(sync.bar_count || 0) + Math.max(0, bars.length - Number(existingChunks[0]?.bar_count || 0))), checksum: await digest([sync.checksum || "", bars]), last_attempt_at: new Date().toISOString(), completed_at: new Date().toISOString(), status: "complete", coverage_verified: true, provider_partial: false, run_id: run.id });
+        output.push({ symbol: instrument.symbol, bars: recent.length });
+      } catch (error) { failures.push({ symbol: instrument.symbol, error: String(error?.message || "daily_refresh_failed") }); }
+    }
+  }
+  await Promise.all(Array.from({ length: 8 }, () => worker()));
+  const coverage = output.length / catalog.length * 100;
+  const status = coverage >= 99 ? "success" : coverage >= 95 ? "partial" : "failed";
+  await base44.asServiceRole.entities.IngestionRun.update(run.id, { status, finished_at: new Date().toISOString(), success_count: output.length, failed_count: failures.length, coverage_percent: coverage, provider_as_of: output.length ? now.toISOString() : null, notes: JSON.stringify(failures).slice(0, 1000) });
+  return { status, market_code: US_BENCHMARKS_MARKET_CODE, run_id: run.id, accepted: output.length, rejected: failures.length, coverage_percent: coverage, failures };
 }
 
 async function historical(base44, catalog, source, body) {
@@ -188,7 +327,7 @@ async function historical(base44, catalog, source, body) {
     const item = US_BENCHMARKS_CATALOG.instruments.find((value) => value.symbol === instrument.symbol);
     try {
       const bars = normalizeDaily(await fetchChart(item.providerSymbol, "1d", "full"), nyClock().date);
-      if (bars.length < 20) throw new Error("daily_history_incomplete");
+      if (bars.length < 250) throw new Error("daily_history_incomplete");
       const groups = new Map();
       for (const bar of bars) { const year = bar.time.slice(0, 4); if (!groups.has(year)) groups.set(year, []); groups.get(year).push(bar); }
       const chunks = [];
@@ -217,11 +356,25 @@ export default async function(req) {
     const { source, instruments } = await ensureCatalog(base44, now);
     if (body.action === "catalog_status") return Response.json({ status: "ready", market_code: US_BENCHMARKS_MARKET_CODE, instruments: instruments.length });
     if (body.action === "history") return Response.json(await historical(base44, instruments, source, body));
-    if (body.action === "intraday_history") return Response.json(await incremental(base44, instruments, source, now, { range: "1mo", writeQuotes: false }));
+    if (body.action === "daily_refresh") return Response.json(await refreshRecentDaily(base44, instruments, source, now));
+    if (body.action === "intraday_history") return Response.json(await incremental(base44, instruments, source, now, { range: "1mo", writeQuotes: false, force: body.force === true }));
+    if (body.action === "data_status") {
+      const instrumentIds = new Set(instruments.map((instrument) => instrument.id));
+      const [quotes, intraday, history, signals] = await Promise.all([
+        base44.asServiceRole.entities.QuoteLatest.filter({ market_code: US_BENCHMARKS_MARKET_CODE }, "-provider_as_of", 500),
+        base44.asServiceRole.entities.CandleChunk.filter({ market_code: US_BENCHMARKS_MARKET_CODE, interval: "15m" }, "-end_time", 2000),
+        base44.asServiceRole.entities.HistoricalCandleSync.filter({ market_code: US_BENCHMARKS_MARKET_CODE, interval: "1d" }, "-completed_at", 500),
+        base44.asServiceRole.entities.IndicatorSnapshot.filter({ market_code: US_BENCHMARKS_MARKET_CODE, indicator_key: "technical_signals" }, "-source_as_of", 500),
+      ]);
+      const count = (values, predicate) => new Set(rows(values).filter((item) => instrumentIds.has(item.instrument_id) && predicate(item)).map((item) => item.instrument_id)).size;
+      const signalCoverage = Object.fromEntries(["1d", "1wk", "1mo"].map((timeframe) => [timeframe, count(signals, (item) => item.timeframe === timeframe)]));
+      return Response.json({ status: "ready", market_code: US_BENCHMARKS_MARKET_CODE, expected_instruments: instruments.length, quote_instrument_count: count(quotes, (item) => Number(item.last_price) > 0 && item.quality_status !== "quarantined"), intraday_instrument_count: count(intraday, (item) => Array.isArray(item.bars) && item.bars.length > 0 && item.quality_status !== "quarantined"), daily_history_instrument_count: count(history, (item) => item.status === "complete" && item.coverage_verified === true && item.provider_partial !== true), signal_instrument_count: signalCoverage });
+    }
     const clock = nyClock(now);
     const minute = clock.hour * 60 + clock.minute;
-    if (body.force !== true && (!['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(clock.weekday) || minute < 600 || minute > 990)) return Response.json({ status: "skipped", reason: "outside_ingestion_window", market_code: US_BENCHMARKS_MARKET_CODE });
-    return Response.json(await incremental(base44, instruments, source, now));
+    const session = await sessionDecision(base44, clock);
+    if (body.force !== true && (!session.tradingDay || minute < 600 || minute > session.closeMinute + 30)) return Response.json({ status: "skipped", reason: session.tradingDay ? "outside_ingestion_window" : session.reason, market_code: US_BENCHMARKS_MARKET_CODE });
+    return Response.json(await incremental(base44, instruments, source, now, { closeMinute: session.closeMinute }));
   } catch (error) {
     return replyError(error);
   }

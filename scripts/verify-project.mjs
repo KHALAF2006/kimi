@@ -68,7 +68,8 @@ assert.doesNotMatch(historicalBackfill, /Base44-Service-Authorization/, "histori
 
 const signalRefresh = await readFile(new URL("../base44/functions/marketSignalRefresh/entry.ts", import.meta.url), "utf8");
 assert.match(signalRefresh, /requireAdminUser\(base44\)/, "signal refresh must require a verified admin identity");
-assert.match(signalRefresh, /asServiceRole\.functions\.invoke\("marketSignalRefresh"/, "signal child batches must receive a verified service-role identity");
+assert.match(signalRefresh, /projectInstrumentBatch/, "signal batches must execute through the bounded in-process projector");
+assert.doesNotMatch(signalRefresh, /asServiceRole\.functions\.invoke\("marketSignalRefresh"/, "signal refresh must not recurse through its public function boundary");
 assert.doesNotMatch(signalRefresh, /Base44-Service-Authorization/, "signal refresh must not trust a client-supplied service header");
 
 const marketRead = await readFile(new URL("../base44/functions/marketRead/entry.ts", import.meta.url), "utf8");
@@ -98,7 +99,7 @@ const marketWorkflows = await Promise.all(
 );
 assert.deepEqual(
   marketWorkflows.map((workflow) => workflow.trigger.config.cron_expression),
-  ["15,30,45 10-14 * * 0-4", "0 11-15 * * 0-4", "15 15 * * 0-4", "26 15 * * 0-4", "36 15 * * 0-4"],
+  ["18,33,48 10-14 * * 0-4", "3 11-15 * * 0-4", "18 15 * * 0-4", "26 15 * * 0-4", "36 15 * * 0-4"],
   "market workflows must cover the exact Riyadh T+15 and closing cycles",
 );
 for (const workflow of marketWorkflows) {
@@ -159,7 +160,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 26, "all 26 backend functions must be present");
+assert.equal(functionNames.length, 28, "all 28 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -360,6 +361,9 @@ assert.doesNotMatch(customerMarketTable, /data_state\?\.label/, "the market tabl
 const customerMarketTicker = await readFile(new URL("../src/components/market/MarketTicker.jsx", import.meta.url), "utf8");
 assert.doesNotMatch(customerMarketTicker, /data_state\?\.label/, "the ticker must not replay obsolete labels stored with old quotes");
 const screenerPage = await readFile(new URL("../src/pages/Screener.jsx", import.meta.url), "utf8");
+const appRouter = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
+assert.match(appRouter, /BrowserRouter as Router/, "the current React Router advisory is not applicable only while the app remains in declarative BrowserRouter mode");
+assert.doesNotMatch(appRouter, /unstable_|RSC|ServerAction|createRequestHandler/, "the client application must not activate the advisory's unstable RSC server-action path");
 for (const signal of ["bullish_pin_bar", "bearish_pin_bar", "bullish_engulfing", "bearish_engulfing", "bullish_zone_pin_bar", "bearish_zone_pin_bar", "pin_bar_signal", "engulfing_signal", "zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"]) {
   assert.match(screenerPage, new RegExp(signal), `screener signal is missing: ${signal}`);
 }
@@ -369,13 +373,14 @@ assert.doesNotMatch(screenerPage, /function SignalEvidence|screener-evidence/, "
 assert.equal((screenerPage.match(/<MarketTable/g) || []).length, 1, "strategy results must have exactly one actionable company list");
 assert.match(screenerPage, /detailsTimeframe=\{timeframe\}/, "strategy results must preserve the selected timeframe when opening a company");
 assert.match(customerMarketTable, /companyDashboardPath\(row\.symbol, detailsTimeframe, marketCode\)/, "company links must carry explicit strategy timeframe and market identity");
-assert.match(companyChart, /const wrapper = wrapperRef\.current;[\s\S]*?wrapper\.requestFullscreen\(\)/, "fullscreen must target only the chart shell so the page itself does not require vertical scrolling");
+assert.match(companyChart, /chart-shell-fullscreen/, "fullscreen must be scoped to the chart shell so the page itself does not require vertical scrolling");
+assert.match(chartStyles, /\.chart-shell-fullscreen:not\(:fullscreen\)[^{]*\{[^}]*fixed/, "the iframe-safe fullscreen fallback must pin only the chart shell to the viewport");
 assert.match(companyChart, /bullishColor/, "reversal candle rendering must use a distinct bullish color");
 assert.match(companyChart, /bearishColor/, "reversal candle rendering must use a distinct bearish color");
 assert.match(companyChart, /reversalPatternMap\(visibleOrderedCandles, \{ limitPerType: 3 \}\)/, "bar replay must calculate reversal patterns only from candles visible at the replay cursor");
 assert.doesNotMatch(companyChart, /if \(!\["1d", "1wk", "1mo"\]\.includes\(interval\)\) return display/, "reversal coloring must not be restricted to daily, weekly and monthly intervals");
 assert.match(companyPanel, /setState\(\(current\) => \(\{ \.\.\.current, loading: true, error: "" \}\)\)/, "company navigation must retain the mounted panel while the next company loads");
-assert.match(companyPanel, /<CompanyChart symbol=\{symbol\}/, "company details and chart requests must start in parallel for smooth navigation");
+assert.match(companyPanel, /<CompanyChart[^>]*symbol=\{symbol\}/, "company details and chart requests must start in parallel for smooth navigation");
 assert.doesNotMatch(companyPanel, /if \(state\.loading\) return/, "company navigation must not unmount the chart when cached content exists");
 assert.match(companyPanel, /onMomentumChange=\{handleMomentumChange\}/, "the investor-zone card must consume the chart calculation for the displayed interval");
 assert.doesNotMatch(companyPanel, /indicators\?\.\[0\]/, "company details must never treat an arbitrary first indicator record as investor zones");
@@ -466,7 +471,7 @@ assert.match(historicalCompanyChart, /rangeOptions\.map/, "all chart ranges must
 assert.match(historicalCompanyChart, /if \(!option\.intervals\.includes\(interval\)\) setInterval\("1d"\)/, "long history ranges must switch incompatible intraday views to daily candles");
 assert.match(historicalCompanyChart, /history_complete/, "the chart must disclose an incomplete historical archive");
 assert.match(historicalCompanyChart, /className="chart-type-popover chart-control-popover"/, "the candle-type chooser must use the shared collision-aware chart control layer");
-assert.match(historicalCompanyChart, /requestFullscreen\(\)/, "fullscreen mode must target the chart shell instead of the entire company page");
+assert.match(historicalCompanyChart, /chart-shell-fullscreen/, "fullscreen mode must target the chart shell instead of the entire company page");
 assert.match(historicalCompanyChart, /createTextWatermark/, "the chart must render the instrument identity with the chart engine watermark primitive");
 assert.match(historicalCompanyChart, /chartPreferences\.watermarkVisible/, "the company watermark must be user-hideable");
 assert.match(historicalCompanyChart, /beginReplaySelection/, "bar replay must expose an explicit historical starting-point selection state");
@@ -580,7 +585,7 @@ const boundedBodyFunctions = [
   "adminCustomers", "adminMarketData", "adminRoles", "adminSubscriptions", "alertEvaluation",
   "authLogin", "authRegistration", "chartDrawings", "companyIntelligence", "customerSelfService",
   "historicalCandleBackfill", "identityContext", "indicatorEngine", "legacySchemaBridge", "marketIngestion",
-  "marketRead", "marketSignalRefresh", "operationsQuality", "screeningWatchlists", "telegramDelivery", "usOptionsCompanyIntelligence", "whatsappDelivery",
+  "marketRead", "marketSignalRefresh", "operationsQuality", "screeningWatchlists", "telegramDelivery", "usBenchmarksMarketIngestion", "usBenchmarksSignalRefresh", "usOptionsCompanyIntelligence", "whatsappDelivery",
 ];
 for (const functionName of boundedBodyFunctions) {
   const functionSource = await readFile(new URL(`../base44/functions/${functionName}/entry.ts`, import.meta.url), "utf8");

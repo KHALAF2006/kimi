@@ -2,10 +2,12 @@ import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 import { audit, readJsonBody, replyError, requirePermission } from "../../shared/security.ts";
 import { EXPECTED_INSTRUMENT_COUNT, SAUDI_DELAY_SECONDS } from "../../shared/market-data.ts";
 import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE } from "../../shared/us-options-catalog.ts";
+import { US_BENCHMARKS_CATALOG, US_BENCHMARKS_MARKET_CODE, US_BENCHMARKS_PROVIDER_CODE } from "../../shared/us-benchmarks-catalog.ts";
 
 const MARKET_CONFIG = {
   SA_MAIN: { expected: EXPECTED_INSTRUMENT_COUNT, delay: SAUDI_DELAY_SECONDS, runsPerDay: 24, monthlyRuns: 528 },
-  [US_OPTIONS_MARKET_CODE]: { expected: US_OPTIONS_CATALOG.companies.length, delay: 900, runsPerDay: 34, monthlyRuns: 756 },
+  [US_OPTIONS_MARKET_CODE]: { expected: US_OPTIONS_CATALOG.companies.length, delay: 900, runsPerDay: 59, monthlyRuns: 1314 },
+  [US_BENCHMARKS_MARKET_CODE]: { expected: US_BENCHMARKS_CATALOG.instruments.length, delay: 900, runsPerDay: 31, monthlyRuns: 686 },
 };
 
 function marketConfig(value) {
@@ -43,8 +45,10 @@ async function health(base44, requestedMarket) {
     base44.asServiceRole.entities.HistoricalCandleSync.filter({ market_code: MARKET_CODE, interval: "1d" }),
     base44.asServiceRole.entities.Instrument.filter({ market_code: MARKET_CODE }),
   ]);
+  const expectedSourceCode = MARKET_CODE === US_OPTIONS_MARKET_CODE ? "REFERENCE_YAHOO_US_OPTIONS_T15"
+    : MARKET_CODE === US_BENCHMARKS_MARKET_CODE ? US_BENCHMARKS_PROVIDER_CODE : null;
   const marketSource = sources.find((source) => source.market_code === MARKET_CODE
-    && (MARKET_CODE !== US_OPTIONS_MARKET_CODE || source.code === "REFERENCE_YAHOO_US_OPTIONS_T15"))
+    && (!expectedSourceCode || source.code === expectedSourceCode))
     || sources.find((source) => source.market_code === MARKET_CODE && source.source_type !== "official")
     || null;
   const latestRun = latestByDate(runs.filter((run) => !run.market_code || run.market_code === MARKET_CODE), "started_at");
@@ -70,7 +74,7 @@ async function health(base44, requestedMarket) {
   const saudiRedistributionReady = marketSource?.source_type === "licensed"
     && marketSource?.license_status === "approved"
     && marketSource?.public_enabled === true;
-  const sourceReady = MARKET_CODE === US_OPTIONS_MARKET_CODE ? Boolean(marketSource) : saudiRedistributionReady;
+  const sourceReady = MARKET_CODE === "SA_MAIN" ? saudiRedistributionReady : Boolean(marketSource);
 
   return {
     market_code: MARKET_CODE,
@@ -123,6 +127,8 @@ async function health(base44, requestedMarket) {
       estimated_monthly_runs: config.monthlyRuns,
       note: MARKET_CODE === US_OPTIONS_MARKET_CODE
         ? "Steady estimate: 704 quarter-hour runs + 22 signal runs + 30 company-information runs. Historical bootstrap is temporary and separate. Provider API usage is separate."
+        : MARKET_CODE === US_BENCHMARKS_MARKET_CODE
+          ? "Steady estimate: 616 quarter-hour runs + 22 signal runs. Historical bootstrap skips completed instruments; provider API usage is separate."
         : "One Base44 integration credit per automation invocation; provider API usage is separate.",
     },
   };
@@ -162,9 +168,9 @@ Deno.serve(async (req) => {
       : action === "backfill_history" ? "historical_backfill"
       : action === "refresh_company_intelligence" ? "company_intelligence"
       : String(body.slot_kind || "quarter_hour");
-    const ingestionFunction = MARKET_CODE === US_OPTIONS_MARKET_CODE ? "usOptionsMarketIngestion" : "marketIngestion";
-    const historyFunction = MARKET_CODE === US_OPTIONS_MARKET_CODE ? "usOptionsHistoricalBackfill" : "historicalCandleBackfill";
-    const signalFunction = MARKET_CODE === US_OPTIONS_MARKET_CODE ? "usOptionsSignalRefresh" : "marketSignalRefresh";
+    const ingestionFunction = MARKET_CODE === US_OPTIONS_MARKET_CODE ? "usOptionsMarketIngestion" : MARKET_CODE === US_BENCHMARKS_MARKET_CODE ? "usBenchmarksMarketIngestion" : "marketIngestion";
+    const historyFunction = MARKET_CODE === US_OPTIONS_MARKET_CODE ? "usOptionsHistoricalBackfill" : MARKET_CODE === US_BENCHMARKS_MARKET_CODE ? "usBenchmarksMarketIngestion" : "historicalCandleBackfill";
+    const signalFunction = MARKET_CODE === US_OPTIONS_MARKET_CODE ? "usOptionsSignalRefresh" : MARKET_CODE === US_BENCHMARKS_MARKET_CODE ? "usBenchmarksSignalRefresh" : "marketSignalRefresh";
     const response = action === "refresh_company_intelligence"
       ? await base44.functions.invoke("usOptionsCompanyIntelligence", {
         session_id: body.session_id,
@@ -178,7 +184,9 @@ Deno.serve(async (req) => {
         reason,
         force: false,
         symbols: Array.isArray(body.symbols) ? body.symbols.slice(0, 15) : undefined,
-        batch_size: MARKET_CODE === US_OPTIONS_MARKET_CODE ? 15 : undefined,
+        action: MARKET_CODE === US_BENCHMARKS_MARKET_CODE ? "history" : undefined,
+        market_code: MARKET_CODE,
+        batch_size: MARKET_CODE === US_OPTIONS_MARKET_CODE ? 15 : MARKET_CODE === US_BENCHMARKS_MARKET_CODE ? 6 : undefined,
       })
       : action === "refresh_signals"
       ? await base44.functions.invoke(signalFunction, {
