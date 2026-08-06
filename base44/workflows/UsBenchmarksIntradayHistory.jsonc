@@ -34,6 +34,7 @@
             "args": {
               "market_code": "US_BENCHMARKS",
               "action": "intraday_history",
+              "batch_size": 8,
               "source": "scheduled_intraday_history"
             }
           },

@@ -216,13 +216,18 @@ async function incremental(base44, catalog, source, now, options = {}) {
   const failures = [];
   let cursor = 0;
   async function worker() {
-    while (cursor < US_BENCHMARKS_CATALOG.instruments.length) {
-      const item = US_BENCHMARKS_CATALOG.instruments[cursor++];
+    while (cursor < catalog.length) {
+      const instrument = catalog[cursor++];
+      const item = US_BENCHMARKS_CATALOG.instruments.find((candidate) => candidate.symbol === instrument.symbol);
+      if (!item) {
+        failures.push({ symbol: instrument.symbol, error: "catalog_mapping_missing" });
+        continue;
+      }
       try { output.push(normalizeIntraday(item, await fetchChart(item.providerSymbol, "5m", range), now)); }
       catch (error) { failures.push({ symbol: item.symbol, error: String(error?.message || "provider_failed") }); }
     }
   }
-  await Promise.all(Array.from({ length: 12 }, () => worker()));
+  await Promise.all(Array.from({ length: Math.min(12, Math.max(1, catalog.length)) }, () => worker()));
   const clock = nyClock(now);
   const slotMinute = Math.floor(clock.minute / 15) * 15;
   const slotKey = range === "1mo"
@@ -259,6 +264,35 @@ async function incremental(base44, catalog, source, now, options = {}) {
   }
   await base44.asServiceRole.entities.IngestionRun.update(run.id, { status, finished_at: new Date().toISOString(), success_count: output.length, failed_count: catalog.length - output.length, coverage_percent: coverage, provider_as_of: output.map((value) => value.providerAsOf).sort().at(-1) || null, snapshot_version: snapshotVersion, notes: JSON.stringify(failures).slice(0, 1000) });
   return { status, market_code: US_BENCHMARKS_MARKET_CODE, run_id: run.id, range, expected: catalog.length, accepted: output.length, rejected: failures.length, coverage_percent: coverage, quote_count: quotes.length, session_chunk_count: chunks.length, candle_bar_count: chunks.reduce((sum, chunk) => sum + chunk.bar_count, 0), quotes: quoteResult, candles: candleResult, failures };
+}
+
+async function expireStaleRuns(base44, now) {
+  const running = rows(await base44.asServiceRole.entities.IngestionRun.filter({ market_code: US_BENCHMARKS_MARKET_CODE, status: "running" }, "-started_at", 100));
+  const cutoff = now.getTime() - 10 * 60 * 1000;
+  for (const run of running) {
+    const leaseExpired = run.lease_expires_at && Date.parse(run.lease_expires_at) < now.getTime();
+    const startedTooLongAgo = run.started_at && Date.parse(run.started_at) < cutoff;
+    if (!leaseExpired && !startedTooLongAgo) continue;
+    await base44.asServiceRole.entities.IngestionRun.update(run.id, {
+      status: "failed",
+      finished_at: now.toISOString(),
+      failure_code: "LEASE_EXPIRED",
+      notes: `${String(run.notes || "").slice(0, 700)} | Automatically closed after the execution lease expired`.slice(0, 1000),
+    });
+  }
+}
+
+async function pendingIntradayArchiveInstruments(base44, catalog, batchSize = 8) {
+  const chunks = rows(await base44.asServiceRole.entities.CandleChunk.filter({ market_code: US_BENCHMARKS_MARKET_CODE, interval: "15m" }, "-end_time", 500));
+  const completeSessions = new Map();
+  for (const chunk of chunks) {
+    if (chunk.is_final !== true || chunk.completeness_status !== "complete" || !chunk.session_date) continue;
+    if (!completeSessions.has(chunk.instrument_id)) completeSessions.set(chunk.instrument_id, new Set());
+    completeSessions.get(chunk.instrument_id).add(chunk.session_date);
+  }
+  return catalog
+    .filter((instrument) => (completeSessions.get(instrument.id)?.size || 0) < 15)
+    .slice(0, Math.min(8, Math.max(1, Number(batchSize) || 8)));
 }
 
 function normalizeDaily(result, currentDate) {
@@ -354,10 +388,15 @@ export default async function(req) {
     if (String(body.market_code || US_BENCHMARKS_MARKET_CODE) !== US_BENCHMARKS_MARKET_CODE) throw Object.assign(new Error("Wrong market"), { status: 400, code: "MARKET_MISMATCH" });
     const now = new Date();
     const { source, instruments } = await ensureCatalog(base44, now);
+    await expireStaleRuns(base44, now);
     if (body.action === "catalog_status") return Response.json({ status: "ready", market_code: US_BENCHMARKS_MARKET_CODE, instruments: instruments.length });
     if (body.action === "history") return Response.json(await historical(base44, instruments, source, body));
     if (body.action === "daily_refresh") return Response.json(await refreshRecentDaily(base44, instruments, source, now));
-    if (body.action === "intraday_history") return Response.json(await incremental(base44, instruments, source, now, { range: "1mo", writeQuotes: false, force: body.force === true }));
+    if (body.action === "intraday_history") {
+      const pending = await pendingIntradayArchiveInstruments(base44, instruments, body.batch_size);
+      if (!pending.length) return Response.json({ status: "complete", market_code: US_BENCHMARKS_MARKET_CODE, reason: "intraday_archive_already_complete", instruments: instruments.length });
+      return Response.json(await incremental(base44, pending, source, now, { range: "1mo", writeQuotes: false, force: body.force === true }));
+    }
     if (body.action === "data_status") {
       const instrumentIds = new Set(instruments.map((instrument) => instrument.id));
       const [quotes, intraday, history, signals] = await Promise.all([

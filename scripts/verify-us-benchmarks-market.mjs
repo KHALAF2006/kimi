@@ -27,6 +27,10 @@ assert.match(ingestion, /evaluateAlerts\(base44, quotes, isFinal, nextTradingDat
 assert.match(ingestion, /last_evaluation_bucket/, "benchmark alert evaluation must be idempotent per interval bucket");
 assert.match(ingestion, /reason: "already_refreshed"/, "daily history refresh must not charge or rewrite the same session twice");
 assert.match(ingestion, /bars\.length < 250/, "a full benchmark archive must pass a meaningful minimum coverage gate");
+assert.match(ingestion, /pendingIntradayArchiveInstruments/, "intraday archive reconciliation must read stored coverage before calling the provider");
+assert.match(ingestion, /intraday_archive_already_complete/, "a complete stored archive must not be downloaded again");
+assert.match(ingestion, /LEASE_EXPIRED/, "stale benchmark runs must be closed deterministically on the next scheduled cycle");
+assert.match(ingestion, /Math\.min\(8,/, "archive repair must use bounded batches that fit the backend execution limit");
 
 const signals = await source("base44/functions/usBenchmarksSignalRefresh/source.ts");
 for (const token of ["technical_signals", "momentum_zones", '"1wk"', '"1mo"', "market_code: US_BENCHMARKS_MARKET_CODE"]) assert.match(signals, new RegExp(token));
