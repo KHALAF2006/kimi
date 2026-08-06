@@ -23,10 +23,10 @@ export default function KmyLayout() {
 
   return <div className="min-h-screen bg-slate-50 text-slate-950 transition-colors dark:bg-[#08111f] dark:text-slate-100">
     <header className="app-header">
-      <div className="mx-auto flex max-w-[1800px] items-center gap-3 px-3 py-3 sm:px-5">
+      <div className="app-header-inner mx-auto flex max-w-[1800px] items-center gap-3 px-3 py-3 sm:px-5">
         <SessionNavLink to="/dashboard" className="brand-lockup" aria-label={isArabic ? "المستثمر الذكي" : "Smart Investor"}><span className="brand-mark"><BarChart3 size={19} /></span><span>{isArabic ? "المستثمر الذكي" : "Smart Investor"}<small>SI</small></span></SessionNavLink>
         <nav className="app-nav">{links.map(([to, label, Icon]) => <SessionNavLink key={to} to={to} className={({ isActive }) => isActive ? "active" : ""}><Icon size={16} /><span>{label}</span></SessionNavLink>)}</nav>
-        <div className="ms-auto flex items-center gap-1">
+        <div className="app-header-actions ms-auto flex items-center gap-1">
           <MarketAccessSelect compact onMarketChange={() => navigate("/dashboard")} />
           <button className="icon-button language-switch" onClick={toggleLanguage} title={isArabic ? "English" : "العربية"} aria-label={isArabic ? "Switch to English" : "التبديل إلى العربية"}>{isArabic ? "E" : "ع"}</button>
           <button className="icon-button" onClick={toggleTheme} title={isArabic ? "تغيير المظهر" : "Change theme"}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button>

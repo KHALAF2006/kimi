@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { CandlestickSeries, ColorType, createChart, createTextWatermark, HistogramSeries, LineSeries, LineStyle } from "lightweight-charts";
-import { BarChart3, ChartCandlestick, ChevronLeft, ChevronRight, Eye, EyeOff, Flame, History, Layers3, Maximize2, Minus, Pause, Play, Plus, RotateCcw, Settings2, SkipBack, SkipForward, SlidersHorizontal, TrendingUp, Waves, X } from "lucide-react";
+import { BarChart3, ChartCandlestick, ChevronLeft, ChevronRight, Eye, EyeOff, Flame, History, Layers3, Maximize2, Minimize2, Minus, Pause, Play, Plus, RotateCcw, Settings2, SkipBack, SkipForward, SlidersHorizontal, TrendingUp, Waves, X } from "lucide-react";
 import { invokeAppFunction, readMarketChart } from "@/services/marketService";
 import { calculateMomentumSnapshot, calculateRsiSeries, formatNumber, MOMENTUM_ZONE_DEFINITIONS, normalizeMomentum } from "@/lib/market";
 import { calculateSmaSeries, reversalPatternMap } from "@/lib/technical-signals";
@@ -358,16 +358,24 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   }, [marketCode, chartTargetType, chartTarget]);
 
   useEffect(() => {
-    const updateViewport = () => {
-      setFullscreen(document.fullscreenElement === wrapperRef.current);
-    };
+    const updateViewport = () => setFullscreen(document.fullscreenElement === wrapperRef.current);
     document.addEventListener("fullscreenchange", updateViewport);
-    window.addEventListener("resize", updateViewport);
-    return () => {
-      document.removeEventListener("fullscreenchange", updateViewport);
-      window.removeEventListener("resize", updateViewport);
-    };
+    return () => document.removeEventListener("fullscreenchange", updateViewport);
   }, []);
+
+  useEffect(() => {
+    if (!fullscreen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeFallbackFullscreen = (event) => {
+      if (event.key === "Escape" && !document.fullscreenElement) setFullscreen(false);
+    };
+    document.addEventListener("keydown", closeFallbackFullscreen);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeFallbackFullscreen);
+    };
+  }, [fullscreen]);
 
   useEffect(() => {
     setReplayState((current) => ({ ...current, mode: "idle", cursor: null, startTime: null }));
@@ -945,9 +953,25 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   }
 
   async function toggleFullscreen() {
-    if (!wrapperRef.current) return;
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else await wrapperRef.current.requestFullscreen();
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+    if (fullscreen) {
+      setFullscreen(false);
+      return;
+    }
+    if (typeof wrapper.requestFullscreen === "function") {
+      try {
+        await wrapper.requestFullscreen();
+        return;
+      } catch {
+        // Tablet browsers may expose the API while refusing element fullscreen.
+      }
+    }
+    setFullscreen(true);
   }
 
   function beginReplaySelection() {
@@ -1105,7 +1129,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     })}
   </>;
 
-  return <div ref={bindChartRoot} className="chart-shell">
+  return <div ref={bindChartRoot} className={"chart-shell " + (fullscreen ? "chart-shell-fullscreen" : "")}>
     <div className="chart-header-row">
       <div className="chart-title-block">
         <h3 className="font-black">{chartTitle}</h3>
@@ -1143,10 +1167,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         >{reversalMenuContent}</ChartControlPopover>
         <button type="button" className={"icon-button " + (replayState.mode !== "idle" ? "active" : "")} onClick={replayState.mode === "idle" ? beginReplaySelection : exitReplay} title={isArabic ? "إعادة تشغيل الشموع التاريخية" : "Historical bar replay"} aria-label={isArabic ? "فتح إعادة تشغيل الشموع" : "Open bar replay"}><History size={17} /></button>
         <button type="button" className="icon-button" onClick={() => setChartSettingsOpen(true)} title={isArabic ? "إعدادات الشارت" : "Chart settings"} aria-label={isArabic ? "فتح إعدادات الشارت" : "Open chart settings"}><Settings2 size={17} /></button>
-        <button className="icon-button" onClick={() => zoom(0.75)} title={isArabic ? "تكبير" : "Zoom in"}><Plus size={17} /></button>
-        <button className="icon-button" onClick={() => zoom(1.35)} title={isArabic ? "تصغير" : "Zoom out"}><Minus size={17} /></button>
-        <button className="icon-button" onClick={resetChartView} title={isArabic ? "إعادة الرسم للوضع الطبيعي" : "Reset chart view"}><RotateCcw size={17} /></button>
-        <button className="icon-button" onClick={toggleFullscreen} title={isArabic ? "ملء الشاشة" : "Fullscreen"}><Maximize2 size={17} /></button>
+        <button type="button" className="icon-button" onClick={() => zoom(0.75)} title={isArabic ? "تكبير" : "Zoom in"} aria-label={isArabic ? "تكبير الشارت" : "Zoom chart in"}><Plus size={17} /></button>
+        <button type="button" className="icon-button" onClick={() => zoom(1.35)} title={isArabic ? "تصغير" : "Zoom out"} aria-label={isArabic ? "تصغير الشارت" : "Zoom chart out"}><Minus size={17} /></button>
+        <button type="button" className="icon-button" onClick={resetChartView} title={isArabic ? "إعادة الرسم للوضع الطبيعي" : "Reset chart view"} aria-label={isArabic ? "إعادة الشارت للوضع الطبيعي" : "Reset chart view"}><RotateCcw size={17} /></button>
+        <button type="button" className="icon-button chart-fullscreen-button" onClick={toggleFullscreen} title={fullscreen ? (isArabic ? "إنهاء ملء الشاشة" : "Exit fullscreen") : (isArabic ? "ملء الشاشة" : "Fullscreen")} aria-label={fullscreen ? (isArabic ? "إنهاء وضع ملء الشاشة" : "Exit chart fullscreen") : (isArabic ? "عرض الشارت بملء الشاشة" : "View chart fullscreen")} aria-pressed={fullscreen}>{fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button>
       </div>
     </div>
 
