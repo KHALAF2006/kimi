@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, Info, Loader2, Megaphone, TrendingUp } from "lucide-react";
 import CompanyChart from "@/components/market/CompanyChart";
+import BenchmarkProfileDetails from "@/components/market/BenchmarkProfileDetails";
 import LossFlagBadge from "@/components/market/LossFlagBadge";
 import { formatCompact, formatNumber, normalizeMomentum, quoteDirection, selectMomentumSnapshot } from "@/lib/market";
 import { usePreferences } from "@/lib/preferences";
@@ -79,6 +80,7 @@ export default function CompanyPanel({ symbol, marketCode, requestedTimeframe = 
         <Metric label={isArabic ? "القيمة المتداولة" : "Traded value"} value={formatCompact(quote.traded_value, language)} />
         <Metric label={isArabic ? "القيمة السوقية" : "Market cap"} value={formatCompact(quote.market_cap, language)} />
       </div>
+      {marketCode === "US_BENCHMARKS" && <BenchmarkProfileDetails instrument={instrument} isArabic={isArabic} />}
       {marketCode === "US_OPTIONS" && <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600 xl:grid-cols-4">
         <span><b>{isArabic ? "الاسم القانوني: " : "Legal name: "}</b>{instrument.legal_name_en || instrument.name_en}</span>
         <span><b>CIK: </b>{instrument.cik || "—"}</span>

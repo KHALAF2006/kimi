@@ -12,7 +12,14 @@ export const OWNER_US_OPTIONS_MARKET = Object.freeze({
   currency: "USD",
 });
 
-export const SUPPORTED_MARKETS = Object.freeze([LEGACY_SAUDI_MARKET, OWNER_US_OPTIONS_MARKET]);
+export const OWNER_US_BENCHMARKS_MARKET = Object.freeze({
+  market_code: "US_BENCHMARKS",
+  name_ar: "المؤشرات والصناديق الأمريكية",
+  name_en: "U.S. Indices & ETFs",
+  currency: "USD",
+});
+
+export const SUPPORTED_MARKETS = Object.freeze([LEGACY_SAUDI_MARKET, OWNER_US_OPTIONS_MARKET, OWNER_US_BENCHMARKS_MARKET]);
 
 /**
  * Preserve the pre-multi-market identity contract without widening access.
@@ -24,13 +31,12 @@ export function resolveAvailableMarkets(context) {
   if (!context || typeof context !== "object") return [];
   const isOwner = context.identity?.role === "owner";
   if (Object.prototype.hasOwnProperty.call(context, "market_access")) {
-    if (!Array.isArray(context.market_access)) return isOwner ? [LEGACY_SAUDI_MARKET, OWNER_US_OPTIONS_MARKET] : [];
+    if (!Array.isArray(context.market_access)) return isOwner ? SUPPORTED_MARKETS : [];
     const markets = context.market_access.filter((market) => market && typeof market.market_code === "string" && market.market_code.trim());
     if (!isOwner) return markets;
     const byCode = new Map(markets.map((market) => [market.market_code, market]));
-    byCode.set(LEGACY_SAUDI_MARKET.market_code, byCode.get(LEGACY_SAUDI_MARKET.market_code) || LEGACY_SAUDI_MARKET);
-    byCode.set(OWNER_US_OPTIONS_MARKET.market_code, byCode.get(OWNER_US_OPTIONS_MARKET.market_code) || OWNER_US_OPTIONS_MARKET);
+    SUPPORTED_MARKETS.forEach((market) => byCode.set(market.market_code, byCode.get(market.market_code) || market));
     return [...byCode.values()];
   }
-  return isOwner ? [LEGACY_SAUDI_MARKET, OWNER_US_OPTIONS_MARKET] : [LEGACY_SAUDI_MARKET];
+  return isOwner ? SUPPORTED_MARKETS : [LEGACY_SAUDI_MARKET];
 }

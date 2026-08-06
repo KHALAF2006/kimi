@@ -1,9 +1,10 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { BarChart3, Building2, Layers3, Loader2, Search } from "lucide-react";
+import { BarChart3, Building2, Layers3, Loader2, PieChart, Search } from "lucide-react";
 import { invokeAppFunction } from "@/services/marketService";
 
 const typeMeta = {
   equity: { ar: "سهم", en: "Stock", Icon: Building2 },
+  etf: { ar: "صندوق متداول", en: "ETF", Icon: PieChart },
   sector_index: { ar: "مؤشر قطاع", en: "Sector index", Icon: Layers3 },
   market_index: { ar: "مؤشر سوق", en: "Market index", Icon: BarChart3 },
 };
@@ -119,7 +120,7 @@ export default function InstrumentSearchInput({ value, onChange, onSelect = unde
             onClick={() => choose(instrument)}
           >
             <span className="instrument-search-result-main"><TypeIcon size={15} aria-hidden="true" /><b dir="ltr">{instrument.symbol}</b><strong>{isArabic ? instrument.name_ar : instrument.name_en}</strong></span>
-            <small><span className={`instrument-kind instrument-kind-${instrument.instrument_type || "equity"}`}>{isArabic ? meta.ar : meta.en}</span>{isArabic ? instrument.sector_ar : instrument.sector_en}{instrument.quote?.last_price ? ` · ${Number(instrument.quote.last_price).toFixed(2)} ${marketCode === "US_OPTIONS" ? "$" : "ر.س"}` : ""}</small>
+            <small><span className={`instrument-kind instrument-kind-${instrument.instrument_type || "equity"}`}>{isArabic ? meta.ar : meta.en}</span>{isArabic ? instrument.sector_ar : instrument.sector_en}{instrument.quote?.last_price ? ` · ${Number(instrument.quote.last_price).toFixed(2)} ${marketCode.startsWith("US_") ? "$" : "ر.س"}` : ""}</small>
           </button>;
         })
           : !state.loading && <p>{isArabic ? "لا توجد أداة مطابقة في قاعدة البيانات" : "No matching instrument in the database"}</p>}

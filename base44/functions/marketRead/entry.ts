@@ -5179,12 +5179,7 @@ var TASI_SYMBOL = "TASI";
 var MARKET_CATALOG = [
   { market_code: "SA_MAIN", country_code: "SA", name_ar: "\u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629", name_en: "Saudi Main Market", currency: "SAR", timezone: "Asia/Riyadh", quote_mode: "delayed", delay_seconds: 900, license_status: "pending", active: true },
   US_OPTIONS_CATALOG.market,
-  { market_code: "AE_ADX", country_code: "AE", name_ar: "\u0633\u0648\u0642 \u0623\u0628\u0648\u0638\u0628\u064A", name_en: "Abu Dhabi Securities Exchange", currency: "AED", timezone: "Asia/Dubai", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
-  { market_code: "AE_DFM", country_code: "AE", name_ar: "\u0633\u0648\u0642 \u062F\u0628\u064A", name_en: "Dubai Financial Market", currency: "AED", timezone: "Asia/Dubai", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
-  { market_code: "KW_BK", country_code: "KW", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0627\u0644\u0643\u0648\u064A\u062A", name_en: "Boursa Kuwait", currency: "KWD", timezone: "Asia/Kuwait", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
-  { market_code: "QA_QE", country_code: "QA", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0642\u0637\u0631", name_en: "Qatar Stock Exchange", currency: "QAR", timezone: "Asia/Qatar", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
-  { market_code: "BH_BHB", country_code: "BH", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0627\u0644\u0628\u062D\u0631\u064A\u0646", name_en: "Bahrain Bourse", currency: "BHD", timezone: "Asia/Bahrain", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false },
-  { market_code: "OM_MSX", country_code: "OM", name_ar: "\u0628\u0648\u0631\u0635\u0629 \u0645\u0633\u0642\u0637", name_en: "Muscat Stock Exchange", currency: "OMR", timezone: "Asia/Muscat", quote_mode: "disabled", delay_seconds: 0, license_status: "pending", active: false }
+  { market_code: "US_BENCHMARKS", country_code: "US", name_ar: "\u0627\u0644\u0645\u0624\u0634\u0631\u0627\u062A \u0648\u0627\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0623\u0645\u0631\u064A\u0643\u064A\u0629", name_en: "U.S. Indices & ETFs", currency: "USD", timezone: "America/New_York", quote_mode: "delayed", delay_seconds: 900, license_status: "pending", active: true }
 ];
 function entityRows(value) {
   if (Array.isArray(value)) return value.filter(Boolean);
@@ -5320,9 +5315,7 @@ var RANGE_MILLISECONDS = {
   "10y": 10 * 366 * 24 * 60 * 60 * 1e3
 };
 function marketCandleOptions(marketCode) {
-  return marketCode === US_OPTIONS_MARKET_CODE
-    ? { timeZone: "America/New_York", sessionStartMinutes: 570, weekStartsOn: 1 }
-    : { timeZone: "Asia/Riyadh", sessionStartMinutes: 600, weekStartsOn: 0 };
+  return marketCode === "SA_MAIN" ? { timeZone: "Asia/Riyadh", sessionStartMinutes: 600, weekStartsOn: 0 } : { timeZone: "America/New_York", sessionStartMinutes: 570, weekStartsOn: 1 };
 }
 function marketSessionDate(value, marketCode) {
   return new Intl.DateTimeFormat("en-CA", {

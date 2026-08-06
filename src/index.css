@@ -66,6 +66,7 @@
   .instrument-search-results > p { @apply px-3 py-2 text-[10px] text-slate-500 dark:text-slate-400; }
   .instrument-kind { @apply rounded-full border px-1.5 py-0.5 font-black; }
   .instrument-kind-equity { @apply border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300; }
+  .instrument-kind-etf { @apply border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300; }
   .instrument-kind-sector_index { @apply border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-cyan-300; }
   .instrument-kind-market_index { @apply border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300; }
   .eyebrow, .section-kicker { @apply inline-flex items-center gap-2 rounded-full border border-sky-300/60 bg-sky-50 px-3 py-1.5 text-xs font-black text-sky-800 dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-300; }

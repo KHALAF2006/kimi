@@ -410,7 +410,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
 
   useEffect(() => {
     if (!chartTarget || !intradayIntervals.has(interval)) return undefined;
-    if (marketCode === "US_OPTIONS") {
+    if (["US_OPTIONS", "US_BENCHMARKS"].includes(marketCode)) {
       const timer = window.setInterval(() => setRetryKey((value) => value + 1), 60 * 1000);
       return () => window.clearInterval(timer);
     }

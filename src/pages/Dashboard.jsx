@@ -196,7 +196,8 @@ export default function Dashboard() {
   function selectInstrument(instrument) {
     if (!instrument) return;
     setQuery(instrument.symbol);
-    if (instrument.instrument_type === "sector_index") selectSector(instrument.sector_ar || instrument.sector_en);
+    if (marketCode === "US_BENCHMARKS") selectCompany(instrument.symbol);
+    else if (instrument.instrument_type === "sector_index") selectSector(instrument.sector_ar || instrument.sector_en);
     else if (instrument.instrument_type === "market_index") selectMarketIndex(instrument.instrument_code || instrument.symbol);
     else selectCompany(instrument.symbol);
   }

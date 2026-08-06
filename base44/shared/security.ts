@@ -5,6 +5,7 @@ const SESSION_TOKEN_PREFIX = "kmy1";
 const MARKET_ACCESS = {
   SA_MAIN: { entitlement: "market.saudi", name_ar: "السوق السعودية الرئيسية", name_en: "Saudi Main Market", currency: "SAR" },
   US_OPTIONS: { entitlement: "market.us.options", name_ar: "شركات عقود الخيارات", name_en: "U.S. Optionable Companies", currency: "USD" },
+  US_BENCHMARKS: { entitlement: "market.us.benchmarks", name_ar: "المؤشرات والصناديق الأمريكية", name_en: "U.S. Indices & ETFs", currency: "USD" },
 };
 
 export async function sha256(value) {
@@ -281,6 +282,7 @@ async function subscriptionContext(base44, profile, account) {
     const codes = new Set(group.map((item) => item.code));
     const explicitMarkets = [...codes].filter((code) => code.startsWith("market."));
     if (codes.has("market.us.options")) marketCodes.add("US_OPTIONS");
+    if (codes.has("market.us.benchmarks")) marketCodes.add("US_BENCHMARKS");
     if ([...codes].some((code) => ["market.saudi", "market.saudi.delayed", "market.saudi.realtime"].includes(code))) marketCodes.add("SA_MAIN");
     // Existing KMY plans predate market-specific entitlements. Preserve their
     // Saudi access only; never infer U.S. access from a legacy subscription.

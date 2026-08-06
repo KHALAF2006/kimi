@@ -16,6 +16,7 @@
       "type": "string",
       "enum": [
         "equity",
+        "etf",
         "sector_index",
         "market_index"
       ],
@@ -36,6 +37,18 @@
     "sector_en": {
       "type": "string"
     },
+    "related_companies_ar": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "related_companies_en": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "market": {
       "type": "string",
       "default": "Saudi Main Market"
@@ -44,26 +57,78 @@
       "type": "string",
       "default": "SAR"
     },
-    "exchange_code": { "type": "string" },
-    "country_code": { "type": "string" },
-    "issuer_country": { "type": "string" },
-    "ipo_year": { "type": "string" },
-    "industry_en": { "type": "string" },
-    "profile_source_url": { "type": "string", "format": "uri" },
-    "profile_as_of": { "type": "string", "format": "date" },
-    "company_data_as_of": { "type": "string", "format": "date-time" },
-    "company_data_status": { "type": "string", "enum": ["complete", "partial", "failed"] },
-    "cik": { "type": "string" },
-    "legal_name_en": { "type": "string" },
-    "sic_code": { "type": "string" },
-    "sic_description": { "type": "string" },
-    "fiscal_year_end": { "type": "string" },
-    "state_of_incorporation": { "type": "string" },
-    "phone": { "type": "string" },
-    "website_url": { "type": "string", "format": "uri" },
-    "sec_filing_url": { "type": "string", "format": "uri" },
-    "optionable": { "type": "boolean", "default": false },
-    "catalog_as_of": { "type": "string", "format": "date" },
+    "exchange_code": {
+      "type": "string"
+    },
+    "country_code": {
+      "type": "string"
+    },
+    "issuer_country": {
+      "type": "string"
+    },
+    "ipo_year": {
+      "type": "string"
+    },
+    "industry_en": {
+      "type": "string"
+    },
+    "profile_source_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "profile_as_of": {
+      "type": "string",
+      "format": "date"
+    },
+    "company_data_as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "company_data_status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "failed"
+      ]
+    },
+    "cik": {
+      "type": "string"
+    },
+    "legal_name_en": {
+      "type": "string"
+    },
+    "sic_code": {
+      "type": "string"
+    },
+    "sic_description": {
+      "type": "string"
+    },
+    "fiscal_year_end": {
+      "type": "string"
+    },
+    "state_of_incorporation": {
+      "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "website_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "sec_filing_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "optionable": {
+      "type": "boolean",
+      "default": false
+    },
+    "catalog_as_of": {
+      "type": "string",
+      "format": "date"
+    },
     "status": {
       "type": "string",
       "enum": [
