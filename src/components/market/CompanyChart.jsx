@@ -184,6 +184,8 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const replayModeRef = useRef("idle");
   const replayStartTimeRef = useRef(null);
   const replayTimerRef = useRef(0);
+  const priceScaleDragRef = useRef(null);
+  const priceScaleMarginRef = useRef(0.08);
   const chartTarget = sector || symbol;
   const chartTargetType = sector ? "sector" : symbol === "TASI" ? "market-index" : "instrument";
   const safeRequestedInterval = symbol === "TASI" && intradayIntervals.has(requestedInterval) ? "" : requestedInterval;
@@ -358,22 +360,16 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   }, [marketCode, chartTargetType, chartTarget]);
 
   useEffect(() => {
-    const updateViewport = () => setFullscreen(document.fullscreenElement === wrapperRef.current);
-    document.addEventListener("fullscreenchange", updateViewport);
-    return () => document.removeEventListener("fullscreenchange", updateViewport);
-  }, []);
-
-  useEffect(() => {
     if (!fullscreen) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const closeFallbackFullscreen = (event) => {
-      if (event.key === "Escape" && !document.fullscreenElement) setFullscreen(false);
+    const closeFullscreen = (event) => {
+      if (event.key === "Escape") setFullscreen(false);
     };
-    document.addEventListener("keydown", closeFallbackFullscreen);
+    document.addEventListener("keydown", closeFullscreen);
     return () => {
       document.body.style.overflow = previousOverflow;
-      document.removeEventListener("keydown", closeFallbackFullscreen);
+      document.removeEventListener("keydown", closeFullscreen);
     };
   }, [fullscreen]);
 
@@ -413,6 +409,28 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     window.addEventListener("keydown", handleReplayKeys);
     return () => window.removeEventListener("keydown", handleReplayKeys);
   }, [replayState.mode, orderedCandles.length]);
+
+  useEffect(() => {
+    if (!chartTarget || !intradayIntervals.has(interval)) return undefined;
+    let timer = 0;
+    const scheduleRefresh = () => {
+      const now = new Date();
+      const refreshMinutes = [5, 20, 35, 50];
+      const nextMinute = refreshMinutes.find((minute) => minute > now.getMinutes());
+      const next = new Date(now);
+      if (nextMinute === undefined) {
+        next.setHours(next.getHours() + 1, refreshMinutes[0], 0, 0);
+      } else {
+        next.setMinutes(nextMinute, 0, 0);
+      }
+      timer = window.setTimeout(() => {
+        setRetryKey((value) => value + 1);
+        scheduleRefresh();
+      }, Math.max(1000, next.getTime() - now.getTime()));
+    };
+    scheduleRefresh();
+    return () => window.clearTimeout(timer);
+  }, [chartTarget, interval]);
 
   useEffect(() => {
     if (!chartTarget) return;
@@ -640,6 +658,51 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     resizeObserver.observe(canvasWrapRef.current || containerRef.current);
     const interactionEvents = ["wheel", "pointerdown", "pointerup", "touchmove", "dblclick"];
     interactionEvents.forEach((eventName) => containerRef.current?.addEventListener(eventName, scheduleOverlayUpdate, { passive: true }));
+    const chartHost = containerRef.current;
+    const isPriceAxisEvent = (event) => {
+      const rect = chartHost?.getBoundingClientRect();
+      const axisWidth = Math.max(58, Number(chart.priceScale("right").width?.()) || 74);
+      return rect && event.clientX >= rect.right - axisWidth;
+    };
+    const applyPriceScaleMargin = (margin) => {
+      const next = Math.min(0.42, Math.max(0.01, margin));
+      priceScaleMarginRef.current = next;
+      chart.priceScale("right").applyOptions({ autoScale: true, scaleMargins: { top: next, bottom: next } });
+      scheduleOverlayUpdate();
+    };
+    const beginPriceScale = (event) => {
+      if (!isPriceAxisEvent(event)) return;
+      priceScaleDragRef.current = { pointerId: event.pointerId, y: event.clientY, margin: priceScaleMarginRef.current };
+      chartHost?.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const movePriceScale = (event) => {
+      const drag = priceScaleDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const height = Math.max(240, chartHost?.clientHeight || 470);
+      applyPriceScaleMargin(drag.margin + (event.clientY - drag.y) / height * 0.5);
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const endPriceScale = (event) => {
+      const drag = priceScaleDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      priceScaleDragRef.current = null;
+      if (chartHost?.hasPointerCapture?.(event.pointerId)) chartHost.releasePointerCapture(event.pointerId);
+      event.stopPropagation();
+    };
+    const wheelPriceScale = (event) => {
+      if (!isPriceAxisEvent(event)) return;
+      applyPriceScaleMargin(priceScaleMarginRef.current + (event.deltaY > 0 ? 0.025 : -0.025));
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    chartHost?.addEventListener("pointerdown", beginPriceScale, { capture: true });
+    chartHost?.addEventListener("pointermove", movePriceScale, { capture: true });
+    chartHost?.addEventListener("pointerup", endPriceScale, { capture: true });
+    chartHost?.addEventListener("pointercancel", endPriceScale, { capture: true });
+    chartHost?.addEventListener("wheel", wheelPriceScale, { capture: true, passive: false });
 
     chartRef.current = chart;
     candleSeriesRef.current = candlesSeries;
@@ -683,7 +746,13 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     });
     return () => {
       resizeObserver.disconnect();
-      interactionEvents.forEach((eventName) => containerRef.current?.removeEventListener(eventName, scheduleOverlayUpdate));
+      interactionEvents.forEach((eventName) => chartHost?.removeEventListener(eventName, scheduleOverlayUpdate));
+      chartHost?.removeEventListener("pointerdown", beginPriceScale, { capture: true });
+      chartHost?.removeEventListener("pointermove", movePriceScale, { capture: true });
+      chartHost?.removeEventListener("pointerup", endPriceScale, { capture: true });
+      chartHost?.removeEventListener("pointercancel", endPriceScale, { capture: true });
+      chartHost?.removeEventListener("wheel", wheelPriceScale, { capture: true });
+      priceScaleDragRef.current = null;
       if (overlayFrameRef.current) window.cancelAnimationFrame(overlayFrameRef.current);
       if (hoverFrameRef.current) window.cancelAnimationFrame(hoverFrameRef.current);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleHandler);
@@ -942,6 +1011,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     if (!chart) return;
     chart.timeScale().resetTimeScale();
     chart.timeScale().fitContent();
+    priceScaleMarginRef.current = 0.08;
     chart.priceScale("right").applyOptions({ autoScale: true, scaleMargins: { top: 0.08, bottom: 0.08 } });
     window.requestAnimationFrame(() => {
       const panes = chart.panes();
@@ -952,26 +1022,9 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     });
   }
 
-  async function toggleFullscreen() {
-    const wrapper = wrapperRef.current;
-    if (!wrapper) return;
-    if (document.fullscreenElement) {
-      await document.exitFullscreen();
-      return;
-    }
-    if (fullscreen) {
-      setFullscreen(false);
-      return;
-    }
-    if (typeof wrapper.requestFullscreen === "function") {
-      try {
-        await wrapper.requestFullscreen();
-        return;
-      } catch {
-        // Tablet browsers may expose the API while refusing element fullscreen.
-      }
-    }
-    setFullscreen(true);
+  function toggleFullscreen() {
+    if (!wrapperRef.current) return;
+    setFullscreen((value) => !value);
   }
 
   function beginReplaySelection() {

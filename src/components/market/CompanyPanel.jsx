@@ -54,7 +54,7 @@ export default function CompanyPanel({ symbol, marketCode, requestedTimeframe = 
     const waitingForCompany = state.loading || !state.error;
     return <div className="space-y-4">
     <section className={state.error ? "company-panel-empty text-red-600" : "company-panel-empty"}>{waitingForCompany ? <Loader2 className="animate-spin" /> : <Info />}<h2>{waitingForCompany ? (isArabic ? "جارٍ التحميل…" : "Loading…") : (isArabic ? "تعذر عرض معلومات الشركة" : "Company information is unavailable")}</h2><p>{waitingForCompany ? (isArabic ? "لحظات ونجهز لك تفاصيل الشركة." : "Your company details will be ready shortly.") : (isArabic ? "حاول مرة أخرى بعد قليل." : "Please try again shortly.")}</p></section>
-    <CompanyChart symbol={symbol} marketCode={marketCode} requestedInterval={requestedTimeframe} onResetWidth={onResetWidth} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} />
+    <CompanyChart key="persistent-company-chart" symbol={symbol} marketCode={marketCode} requestedInterval={requestedTimeframe} onResetWidth={onResetWidth} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} />
   </div>;
   }
 
@@ -89,7 +89,7 @@ export default function CompanyPanel({ symbol, marketCode, requestedTimeframe = 
       </div>}
     </section>
 
-    <CompanyChart symbol={symbol} companyNameAr={instrument.name_ar} companyNameEn={instrument.name_en} marketCode={marketCode} momentum={storedMomentum} requestedInterval={requestedTimeframe} onMomentumChange={handleMomentumChange} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} onResetWidth={onResetWidth} />
+    <CompanyChart key="persistent-company-chart" symbol={symbol} companyNameAr={instrument.name_ar} companyNameEn={instrument.name_en} marketCode={marketCode} momentum={storedMomentum} requestedInterval={requestedTimeframe} onMomentumChange={handleMomentumChange} previousCompany={previousCompany} nextCompany={nextCompany} onSelectCompany={onSelectCompany} onResetWidth={onResetWidth} />
 
     <section className="content-card">
       <div className="section-heading"><TrendingUp size={18} /><div><h3>{isArabic ? "المناطق السعرية" : "Price zones"}</h3><p>{isArabic ? "تتحول المنطقة المكسورة بالإغلاق إلى مقاومة، ويختفي وقفها حتى تُستعاد كدعم." : "A zone broken on close becomes resistance and its stop stays hidden until support is reclaimed."}</p></div></div>
