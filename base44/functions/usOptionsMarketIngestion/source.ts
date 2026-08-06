@@ -6,6 +6,7 @@ import { alertIntervalDue, delayedCutoffMs, isCompletedDelayedBar, US_OPTIONS_DE
 const PROVIDER_CODE = "REFERENCE_YAHOO_US_OPTIONS_T15";
 const DELAY_SECONDS = US_OPTIONS_DELAY_SECONDS;
 const FRESHNESS_GRACE_SECONDS = 7 * 60;
+const PROVIDER_BAR_INTERVAL_MS = 5 * 60 * 1000;
 const CONCURRENCY = 22;
 const HOLIDAYS_2026 = new Map([
   ["2026-01-01", "New Year's Day"], ["2026-01-19", "Martin Luther King Jr. Day"],
@@ -197,7 +198,7 @@ async function ensureCatalog(base44, now) {
 
 async function fetchChart(symbol, now = new Date()) {
   const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
-  url.searchParams.set("interval", "15m");
+  url.searchParams.set("interval", "5m");
   url.searchParams.set("range", "5d");
   url.searchParams.set("includePrePost", "false");
   url.searchParams.set("events", "div,splits");
@@ -228,30 +229,39 @@ function normalizeChart(symbol, result, now) {
   const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
   const quote = result?.indicators?.quote?.[0] || {};
   const sessionDate = nyClock(now).date;
-  const visibleThroughMs = delayedCutoffMs(now);
   const barsBySession = new Map();
+  let latestObservedAt = 0;
   for (let index = 0; index < timestamps.length; index += 1) {
     const time = new Date(Number(timestamps[index]) * 1000);
     const clock = nyClock(time);
     const minute = clock.hour * 60 + clock.minute;
-    if (minute < 570 || minute >= 960 || !isCompletedDelayedBar(time, now)) continue;
+    if (minute < 570 || minute >= 960 || !isCompletedDelayedBar(time, now, PROVIDER_BAR_INTERVAL_MS)) continue;
     const open = validNumber(quote.open?.[index]);
     const high = validNumber(quote.high?.[index]);
     const low = validNumber(quote.low?.[index]);
     const close = validNumber(quote.close?.[index]);
     if (![open, high, low, close].every(Boolean) || high < Math.max(open, close) || low > Math.min(open, close)) continue;
-    const iso = time.toISOString();
+    const bucketTime = Math.floor(time.getTime() / (15 * 60 * 1000)) * 15 * 60 * 1000;
+    const bucketIso = new Date(bucketTime).toISOString();
     const sessionBars = barsBySession.get(clock.date) || new Map();
-    sessionBars.set(iso, { time: iso, open, high, low, close, volume: validVolume(quote.volume?.[index]) });
+    const current = sessionBars.get(bucketIso);
+    sessionBars.set(bucketIso, current ? {
+      ...current,
+      high: Math.max(current.high, high),
+      low: Math.min(current.low, low),
+      close,
+      volume: current.volume + validVolume(quote.volume?.[index]),
+    } : { time: bucketIso, open, high, low, close, volume: validVolume(quote.volume?.[index]) });
     barsBySession.set(clock.date, sessionBars);
+    latestObservedAt = Math.max(latestObservedAt, time.getTime() + PROVIDER_BAR_INTERVAL_MS);
   }
   const sessions = [...barsBySession.entries()].map(([date, sessionBars]) => ({
     sessionDate: date,
     bars: [...sessionBars.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time)),
   })).filter((session) => session.bars.length).sort((left, right) => left.sessionDate.localeCompare(right.sessionDate));
   const bars = sessions.find((session) => session.sessionDate === sessionDate)?.bars || [];
-  if (!bars.length) throw new Error("no_current_session_bars");
-  const providerAsOf = new Date(visibleThroughMs).toISOString();
+  if (!bars.length || !latestObservedAt) throw new Error("no_current_session_bars");
+  const providerAsOf = new Date(latestObservedAt).toISOString();
   const previousClose = validNumber(result?.meta?.chartPreviousClose ?? result?.meta?.previousClose);
   if (!previousClose) throw new Error("missing_previous_close");
   const first = bars[0];
@@ -261,7 +271,7 @@ function normalizeChart(symbol, result, now) {
     symbol,
     sessionDate,
     providerAsOf,
-    lastTradeTime: last.time,
+    lastTradeTime: providerAsOf,
     bars,
     sessions,
     quote: {

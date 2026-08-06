@@ -1831,10 +1831,10 @@ function newYorkClock(value) {
   };
 }
 function delayedCutoffMs(now) {
-  return Math.floor((now.getTime() - US_OPTIONS_DELAY_SECONDS * 1e3) / US_OPTIONS_BAR_INTERVAL_MS) * US_OPTIONS_BAR_INTERVAL_MS;
+  return now.getTime() - US_OPTIONS_DELAY_SECONDS * 1e3;
 }
-function isCompletedDelayedBar(barStart, now) {
-  return barStart.getTime() + US_OPTIONS_BAR_INTERVAL_MS <= delayedCutoffMs(now);
+function isCompletedDelayedBar(barStart, now, barIntervalMs = US_OPTIONS_BAR_INTERVAL_MS) {
+  return barStart.getTime() + barIntervalMs <= delayedCutoffMs(now);
 }
 function tradingWeekKey(date) {
   const value = /* @__PURE__ */ new Date(`${date}T00:00:00.000Z`);
@@ -1860,6 +1860,7 @@ function alertIntervalDue(interval, providerAsOf, isFinal, { nextTradingDate = "
 var PROVIDER_CODE = "REFERENCE_YAHOO_US_OPTIONS_T15";
 var DELAY_SECONDS = US_OPTIONS_DELAY_SECONDS;
 var FRESHNESS_GRACE_SECONDS = 7 * 60;
+var PROVIDER_BAR_INTERVAL_MS = 5 * 60 * 1e3;
 var CONCURRENCY = 22;
 var HOLIDAYS_2026 = /* @__PURE__ */ new Map([
   ["2026-01-01", "New Year's Day"],
@@ -2047,7 +2048,7 @@ async function ensureCatalog(base44, now) {
 }
 async function fetchChart(symbol, now = /* @__PURE__ */ new Date()) {
   const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
-  url.searchParams.set("interval", "15m");
+  url.searchParams.set("interval", "5m");
   url.searchParams.set("range", "5d");
   url.searchParams.set("includePrePost", "false");
   url.searchParams.set("events", "div,splits");
@@ -2077,30 +2078,39 @@ function normalizeChart(symbol, result, now) {
   const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
   const quote = result?.indicators?.quote?.[0] || {};
   const sessionDate = nyClock(now).date;
-  const visibleThroughMs = delayedCutoffMs(now);
   const barsBySession = /* @__PURE__ */ new Map();
+  let latestObservedAt = 0;
   for (let index = 0; index < timestamps.length; index += 1) {
     const time = new Date(Number(timestamps[index]) * 1e3);
     const clock = nyClock(time);
     const minute = clock.hour * 60 + clock.minute;
-    if (minute < 570 || minute >= 960 || !isCompletedDelayedBar(time, now)) continue;
+    if (minute < 570 || minute >= 960 || !isCompletedDelayedBar(time, now, PROVIDER_BAR_INTERVAL_MS)) continue;
     const open = validNumber(quote.open?.[index]);
     const high = validNumber(quote.high?.[index]);
     const low = validNumber(quote.low?.[index]);
     const close = validNumber(quote.close?.[index]);
     if (![open, high, low, close].every(Boolean) || high < Math.max(open, close) || low > Math.min(open, close)) continue;
-    const iso = time.toISOString();
+    const bucketTime = Math.floor(time.getTime() / (15 * 60 * 1e3)) * 15 * 60 * 1e3;
+    const bucketIso = new Date(bucketTime).toISOString();
     const sessionBars = barsBySession.get(clock.date) || /* @__PURE__ */ new Map();
-    sessionBars.set(iso, { time: iso, open, high, low, close, volume: validVolume(quote.volume?.[index]) });
+    const current = sessionBars.get(bucketIso);
+    sessionBars.set(bucketIso, current ? {
+      ...current,
+      high: Math.max(current.high, high),
+      low: Math.min(current.low, low),
+      close,
+      volume: current.volume + validVolume(quote.volume?.[index])
+    } : { time: bucketIso, open, high, low, close, volume: validVolume(quote.volume?.[index]) });
     barsBySession.set(clock.date, sessionBars);
+    latestObservedAt = Math.max(latestObservedAt, time.getTime() + PROVIDER_BAR_INTERVAL_MS);
   }
   const sessions = [...barsBySession.entries()].map(([date, sessionBars]) => ({
     sessionDate: date,
     bars: [...sessionBars.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time))
   })).filter((session) => session.bars.length).sort((left, right) => left.sessionDate.localeCompare(right.sessionDate));
   const bars = sessions.find((session) => session.sessionDate === sessionDate)?.bars || [];
-  if (!bars.length) throw new Error("no_current_session_bars");
-  const providerAsOf = new Date(visibleThroughMs).toISOString();
+  if (!bars.length || !latestObservedAt) throw new Error("no_current_session_bars");
+  const providerAsOf = new Date(latestObservedAt).toISOString();
   const previousClose = validNumber(result?.meta?.chartPreviousClose ?? result?.meta?.previousClose);
   if (!previousClose) throw new Error("missing_previous_close");
   const first = bars[0];
@@ -2110,7 +2120,7 @@ function normalizeChart(symbol, result, now) {
     symbol,
     sessionDate,
     providerAsOf,
-    lastTradeTime: last.time,
+    lastTradeTime: providerAsOf,
     bars,
     sessions,
     quote: {

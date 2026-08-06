@@ -21,11 +21,11 @@ function newYorkClock(value) {
 }
 
 export function delayedCutoffMs(now) {
-  return Math.floor((now.getTime() - US_OPTIONS_DELAY_SECONDS * 1000) / US_OPTIONS_BAR_INTERVAL_MS) * US_OPTIONS_BAR_INTERVAL_MS;
+  return now.getTime() - US_OPTIONS_DELAY_SECONDS * 1000;
 }
 
-export function isCompletedDelayedBar(barStart, now) {
-  return barStart.getTime() + US_OPTIONS_BAR_INTERVAL_MS <= delayedCutoffMs(now);
+export function isCompletedDelayedBar(barStart, now, barIntervalMs = US_OPTIONS_BAR_INTERVAL_MS) {
+  return barStart.getTime() + barIntervalMs <= delayedCutoffMs(now);
 }
 
 function tradingWeekKey(date) {
