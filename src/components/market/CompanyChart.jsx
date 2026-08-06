@@ -415,7 +415,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     let timer = 0;
     const scheduleRefresh = () => {
       const now = new Date();
-      const refreshMinutes = [5, 20, 35, 50];
+      const refreshMinutes = marketCode === "US_OPTIONS" ? [8, 23, 38, 53] : [5, 20, 35, 50];
       const nextMinute = refreshMinutes.find((minute) => minute > now.getMinutes());
       const next = new Date(now);
       if (nextMinute === undefined) {
@@ -430,7 +430,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     };
     scheduleRefresh();
     return () => window.clearTimeout(timer);
-  }, [chartTarget, interval]);
+  }, [chartTarget, interval, marketCode]);
 
   useEffect(() => {
     if (!chartTarget) return;
