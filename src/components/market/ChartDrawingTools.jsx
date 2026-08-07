@@ -1,31 +1,34 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle, ArrowUpRight, BellOff, BellPlus, ChevronDown, ChevronRight, ClipboardPaste, Copy, Eye, EyeOff, GitCommitHorizontal,
-  Grip, LayoutList, Lock, MousePointer2, MoveHorizontal, MoveVertical, Paintbrush, PanelLeftClose, PanelTopClose,
-  PenLine, Redo2, RefreshCcw, Route, Ruler, Spline, Square, Trash2, TrendingUp, Undo2, Unlock, X,
+  AlertTriangle, BellOff, BellPlus, Brush, ChevronDown, ChevronRight, ClipboardPaste, Copy, Equal, Eye, EyeOff, Frame,
+  Grip, LayoutList, Lock, Minus, MousePointer2, MoveHorizontal, MoveUpRight, MoveVertical, PanelLeftClose, PanelTopClose,
+  PenLine, Redo2, RefreshCcw, Slash, Spline, Square, Trash2, Undo2, Unlock, Waypoints, X,
 } from "lucide-react";
 import {
   cloneDrawings, createDrawing, DRAWING_TYPES, drawingFillPolygon, drawingHitTest, drawingSegments, lineStyleDash,
+  normalizedDrawing,
 } from "@/components/market/chartDrawingModel";
 import {
   deleteAllChartDrawings, deleteChartDrawing, deleteDrawingAlert, duplicateChartDrawing, loadChartDrawings,
   saveChartDrawing, saveDrawingAlert, setAllChartDrawingsVisibility,
 } from "@/services/drawingService";
 
+// Icon glyphs follow the shapes traders already recognise from TradingView:
+// the icon is a miniature of the drawing it produces, not a themed pictogram.
 const icons = {
-  trend_line: TrendingUp,
-  ray: GitCommitHorizontal,
-  horizontal_line: MoveHorizontal,
-  vertical_line: MoveVertical,
-  arrow: ArrowUpRight,
-  rectangle: Square,
-  parallel_channel: Route,
-  polyline: PenLine,
-  curve: Spline,
-  brush: Paintbrush,
-  price_range: MoveVertical,
-  date_range: MoveHorizontal,
-  date_and_price_range: Ruler,
+  trend_line: { Icon: Slash, rotate: 0 },
+  ray: { Icon: MoveUpRight, rotate: 0 },
+  horizontal_line: { Icon: Minus, rotate: 0 },
+  vertical_line: { Icon: Minus, rotate: 90 },
+  arrow: { Icon: MoveUpRight, rotate: 0 },
+  rectangle: { Icon: Square, rotate: 0 },
+  parallel_channel: { Icon: Equal, rotate: -28 },
+  polyline: { Icon: Waypoints, rotate: 0 },
+  curve: { Icon: Spline, rotate: 0 },
+  brush: { Icon: Brush, rotate: 0 },
+  price_range: { Icon: MoveVertical, rotate: 0 },
+  date_range: { Icon: MoveHorizontal, rotate: 0 },
+  date_and_price_range: { Icon: Frame, rotate: 0 },
 };
 const ALERT_TYPES = new Set(["trend_line", "ray", "horizontal_line"]);
 const RANGE_TYPES = new Set(["price_range", "date_range", "date_and_price_range"]);
@@ -58,10 +61,20 @@ function storedSelectionToolbarLayout() {
   }
 }
 
+function clipboardPayloadDrawing(value) {
+  const drawing = value?.drawing ? normalizedDrawing(value.drawing) : null;
+  if (!drawing) return null;
+  return {
+    ...drawing,
+    clipboardMarket: String(value.marketCode || "SA_MAIN").slice(0, 32),
+    clipboardSymbol: String(value.symbol || "").slice(0, 32),
+    clipboardInterval: String(value.interval || "").slice(0, 8),
+  };
+}
+
 function storedClipboardDrawing() {
   try {
-    const value = JSON.parse(localStorage.getItem(DRAWING_CLIPBOARD_STORAGE_KEY) || "null");
-    return value?.drawing ? { ...value.drawing, clipboardMarket: value.marketCode || "SA_MAIN", clipboardSymbol: value.symbol, clipboardInterval: value.interval } : null;
+    return clipboardPayloadDrawing(JSON.parse(localStorage.getItem(DRAWING_CLIPBOARD_STORAGE_KEY) || "null"));
   } catch {
     return null;
   }
@@ -348,7 +361,12 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
   const draftRef = useRef(null);
   const drawingsRef = useRef([]);
   const [drawings, setDrawings] = useState([]);
-  const [activeTool, setActiveTool] = useState(null);
+  // "select" is the resting tool, exactly like TradingView. Without it the
+  // drawing canvas was pointer-transparent whenever no tool was picked, so a
+  // finished drawing could never be clicked - and therefore never deleted on
+  // its own; only "delete everything" worked.
+  const [activeTool, setActiveTool] = useState("select");
+  const [pointerOverDrawing, setPointerOverDrawing] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [draft, setDraft] = useState(null);
   const [undoStack, setUndoStack] = useState([]);
@@ -469,6 +487,74 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
 
   useEffect(() => { redraw(); }, [drawings, draft, redraw, mainPaneHeight]);
 
+  // Returns the drawing under a viewport coordinate, or null. Used both to
+  // decide whether the drawing canvas should swallow the pointer (mouse) and
+  // to resolve taps on touch devices.
+  const drawingAt = useCallback((clientX, clientY) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !chart || !series) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null;
+    const point = canvasPoint({ clientX, clientY }, canvas, chart, series);
+    if (!point) return null;
+    return [...drawingsRef.current]
+      .sort((a, b) => Number(b.zIndex || 0) - Number(a.zIndex || 0))
+      .find((drawing) => {
+        if (!drawing.visible) return false;
+        const points = drawing.points.map((item) => toCanvasPoint(item, chart, series)).filter(Boolean);
+        return points.length === drawing.points.length
+          && drawingHitTest(drawing.type, points, point, rect.width, rect.height, drawing.options).hit;
+      }) || null;
+  }, [chart, series]);
+
+  // In select mode the canvas stays pointer-transparent so the chart keeps its
+  // native pan / pinch / wheel behaviour, and only becomes interactive while a
+  // drawing is actually under the pointer. On touch there is no hover, so a
+  // short tap that did not move is resolved as a selection instead.
+  useEffect(() => {
+    const boundary = canvasRef.current?.parentElement;
+    if (!boundary) return undefined;
+    let frame = 0;
+    let tap = null;
+    const track = (event) => {
+      if (activeTool !== "select" || interactionRef.current || event.pointerType === "touch") return;
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => setPointerOverDrawing(Boolean(drawingAt(event.clientX, event.clientY))));
+    };
+    const down = (event) => {
+      if (event.pointerType !== "touch" || activeTool !== "select" || interactionRef.current) return;
+      tap = { x: event.clientX, y: event.clientY, at: Date.now() };
+    };
+    const up = (event) => {
+      if (!tap || event.pointerType !== "touch") return;
+      const moved = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
+      const quick = Date.now() - tap.at < 500;
+      tap = null;
+      if (moved > 12 || !quick) return;
+      const found = drawingAt(event.clientX, event.clientY);
+      setSelectedId(found ? found.clientId : "");
+      setPointerOverDrawing(Boolean(found));
+    };
+    const leave = () => setPointerOverDrawing(false);
+    boundary.addEventListener("pointermove", track, { passive: true });
+    boundary.addEventListener("pointerdown", down, { passive: true });
+    boundary.addEventListener("pointerup", up, { passive: true });
+    boundary.addEventListener("pointercancel", leave, { passive: true });
+    boundary.addEventListener("pointerleave", leave, { passive: true });
+    return () => {
+      boundary.removeEventListener("pointermove", track);
+      boundary.removeEventListener("pointerdown", down);
+      boundary.removeEventListener("pointerup", up);
+      boundary.removeEventListener("pointercancel", leave);
+      boundary.removeEventListener("pointerleave", leave);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [activeTool, drawingAt]);
+
+  useEffect(() => {
+    if (activeTool !== "select") setPointerOverDrawing(false);
+  }, [activeTool]);
+
   useEffect(() => {
     if (!chart || !canvasRef.current) return undefined;
     let firstFrame = 0;
@@ -509,28 +595,36 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
     setAllVisibility(Boolean(visibilityCommand.visible)).catch(() => {});
   }, [visibilityCommand?.id]);
 
+  // Every shortcut goes through this ref. Previously the listener closed over
+  // `drawings`, which is replaced as soon as a save round-trips with a server
+  // id - so Delete/Copy operated on a stale object and silently did nothing.
+  const shortcutsRef = useRef({});
+  shortcutsRef.current = { undo, redo, removeSelected, copySelected, pasteCopied, onResetChart, hasSelection: Boolean(selectedId) };
+
   useEffect(() => {
+    const editable = (target) => typeof target?.closest === "function" && Boolean(target.closest("input,select,textarea,[contenteditable=\"true\"]"));
     const handler = (event) => {
+      const actions = shortcutsRef.current;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
-        if (event.shiftKey) redo(); else undo();
+        if (event.shiftKey) actions.redo(); else actions.undo();
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
-        event.preventDefault(); redo();
+        event.preventDefault(); actions.redo();
       } else if (event.key === "Escape") {
-        setDraft(null); setSelectedId(""); setActiveTool(null);
-      } else if ((event.key === "Delete" || event.key === "Backspace") && selectedId && !event.target.closest("input,select,textarea")) {
-        event.preventDefault(); removeSelected();
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && selectedId && !event.target.closest("input,select,textarea")) {
-        event.preventDefault(); copySelected();
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && !event.target.closest("input,select,textarea")) {
-        event.preventDefault(); pasteCopied();
+        setDraft(null); setSelectedId(""); setActiveTool("select");
+      } else if ((event.key === "Delete" || event.key === "Backspace") && actions.hasSelection && !editable(event.target)) {
+        event.preventDefault(); actions.removeSelected();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && actions.hasSelection && !editable(event.target)) {
+        event.preventDefault(); actions.copySelected();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && !editable(event.target)) {
+        event.preventDefault(); actions.pasteCopied();
       } else if (event.altKey && event.key.toLowerCase() === "r") {
-        event.preventDefault(); onResetChart?.();
+        event.preventDefault(); actions.onResetChart?.();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedId, clipboardDrawing, onResetChart]);
+  }, []);
 
   useEffect(() => {
     const boundary = canvasRef.current?.parentElement;
@@ -635,6 +729,14 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
 
   function pointerDown(event) {
     if (!chart || !series || !canvasRef.current || !activeTool) return;
+    // A second finger means the user is pinch-zooming. Abandon whatever the
+    // first finger started and hand the gesture back to the chart.
+    if (event.isPrimary === false) {
+      interactionRef.current = null;
+      setDraft(null);
+      setPointerOverDrawing(false);
+      return;
+    }
     const point = canvasPoint(event, canvasRef.current, chart, series);
     if (!point) return;
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -646,8 +748,9 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
         const points = drawing.points.map((item) => toCanvasPoint(item, chart, series)).filter(Boolean);
         return points.length === drawing.points.length && drawingHitTest(drawing.type, points, point, canvas.width, canvas.height, drawing.options).hit;
       });
-      if (!found) { setSelectedId(""); return; }
+      if (!found) { setSelectedId(""); setPointerOverDrawing(false); return; }
       setSelectedId(found.clientId);
+      setPointerOverDrawing(true);
       if (found.locked) return;
       const points = found.points.map((item) => toCanvasPoint(item, chart, series));
       const hit = drawingHitTest(found.type, points, point, canvas.width, canvas.height, found.options);
@@ -668,6 +771,7 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
 
   function pointerMove(event) {
     if (!chart || !series || !canvasRef.current) return;
+    if (event.isPrimary === false) return;
     const point = canvasPoint(event, canvasRef.current, chart, series);
     if (!point) return;
     const interaction = interactionRef.current;
@@ -748,13 +852,26 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
     }
   }
 
+  function liveSelected() {
+    return drawingsRef.current.find((item) => item.clientId === selectedId) || null;
+  }
+
   function removeSelected(force = false) {
-    return removeDrawing(selected, force);
+    const target = liveSelected();
+    if (!target) {
+      setStatus(isArabic ? "حدد رسماً أولاً ثم احذفه." : "Select a drawing before deleting.");
+      return undefined;
+    }
+    return removeDrawing(target, force);
   }
 
   async function copySelected() {
-    if (!selected) return;
-    const drawing = { ...cloneDrawings([selected])[0], clipboardMarket: marketCode, clipboardSymbol: symbol, clipboardInterval: interval };
+    const current = liveSelected();
+    if (!current) {
+      setStatus(isArabic ? "حدد رسماً أولاً ثم انسخه." : "Select a drawing before copying.");
+      return;
+    }
+    const drawing = { ...cloneDrawings([current])[0], clipboardMarket: marketCode, clipboardSymbol: symbol, clipboardInterval: interval };
     setClipboardDrawing(drawing);
     const payload = { version: 1, marketCode, symbol, interval, drawing };
     localStorage.setItem(DRAWING_CLIPBOARD_STORAGE_KEY, JSON.stringify(payload));
@@ -767,18 +884,26 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
   }
 
   async function pasteCopied() {
+    // The in-app clipboard is authoritative. The system clipboard is only an
+    // optional upgrade: reading it can prompt, reject, or be unavailable, and
+    // previously any of those paths could leave the paste doing nothing at all.
     let source = clipboardDrawing || storedClipboardDrawing();
-    try {
-      const systemValue = await navigator.clipboard?.readText?.();
-      if (systemValue?.startsWith(DRAWING_CLIPBOARD_PREFIX)) {
-        const payload = JSON.parse(systemValue.slice(DRAWING_CLIPBOARD_PREFIX.length));
-        if (payload?.drawing) source = { ...payload.drawing, clipboardMarket: payload.marketCode || "SA_MAIN", clipboardSymbol: payload.symbol, clipboardInterval: payload.interval };
+    if (!source) {
+      try {
+        const systemValue = await navigator.clipboard?.readText?.();
+        if (systemValue?.startsWith(DRAWING_CLIPBOARD_PREFIX) && systemValue.length < 200_000) {
+          source = clipboardPayloadDrawing(JSON.parse(systemValue.slice(DRAWING_CLIPBOARD_PREFIX.length))) || source;
+        }
+      } catch {
+        // Browser clipboard access is optional; the in-app clipboard is the fallback.
       }
-    } catch {
-      // Browser clipboard access is optional; use the durable in-app clipboard.
     }
     if (!source) {
       setStatus(isArabic ? "انسخ رسماً أولاً ثم استخدم اللصق." : "Copy a drawing before pasting.");
+      return;
+    }
+    if (!chart || !series || !canvasRef.current) {
+      setStatus(isArabic ? "الشارت غير جاهز بعد. أعد المحاولة بعد تحميل الشموع." : "The chart is not ready yet. Retry once candles load.");
       return;
     }
     try {
@@ -805,9 +930,27 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
       replaceDrawings([...drawingsRef.current, copy]);
       setSelectedId(copy.clientId);
       setActiveTool("select");
+      setPointerOverDrawing(true);
       setStatus(isArabic ? "تم لصق نسخة مستقلة من الرسم." : "An independent drawing copy was pasted.");
     } catch (error) {
-      setStatus(displayError(error, isArabic));
+      // Keep the paste visible locally and retry persistence in the background
+      // so a transient backend failure never looks like "paste does nothing".
+      const localCopy = {
+        ...source,
+        clientId: crypto.randomUUID(),
+        serverId: null,
+        alert: null,
+        locked: false,
+        visible: true,
+        zIndex: Math.max(0, ...drawingsRef.current.map((item) => Number(item.zIndex || 0))) + 1,
+        points: offsetPointsForPaste(source, chart, series, canvasRef.current),
+      };
+      replaceDrawings([...drawingsRef.current, localCopy]);
+      setSelectedId(localCopy.clientId);
+      setActiveTool("select");
+      setPointerOverDrawing(true);
+      persist(localCopy).catch(() => {});
+      setStatus(`${isArabic ? "تم اللصق محلياً؛ تعذر الحفظ على الخادم:" : "Pasted locally; server save failed:"} ${displayError(error, isArabic)}`);
     } finally {
       setBusyDrawingId("");
     }
@@ -1009,11 +1152,11 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
         <button type="button" onClick={() => { setShowDrawingList(false); setToolbarLayout((value) => ({ ...value, hidden: true })); }} title={isArabic ? "إخفاء شريط الأدوات" : "Hide toolbar"} aria-label={isArabic ? "إخفاء شريط أدوات الرسم" : "Hide drawing toolbar"}><EyeOff size={15} /></button>
       </div>
       {!toolbarLayout.collapsed && <div className="drawing-toolbar-tools">
-      <button type="button" className={activeTool === "select" ? "active" : ""} onClick={() => setActiveTool(activeTool === "select" ? null : "select")} title={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"} aria-label={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"}><MousePointer2 size={16} /></button>
+      <button type="button" className={activeTool === "select" ? "active" : ""} onClick={() => { setActiveTool("select"); setDraft(null); }} title={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"} aria-label={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"}><MousePointer2 size={16} /></button>
       {DRAWING_TYPES.map((tool) => {
-        const Icon = icons[tool.id];
+        const { Icon, rotate } = icons[tool.id];
         const label = isArabic ? tool.ar : tool.en;
-        return <button type="button" key={tool.id} className={activeTool === tool.id ? "active" : ""} onClick={() => { setActiveTool(tool.id); setSelectedId(""); setDraft(null); }} title={label} aria-label={label}><Icon size={16} /></button>;
+        return <button type="button" key={tool.id} className={activeTool === tool.id ? "active" : ""} onClick={() => { setActiveTool(tool.id); setSelectedId(""); setDraft(null); }} title={label} aria-label={label}><Icon size={16} style={rotate ? { transform: `rotate(${rotate}deg)` } : undefined} /></button>;
       })}
       <span className="drawing-tools-separator" />
       <button type="button" onClick={undo} disabled={!undoStack.length} title={isArabic ? "تراجع" : "Undo"}><Undo2 size={16} /></button>
@@ -1051,8 +1194,10 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
 
     <canvas
       ref={canvasRef}
-      className={"chart-drawing-canvas " + (activeTool ? "chart-drawing-canvas-active" : "")}
-      style={{ height: mainPaneHeight }}
+      className={"chart-drawing-canvas "
+        + (activeTool && activeTool !== "select" ? "chart-drawing-canvas-active " : "")
+        + (activeTool === "select" && pointerOverDrawing ? "chart-drawing-canvas-grab " : "")}
+      style={{ height: mainPaneHeight, touchAction: activeTool && activeTool !== "select" ? "none" : "auto" }}
       onPointerDown={pointerDown}
       onPointerMove={pointerMove}
       onPointerUp={pointerUp}

@@ -373,8 +373,13 @@
   .drawing-object-tree > div.active { @apply bg-sky-50 dark:bg-sky-400/10; }
   .drawing-object-select { @apply truncate rounded-md px-2 py-1.5 text-start font-bold hover:bg-slate-100 dark:hover:bg-slate-800; }
   .drawing-object-tree .danger { @apply text-red-600 dark:text-red-400; }
-  .chart-drawing-canvas { @apply pointer-events-none absolute left-0 top-0 z-[5] touch-none; width:calc(100% - var(--drawing-price-axis-width, 74px)); }
-  .chart-drawing-canvas-active { @apply pointer-events-auto cursor-crosshair; }
+  /* The drawing layer is pointer-transparent by default so the chart keeps its
+     native pan, wheel-zoom and pinch-zoom on desktop and tablets. It only takes
+     the pointer while a drawing tool is armed, or while the pointer is actually
+     over an existing drawing in select mode. */
+  .chart-drawing-canvas { @apply pointer-events-none absolute left-0 top-0 z-[5]; width:calc(100% - var(--drawing-price-axis-width, 74px)); }
+  .chart-drawing-canvas-active { @apply pointer-events-auto cursor-crosshair touch-none; }
+  .chart-drawing-canvas-grab { @apply pointer-events-auto cursor-move touch-none; }
   .drawing-selection-toolbar { @apply absolute z-[12] flex max-w-[calc(100%-16px)] flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 text-[10px] shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
   .drawing-selection-toolbar > b { @apply px-2 text-slate-700 dark:text-slate-200; }
   .drawing-selection-toolbar button { @apply grid h-8 min-w-8 place-items-center rounded-lg px-1.5 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800; }
