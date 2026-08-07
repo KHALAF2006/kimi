@@ -1247,17 +1247,15 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     <div className={"ohlc-strip " + (hovered ? "" : "invisible")} dir="ltr" aria-hidden={!hovered}>{hovered ? <><time>{formatChartDate(hovered.time, isArabic ? "ar-SA" : "en-GB", interval === "15m" || interval === "1h")}</time>{chartPreferences.candleType === "heikin_ashi" && <b>HA</b>}<span>O {formatNumber(hovered.open, "en")}</span><span>H {formatNumber(hovered.high, "en")}</span><span>L {formatNumber(hovered.low, "en")}</span><span>C {formatNumber(hovered.close, "en")}</span>{Number.isFinite(Number(hovered.volume)) && <span>VOL {formatNumber(hovered.volume, "en", 0)}</span>}{Number.isFinite(Number(hovered.rsi)) && <span>RSI {formatNumber(hovered.rsi, "en")}</span>}</> : <span>&nbsp;</span>}</div>
     {loading && <div className="chart-message">{isArabic ? "جارٍ التحميل…" : "Loading…"}</div>}
     {(error || recoveryNotice) && <div className="chart-message chart-recovery-message text-red-600" role="alert">
-      <span>{recoveryNotice || (error === "App entity read traffic volume limit exceeded"
-        ? (isArabic ? "الخدمة مشغولة مؤقتًا؛ أعد المحاولة بعد لحظات." : "The service is temporarily busy; please retry shortly.")
-        : isArabic
-          ? sector
-            ? "لا تتوفر شموع كافية لمؤشر هذا القطاع على الفاصل والنطاق المختارين. جرّب الفاصل اليومي أو نطاقًا أقصر."
-            : symbol === "TASI"
-              ? "لم تكتمل أرشفة شموع تاسي على الفاصل والنطاق المختارين بعد."
-              : "تعذر جلب شموع هذه الأداة من الأرشيف المحفوظ."
-          : sector
-            ? "This sector index does not have enough stored candles for the selected interval and range."
-            : "Stored candles are unavailable for this instrument.")}</span>
+      <span>{recoveryNotice || (isArabic
+        ? sector
+          ? "لا تتوفر شموع كافية لمؤشر هذا القطاع على الفاصل والنطاق المختارين. جرّب الفاصل اليومي أو نطاقًا أقصر."
+          : symbol === "TASI"
+            ? "لم تكتمل أرشفة شموع تاسي على الفاصل والنطاق المختارين بعد."
+            : "تعذر جلب شموع هذه الأداة من الأرشيف المحفوظ."
+        : sector
+          ? "This sector index does not have enough stored candles for the selected interval and range."
+          : "Stored candles are unavailable for this instrument.")}</span>
       <button type="button" className="secondary-button" onClick={() => setRetryKey((value) => value + 1)}>{isArabic ? "إعادة المحاولة" : "Retry"}</button>
       {(interval !== "1d" || range !== "1y") && <button type="button" className="secondary-button" onClick={() => { setError(""); setRecoveryNotice(""); setInterval("1d"); setRange("1y"); }}>{isArabic ? "العودة إلى اليومي" : "Back to daily"}</button>}
     </div>}
