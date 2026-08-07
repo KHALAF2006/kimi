@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle, ArrowUpRight, BellOff, BellPlus, ChevronDown, ChevronRight, ClipboardPaste, Copy, Eye, EyeOff, GitCommitHorizontal,
-  Grip, LayoutList, Lock, MousePointer2, MoveHorizontal, MoveVertical, Paintbrush, PanelLeftClose, PanelTopClose,
-  PenLine, Redo2, RefreshCcw, Route, Ruler, Spline, Square, Trash2, TrendingUp, Undo2, Unlock, X,
+  AlertTriangle, BellOff, BellPlus, Brush, ChevronDown, ChevronRight, ClipboardPaste, Copy, Equal, Eye, EyeOff, Frame,
+  Grip, LayoutList, Lock, Minus, MousePointer2, MoveHorizontal, MoveUpRight, MoveVertical, PanelLeftClose, PanelTopClose,
+  PenLine, Redo2, RefreshCcw, Slash, Spline, Square, Trash2, Undo2, Unlock, Waypoints, X,
 } from "lucide-react";
 import {
   cloneDrawings, createDrawing, DRAWING_TYPES, drawingFillPolygon, drawingHitTest, drawingSegments, lineStyleDash,
@@ -12,20 +12,22 @@ import {
   saveChartDrawing, saveDrawingAlert, setAllChartDrawingsVisibility,
 } from "@/services/drawingService";
 
+// Icon glyphs follow the shapes traders already recognise from TradingView:
+// the icon is a miniature of the drawing it produces, not a themed pictogram.
 const icons = {
-  trend_line: TrendingUp,
-  ray: GitCommitHorizontal,
-  horizontal_line: MoveHorizontal,
-  vertical_line: MoveVertical,
-  arrow: ArrowUpRight,
-  rectangle: Square,
-  parallel_channel: Route,
-  polyline: PenLine,
-  curve: Spline,
-  brush: Paintbrush,
-  price_range: MoveVertical,
-  date_range: MoveHorizontal,
-  date_and_price_range: Ruler,
+  trend_line: { Icon: Slash, rotate: 0 },
+  ray: { Icon: MoveUpRight, rotate: 0 },
+  horizontal_line: { Icon: Minus, rotate: 0 },
+  vertical_line: { Icon: Minus, rotate: 90 },
+  arrow: { Icon: MoveUpRight, rotate: 0 },
+  rectangle: { Icon: Square, rotate: 0 },
+  parallel_channel: { Icon: Equal, rotate: -28 },
+  polyline: { Icon: Waypoints, rotate: 0 },
+  curve: { Icon: Spline, rotate: 0 },
+  brush: { Icon: Brush, rotate: 0 },
+  price_range: { Icon: MoveVertical, rotate: 0 },
+  date_range: { Icon: MoveHorizontal, rotate: 0 },
+  date_and_price_range: { Icon: Frame, rotate: 0 },
 };
 const ALERT_TYPES = new Set(["trend_line", "ray", "horizontal_line"]);
 const RANGE_TYPES = new Set(["price_range", "date_range", "date_and_price_range"]);
@@ -348,7 +350,12 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
   const draftRef = useRef(null);
   const drawingsRef = useRef([]);
   const [drawings, setDrawings] = useState([]);
-  const [activeTool, setActiveTool] = useState(null);
+  // "select" is the resting tool, exactly like TradingView. Without it the
+  // drawing canvas was pointer-transparent whenever no tool was picked, so a
+  // finished drawing could never be clicked - and therefore never deleted on
+  // its own; only "delete everything" worked.
+  const [activeTool, setActiveTool] = useState("select");
+  const [pointerOverDrawing, setPointerOverDrawing] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [draft, setDraft] = useState(null);
   const [undoStack, setUndoStack] = useState([]);
@@ -517,7 +524,7 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
         event.preventDefault(); redo();
       } else if (event.key === "Escape") {
-        setDraft(null); setSelectedId(""); setActiveTool(null);
+        setDraft(null); setSelectedId(""); setActiveTool("select");
       } else if ((event.key === "Delete" || event.key === "Backspace") && selectedId && !event.target.closest("input,select,textarea")) {
         event.preventDefault(); removeSelected();
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && selectedId && !event.target.closest("input,select,textarea")) {
@@ -1009,11 +1016,11 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
         <button type="button" onClick={() => { setShowDrawingList(false); setToolbarLayout((value) => ({ ...value, hidden: true })); }} title={isArabic ? "إخفاء شريط الأدوات" : "Hide toolbar"} aria-label={isArabic ? "إخفاء شريط أدوات الرسم" : "Hide drawing toolbar"}><EyeOff size={15} /></button>
       </div>
       {!toolbarLayout.collapsed && <div className="drawing-toolbar-tools">
-      <button type="button" className={activeTool === "select" ? "active" : ""} onClick={() => setActiveTool(activeTool === "select" ? null : "select")} title={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"} aria-label={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"}><MousePointer2 size={16} /></button>
+      <button type="button" className={activeTool === "select" ? "active" : ""} onClick={() => { setActiveTool("select"); setDraft(null); }} title={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"} aria-label={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"}><MousePointer2 size={16} /></button>
       {DRAWING_TYPES.map((tool) => {
-        const Icon = icons[tool.id];
+        const { Icon, rotate } = icons[tool.id];
         const label = isArabic ? tool.ar : tool.en;
-        return <button type="button" key={tool.id} className={activeTool === tool.id ? "active" : ""} onClick={() => { setActiveTool(tool.id); setSelectedId(""); setDraft(null); }} title={label} aria-label={label}><Icon size={16} /></button>;
+        return <button type="button" key={tool.id} className={activeTool === tool.id ? "active" : ""} onClick={() => { setActiveTool(tool.id); setSelectedId(""); setDraft(null); }} title={label} aria-label={label}><Icon size={16} style={rotate ? { transform: `rotate(${rotate}deg)` } : undefined} /></button>;
       })}
       <span className="drawing-tools-separator" />
       <button type="button" onClick={undo} disabled={!undoStack.length} title={isArabic ? "تراجع" : "Undo"}><Undo2 size={16} /></button>
