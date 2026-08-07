@@ -550,7 +550,7 @@ function normalizeProviderCandles(payload, mappings, instruments, sourceId, sess
       const ordered = canonicalizeQuarterHourBars(sessionBars);
       const storedBars = ordered.map(({ session_date: _sessionDate, ...bar }) => bar);
       chunks.push({
-        instrument_id: instrument.id,
+        instrument_id: instrument.id, market_code: SAUDI_MAIN_MARKET,
         symbol: instrument.symbol,
         interval: "15m",
         session_date: barSessionDate,
