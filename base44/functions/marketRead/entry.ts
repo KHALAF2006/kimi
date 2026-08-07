@@ -5380,18 +5380,16 @@ function availableIntervals(storedIntervals) {
   return [...available];
 }
 async function storedCandlesForInterval(base44, instrumentId, interval, marketCode) {
-  const series = [];
-  const allChunks = [];
-  for (const storedInterval of fallbackIntervals(interval)) {
-    const chunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: marketCode, instrument_id: instrumentId, interval: storedInterval }, "-end_time", 500)))
-      .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
-      .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
-    if (!chunks.length) continue;
-    const storedBars = normalizedStoredBars(chunks, marketCode);
-    if (!storedBars.length) continue;
-    series.push({ interval: storedInterval, bars: storedBars });
-    allChunks.push(...chunks);
-  }
+  const storedIntervals = fallbackIntervals(interval);
+  const allChunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: marketCode, instrument_id: instrumentId, interval: { $in: storedIntervals } }, "-end_time", 1500)))
+    .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
+    .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
+  const series = storedIntervals.map((storedInterval) => {
+    const chunks = allChunks.filter((chunk) => chunk.interval === storedInterval);
+    if (!chunks.length) return null;
+    const bars = normalizedStoredBars(chunks, marketCode);
+    return bars.length ? { interval: storedInterval, bars } : null;
+  }).filter(Boolean);
   const merged = mergeStoredCandleSeries(series, interval, marketCandleOptions(marketCode));
   const latestChunk = allChunks
     .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime())
@@ -5407,15 +5405,14 @@ async function storedCandlesForInterval(base44, instrumentId, interval, marketCo
 }
 async function storedCandlesForInstruments(base44, instrumentIds, interval, marketCode) {
   const requestedIds = new Set(instrumentIds);
+  const storedIntervals = fallbackIntervals(interval);
   const chunksByInstrument = new Map(instrumentIds.map((id) => [id, []]));
-  for (const storedInterval of fallbackIntervals(interval)) {
-    const chunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: marketCode, instrument_id: { $in: instrumentIds }, interval: storedInterval }, "-end_time", 5e3)))
-      .filter((chunk) => requestedIds.has(chunk.instrument_id) && chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
-    for (const chunk of chunks) chunksByInstrument.get(chunk.instrument_id)?.push(chunk);
-  }
+  const chunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: marketCode, instrument_id: { $in: instrumentIds }, interval: { $in: storedIntervals } }, "-end_time", 5e3)))
+    .filter((chunk) => requestedIds.has(chunk.instrument_id) && chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+  for (const chunk of chunks) chunksByInstrument.get(chunk.instrument_id)?.push(chunk);
   return new Map(instrumentIds.map((instrumentId) => {
     const chunks = (chunksByInstrument.get(instrumentId) || []).sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
-    const series = fallbackIntervals(interval).map((storedInterval) => {
+    const series = storedIntervals.map((storedInterval) => {
       const matching = chunks.filter((chunk) => chunk.interval === storedInterval);
       return matching.length ? { interval: storedInterval, bars: normalizedStoredBars(matching, marketCode) } : null;
     }).filter(Boolean);
