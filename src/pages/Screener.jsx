@@ -43,27 +43,10 @@ export default function Screener() {
   >
     {(data) => {
       const normalizedQuery = query.trim().toLocaleLowerCase(isArabic ? "ar" : "en");
-      const matched = (data.instruments || []).filter((row) => row.screener_match);
-      const rows = matched.filter((row) => !normalizedQuery
-        || [row.symbol, row.name_ar, row.name_en, row.sector_ar, row.sector_en]
-          .filter(Boolean)
-          .join(" ")
-          .toLocaleLowerCase(isArabic ? "ar" : "en")
-          .includes(normalizedQuery));
-      const coverage = data.signal_coverage || null;
-      // Distinguish the three ways this screen can legitimately be empty, so an
-      // empty table is never mistaken for a broken search.
-      const emptyReason = rows.length ? "" : !coverage || coverage.snapshot_count === 0
-        ? (isArabic
-          ? "لم تُحتسب إشارات هذا السوق على الفاصل المختار بعد، لذلك لا توجد نتائج. جرّب الفاصل اليومي أو انتظر اكتمال دورة التحديث."
-          : "Signals for this market have not been calculated on the selected timeframe yet, so there are no results. Try the daily timeframe or wait for the refresh cycle.")
-        : matched.length === 0
-          ? (isArabic
-            ? "لا توجد أدوات مطابقة لهذه الإشارة على هذا الفاصل حالياً. جرّب إشارة أخرى أو «كل الإشارات»."
-            : "No instruments match this signal on this timeframe right now. Try another signal or “All signals”.")
-          : (isArabic
-            ? "لا توجد نتائج مطابقة لنص البحث. امسح البحث لعرض كل المطابقات."
-            : "No results match your search text. Clear the search to see every match.");
+      const rows = (data.instruments || [])
+        .filter((row) => row.screener_match?.timeframe === timeframe && row.screener_match?.values)
+        .filter((row) => !normalizedQuery
+          || `${row.symbol} ${row.name_ar} ${row.name_en} ${row.sector_ar} ${row.sector_en}`.toLocaleLowerCase(isArabic ? "ar" : "en").includes(normalizedQuery));
       return <div className="space-y-4">
         <section className="surface-panel p-4">
           <div className="relative">
@@ -106,13 +89,8 @@ export default function Screener() {
 
         <p className="text-sm font-bold text-slate-500">
           {isArabic ? `النتائج: ${rows.length}` : `Results: ${rows.length}`}
-          {coverage ? <span className="ms-2 font-normal text-slate-400">{isArabic
-            ? `(إشارات محسوبة لـ ${coverage.snapshot_count} من ${coverage.instrument_count} أداة)`
-            : `(signals calculated for ${coverage.snapshot_count} of ${coverage.instrument_count} instruments)`}</span> : null}
         </p>
-        {emptyReason
-          ? <p className="surface-panel p-6 text-center text-sm font-bold text-slate-500">{emptyReason}</p>
-          : <MarketTable rows={rows} marketCode={marketCode} detailsTimeframe={timeframe} />}
+        <MarketTable rows={rows} marketCode={marketCode} detailsTimeframe={timeframe} />
       </div>;
     }}
   </ServicePage>;

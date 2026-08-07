@@ -5990,14 +5990,12 @@ Deno.serve(async (req) => {
     const [quotes, indicators, losses] = await Promise.all([
       entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ market_code: requestedMarket, instrument_id: { $in: instrumentIds } }, "-quote_time", 1000)),
       body.mode === "screener"
-        ? entityReadWithRetry(() => base44.asServiceRole.entities.IndicatorSnapshot.filter({
+        ? optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.filter({
           market_code: requestedMarket,
           instrument_id: { $in: instrumentIds },
           indicator_key: "technical_signals",
           timeframe: screenerTimeframe,
-        }, "-source_as_of", 1000)).then(entityRows).catch((error) => {
-          throw Object.assign(new Error(`Screener signal snapshots are unavailable for ${requestedMarket} (${screenerTimeframe}): ${error?.message || error}`), { status: 503, code: "SCREENER_SNAPSHOTS_UNAVAILABLE" });
-        })
+        }, "-source_as_of", 1000), "indicator-snapshot")
         : Promise.resolve([]),
       optionalRows(() => base44.asServiceRole.entities.LossClassification.filter({ instrument_id: { $in: instrumentIds } }, "-as_of", 500), "loss-classification")
     ]);
@@ -6089,8 +6087,6 @@ Deno.serve(async (req) => {
       signal_coverage: body.mode === "screener" ? {
         timeframe: ["1d", "1wk", "1mo"].includes(String(body.timeframe)) ? String(body.timeframe) : "1d",
         instrument_count: instruments.length,
-        matched_count: rows.length,
-        requested_signal: String(body.signal || "") || null,
         snapshot_count: indicators.filter((item) => item.indicator_key === "technical_signals" && item.timeframe === (["1d", "1wk", "1mo"].includes(String(body.timeframe)) ? String(body.timeframe) : "1d")).length,
         latest_calculated_at: indicators.map((item) => item.calculated_at).filter(Boolean).sort().at(-1) || null,
       } : null

@@ -11,8 +11,6 @@ import ChartDrawingTools from "@/components/market/ChartDrawingTools";
 import ChartSettingsSheet from "@/components/market/ChartSettingsSheet";
 import { CHART_REPLAY_SPEEDS, nextReplayCursor, normalizeReplaySpeed, replayCandles, replayStartIndex } from "@/lib/chart-replay";
 import { chartControlTransition } from "@/lib/chart-controls";
-import { MomentumZonePrimitive } from "@/lib/momentum-zone-primitive";
-import { createViewportController } from "@/lib/chart-viewport";
 import { persistSuccessfulChartSelection, readSuccessfulChartSelection } from "@/lib/chart-timeframes";
 
 const intervalOptions = [
@@ -141,6 +139,19 @@ function colorWithOpacity(color, opacity) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+function sameZoneGeometry(current, next) {
+  if (current.length !== next.length) return false;
+  return current.every((zone, index) => {
+    const candidate = next[index];
+    return candidate && zone.key === candidate.key && zone.color === candidate.color && zone.name === candidate.name
+      && Math.abs(zone.left - candidate.left) < 0.25
+      && Math.abs(zone.width - candidate.width) < 0.25
+      && Math.abs(zone.top - candidate.top) < 0.25
+      && Math.abs(zone.height - candidate.height) < 0.25
+      && Number(zone.topPrice) === Number(candidate.topPrice)
+      && Number(zone.bottomPrice) === Number(candidate.bottomPrice);
+  });
+}
 
 function sameHoveredCandle(current, next) {
   if (current === next) return true;
@@ -165,8 +176,6 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const mainPaneHeightRef = useRef(470);
   const preferenceSaveQueueRef = useRef(/** @type {Promise<any>} */ (Promise.resolve(null)));
   const momentumLinesRef = useRef([]);
-  const zonePrimitiveRef = useRef(/** @type {MomentumZonePrimitive | null} */ (null));
-  const viewportRef = useRef(createViewportController());
   const overlayUpdateRef = useRef(() => {});
   const overlayFrameRef = useRef(0);
   const hoverFrameRef = useRef(0);
@@ -235,6 +244,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     };
   });
   const [requestedPeakLookbackDays, setRequestedPeakLookbackDays] = useState(momentumSettings.peakLookbackDays);
+  const [zoneGeometry, setZoneGeometry] = useState([]);
   const [mainPaneHeight, setMainPaneHeight] = useState(470);
   mainPaneHeightRef.current = mainPaneHeight;
   const [, setChartRevision] = useState(0);
@@ -315,10 +325,6 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const anyIndicatorVisible = showVolume || showMomentum || showRsi || showSma20 || showSma50;
   const anyReversalVisible = chartPreferences.reversal.pinBar.enabled || chartPreferences.reversal.engulfing.enabled;
   const onDrawingVisibilityChange = useCallback((visible) => setDrawingsVisible(visible), []);
-
-  useEffect(() => {
-    viewportRef.current.requestFit();
-  }, [marketCode, chartTarget, interval, range]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setRequestedPeakLookbackDays(momentumSettings.peakLookbackDays), 250);
@@ -569,14 +575,9 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         ticksVisible: true,
         timeVisible: ["15m", "1h", "2h", "3h", "4h"].includes(interval),
         secondsVisible: false,
-        rightOffset: 12,
+        rightOffset: 8,
         barSpacing: interval === "15m" ? 7 : 9,
-        minBarSpacing: 0.5,
-        shiftVisibleRangeOnNewBar: false,
-        allowShiftVisibleRangeOnWhitespaceReplacement: false,
-        fixLeftEdge: false,
-        fixRightEdge: false,
-        lockVisibleTimeRangeOnResize: true,
+        minBarSpacing: 2,
         tickMarkFormatter: (time) => formatChartDate(time, language === "ar" ? "ar-SA" : "en-GB"),
       },
       crosshair: {
@@ -584,15 +585,13 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         vertLine: { color: dark ? "#64748b" : "#64748b", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#0f172a" },
         horzLine: { color: dark ? "#64748b" : "#64748b", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#0f172a" },
       },
-      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
       handleScale: {
         axisPressedMouseMove: { time: true, price: true },
         axisDoubleClickReset: { time: true, price: true },
         mouseWheel: true,
         pinch: true,
       },
-      kineticScroll: { touch: true, mouse: false },
-      trackingMode: { exitMode: 1 },
       localization: { locale: language === "ar" ? "ar-SA" : "en-US" },
     });
 
@@ -603,9 +602,6 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       priceLineVisible: true,
       lastValueVisible: true,
     }, 0);
-    viewportRef.current.requestFit();
-    zonePrimitiveRef.current = new MomentumZonePrimitive({ isArabic });
-    candlesSeries.attachPrimitive(zonePrimitiveRef.current);
     watermarkRef.current = createTextWatermark(chart.panes()[0], {
       visible: chartPreferences.watermarkVisible,
       horzAlign: "center",
@@ -662,7 +658,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       scheduleOverlayUpdate();
     });
     resizeObserver.observe(canvasWrapRef.current || containerRef.current);
-    const interactionEvents = ["wheel", "pointerup", "touchend", "dblclick"];
+    const interactionEvents = ["wheel", "pointerdown", "pointerup", "touchmove", "dblclick"];
     interactionEvents.forEach((eventName) => containerRef.current?.addEventListener(eventName, scheduleOverlayUpdate, { passive: true }));
     const chartHost = containerRef.current;
 
@@ -715,10 +711,6 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       chart.unsubscribeDblClick(doubleClickHandler);
       chart.unsubscribeClick(replayClickHandler);
       watermarkRef.current?.detach?.();
-      if (zonePrimitiveRef.current) {
-        try { candlesSeries.detachPrimitive(zonePrimitiveRef.current); } catch { /* series already disposed with the chart */ }
-        zonePrimitiveRef.current = null;
-      }
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
@@ -796,7 +788,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    const visibleRange = viewportRef.current.captureRange(() => chart.timeScale().getVisibleLogicalRange());
+    const visibleRange = chart.timeScale().getVisibleLogicalRange();
 
     if (rsiSeriesRef.current) chart.removeSeries(rsiSeriesRef.current);
     if (volumeSeriesRef.current) chart.removeSeries(volumeSeriesRef.current);
@@ -837,12 +829,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       panes[0]?.setHeight(mainPaneTarget);
       if (showVolume) panes[1]?.setHeight(volumePaneTarget);
       if (showRsi) panes[showVolume ? 2 : 1]?.setHeight(rsiPaneTarget);
-      viewportRef.current.apply({
-        savedRange: visibleRange,
-        hasData: orderedCandlesRef.current.length > 0,
-        setRange: (range) => chart.timeScale().setVisibleLogicalRange(range),
-        fitContent: () => chart.timeScale().fitContent(),
-      });
+      if (visibleRange) chart.timeScale().setVisibleLogicalRange(visibleRange);
       overlayUpdateRef.current();
     });
   }, [showVolume, showRsi, rsiSettings.lineColor, rsiSettings.lineWidth, rsiSettings.upper, rsiSettings.lower, rsiSettings.upperColor, rsiSettings.lowerColor, chartHeight, mainPaneTarget, volumePaneTarget, rsiPaneTarget, theme, language, interval, isArabic]);
@@ -854,20 +841,9 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   useEffect(() => {
     volumeSeriesRef.current?.setData(visibleOrderedCandles.map((candle) => ({ time: candle.time, value: candle.volume, color: candle.close >= candle.open ? "#16a34acc" : "#dc2626cc" })));
     actualPriceSeriesRef.current?.setData(visibleOrderedCandles.map((candle) => ({ time: candle.time, value: candle.close })));
-    // Only auto-fit when the chart identity actually changed, so a user pan is
-    // never snapped back on a routine refresh. The fit is deferred into an
-    // animation frame so it competes fairly with the pane effect's restore
-    // instead of being silently overwritten by it.
     if (visibleOrderedCandles.length) {
       if (replayActive) chartRef.current?.timeScale().scrollToRealTime();
-      else if (viewportRef.current.isFitPending()) window.requestAnimationFrame(() => {
-        const chart = chartRef.current;
-        if (!chart) return;
-        viewportRef.current.apply({
-          hasData: true,
-          fitContent: () => chart.timeScale().fitContent(),
-        });
-      });
+      else chartRef.current?.timeScale().fitContent();
     }
     window.requestAnimationFrame(() => overlayUpdateRef.current());
   }, [visibleOrderedCandles, replayActive]);
@@ -904,12 +880,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   }, [momentum, showMomentum, momentumSettings, isArabic, showVolume, showRsi]);
 
   useEffect(() => {
-    // Zone geometry is no longer computed here. The chart primitive resolves
-    // price/time coordinates during the chart's own paint pass, so zones stay
-    // welded to the candles while zooming, pinching, and panning. This effect
-    // only keeps the React-side measurements (pane height, replay marker) fresh.
     overlayUpdateRef.current = () => {
       const chart = chartRef.current;
+      const series = candleSeriesRef.current;
+      const container = containerRef.current;
       const measuredMainPaneHeight = chart?.panes?.()[0]?.getHeight?.() || 470;
       setMainPaneHeight((current) => Math.abs(current - measuredMainPaneHeight) < 0.5 ? current : measuredMainPaneHeight);
       const startCoordinate = chart && Number.isFinite(Number(replayStartTimeRef.current))
@@ -918,35 +892,41 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       setReplayLineX((current) => startCoordinate == null || startCoordinate < 0
         ? (current == null ? current : null)
         : Math.abs(Number(current) - startCoordinate) < 0.5 ? current : startCoordinate);
-    };
-    overlayUpdateRef.current();
-  }, []);
-
-  useEffect(() => {
-    const primitive = zonePrimitiveRef.current;
-    if (!primitive) return;
-    const visibleZones = !showMomentum || !momentumSettings.showZones || !momentum?.zones?.length
-      ? []
-      : momentum.zones.filter((zone) => zone.active !== false).map((zone) => {
+      if (!chart || !series || !container || !showMomentum || !momentumSettings.showZones || !momentum?.zones?.length) {
+        setZoneGeometry((current) => current.length ? [] : current);
+        return;
+      }
+      const fallbackTime = visibleOrderedCandles[0]?.time;
+      const referenceTime = asChartTime(momentum.referenceTime || momentum.reference_time || fallbackTime);
+      const referenceX = Number.isFinite(referenceTime) ? chart.timeScale().timeToCoordinate(referenceTime) : null;
+      const left = Math.max(0, referenceX == null ? 0 : referenceX);
+      const right = Math.max(left, container.clientWidth - 70);
+      const zones = momentum.zones.filter((zone) => zone.active !== false).map((zone) => {
         const setting = momentumSettings.zones[zone.key] || momentumDefaults.zones[zone.key];
-        if (!setting.visible) return null;
+        const zoneColor = zone.role === "resistance" ? setting.resistanceColor : setting.color;
+        const top = series.priceToCoordinate(Number(zone.top));
+        const bottom = series.priceToCoordinate(Number(zone.bottom));
+        if (!setting.visible || top == null || bottom == null) return null;
+        const unclippedTop = Math.min(top, bottom);
+        const unclippedBottom = Math.max(top, bottom);
+        const clippedTop = Math.max(0, Math.min(mainPaneHeight, unclippedTop));
+        const clippedBottom = Math.max(0, Math.min(mainPaneHeight, unclippedBottom));
+        if (clippedBottom <= clippedTop) return null;
         return {
           key: zone.key,
-          top: Number(zone.top),
-          bottom: Number(zone.bottom),
-          color: zone.role === "resistance" ? setting.resistanceColor : setting.color,
+          left,
+          width: Math.max(0, right - left),
+          top: clippedTop,
+          height: Math.max(2, clippedBottom - clippedTop),
+          color: zoneColor,
           name: isArabic ? (zone.displayNameAr || zone.nameAr) : (zone.displayNameEn || zone.nameEn),
+          topPrice: zone.top,
+          bottomPrice: zone.bottom,
         };
       }).filter(Boolean);
-    const fallbackTime = visibleOrderedCandles[0]?.time;
-    const referenceTime = asChartTime(momentum?.referenceTime || momentum?.reference_time || fallbackTime);
-    primitive.setState({
-      zones: visibleZones,
-      referenceTime: Number.isFinite(referenceTime) ? referenceTime : null,
-      fillAlpha: Math.max(0.05, (100 - Number(momentumSettings.zoneOpacity || 0)) / 100),
-      labelsVisible: true,
-      isArabic,
-    });
+      setZoneGeometry((current) => sameZoneGeometry(current, zones) ? current : zones);
+    };
+    overlayUpdateRef.current();
   }, [momentum, momentumSettings, visibleOrderedCandles, showMomentum, isArabic]);
 
   function changeInterval(nextInterval) {
@@ -1096,8 +1076,8 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   }
 
   const candleTypeLabel = {
-    candles: isArabic ? "شموع ممتلئة" : "Candles",
-    hollow: isArabic ? "شموع مجوفة" : "Hollow candles",
+    candles: isArabic ? "شموع عادية" : "Candles",
+    hollow: isArabic ? "شموع مفرغة" : "Hollow candles",
     heikin_ashi: isArabic ? "هايكن آشي" : "Heikin Ashi",
   }[chartPreferences.candleType];
 
@@ -1115,8 +1095,8 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     <b>{isArabic ? "نوع عرض الشموع" : "Candle display"}</b>
     <p>{isArabic ? "اختر نوعاً واحداً؛ وتبقى المؤشرات مستقلة." : "Choose one type; indicators remain independent."}</p>
     {[
-      ["candles", isArabic ? "شموع ممتلئة" : "Candles"],
-      ["hollow", isArabic ? "شموع مجوفة" : "Hollow candles"],
+      ["candles", isArabic ? "شموع عادية" : "Candles"],
+      ["hollow", isArabic ? "شموع مفرغة" : "Hollow candles"],
       ["heikin_ashi", isArabic ? "هايكن آشي" : "Heikin Ashi"],
     ].map(([value, label]) => <button type="button" key={value} className={chartPreferences.candleType === value ? "active" : ""} onClick={() => selectCandleType(value)} aria-pressed={chartPreferences.candleType === value}><ChartCandlestick size={17} /><span>{label}</span>{chartPreferences.candleType === value && <span aria-hidden="true">✓</span>}</button>)}
   </>;
@@ -1286,6 +1266,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       <div ref={containerRef} className="absolute inset-0" />
       {Number.isFinite(Number(replayLineX)) && <div className="chart-replay-start-line" style={{ left: Number(replayLineX), height: mainPaneHeight }} aria-hidden="true"><span>{isArabic ? "البداية" : "Start"}</span></div>}
       {replayState.mode === "selecting" && <div className="chart-replay-selection-hint" aria-hidden="true"><History size={15} />{isArabic ? "اختر شمعة البداية" : "Select the starting bar"}</div>}
+      <div className="momentum-zone-overlay" aria-hidden="true">{zoneGeometry.map((zone) => <div key={zone.key} className="momentum-zone-box" style={{ left: zone.left, width: zone.width, top: zone.top, height: zone.height, borderColor: zone.color, backgroundColor: colorWithOpacity(zone.color, Math.max(0.05, (100 - momentumSettings.zoneOpacity) / 100)) }}><span style={{ backgroundColor: zone.color }}>{zone.name}</span></div>)}</div>
       {symbol && chartRef.current && candleSeriesRef.current && <ChartDrawingTools chart={chartRef.current} series={candleSeriesRef.current} marketCode={marketCode} symbol={symbol} interval={interval} mainPaneHeight={mainPaneHeight} isArabic={isArabic} onResetChart={resetChartView} visibilityCommand={drawingVisibilityCommand} onDrawingVisibilityChange={onDrawingVisibilityChange} />}
       {showMomentum && momentum?.zones?.length > 0 && <div className={"momentum-price-panel " + (!showMomentumCard ? "momentum-price-panel-collapsed" : "")}>
         <button type="button" className="momentum-card-eye" onClick={() => setShowMomentumCard((value) => !value)} title={showMomentumCard ? (isArabic ? "إخفاء بطاقة أسعار المناطق" : "Hide zone price card") : (isArabic ? "إظهار بطاقة أسعار المناطق" : "Show zone price card")} aria-expanded={showMomentumCard}>{showMomentumCard ? <EyeOff size={14} /> : <Eye size={14} />}<span>{investorZoneLabel}</span></button>

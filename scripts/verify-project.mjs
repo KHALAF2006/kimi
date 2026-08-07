@@ -237,17 +237,7 @@ assert.match(companyChart, /className=\{["']ohlc-strip ["'] \+ \(hovered \? ["']
 assert.match(companyChart, /subscribeCrosshairMove[\s\S]*scheduleOverlayUpdate\(\)/, "zone geometry must follow crosshair movement without a duplicate pointermove listener");
 assert.doesNotMatch(companyChart, /interactionEvents = \[[^\]]*["']pointermove["']/, "chart movement must not schedule duplicate overlay work from both the chart and DOM pointer events");
 assert.match(companyChart, /sameHoveredCandle\(hoveredRef\.current, next\)/, "crosshair state must skip React renders while the hovered candle is unchanged");
-assert.match(companyChart, /MomentumZonePrimitive/, "investor zones must be drawn by a chart primitive so they cannot lag the candles while zooming");
-assert.match(companyChart, /candlesSeries\.attachPrimitive\(zonePrimitiveRef\.current\)/, "the zone primitive must be attached to the candle series");
-assert.match(companyChart, /detachPrimitive\(zonePrimitiveRef\.current\)/, "the zone primitive must be detached when the chart is disposed");
-assert.doesNotMatch(companyChart, /momentum-zone-overlay/, "investor zones must not be re-introduced as lagging absolutely positioned DOM boxes");
-assert.match(companyChart, /createViewportController/, "one controller must arbitrate the visible range so the pane restore cannot overwrite the initial fit and hide every candle");
-assert.match(companyChart, /viewportRef\.current\.captureRange/, "the pane effect must not capture a range while a fit is still pending");
-assert.match(companyChart, /viewportRef\.current\.isFitPending\(\)/, "the chart must only auto-fit when its identity changes, so a user pan is never snapped back");
-assert.doesNotMatch(companyChart, /if \(visibleRange\) chart\.timeScale\(\)\.setVisibleLogicalRange\(visibleRange\)/, "restoring a stale range unconditionally is what parked the viewport on whitespace");
-assert.match(companyChart, /vertTouchDrag: true/, "tablet users must be able to drag the chart vertically as well as horizontally");
-assert.match(companyChart, /kineticScroll: \{ touch: true/, "touch panning must keep kinetic momentum on tablets");
-assert.doesNotMatch(companyChart, /"شموع عادية"/, "candle display names must use the trader-recognised term for filled candles");
+assert.match(companyChart, /sameZoneGeometry\(current, zones\)/, "zone synchronization must avoid redundant React layout updates");
 assert.match(companyChart, /showMomentumCard/, "momentum price card must have its own visibility state");
 assert.match(companyChart, /showMomentum\s*&&\s*momentum\?\.zones/, "hiding all indicators must also hide the investor-zone price card");
 assert.match(companyChart, /ChartDrawingTools/, "the verified chart must mount the drawing layer");
@@ -377,9 +367,7 @@ assert.doesNotMatch(appRouter, /unstable_|RSC|ServerAction|createRequestHandler/
 for (const signal of ["bullish_pin_bar", "bearish_pin_bar", "bullish_engulfing", "bearish_engulfing", "bullish_zone_pin_bar", "bearish_zone_pin_bar", "pin_bar_signal", "engulfing_signal", "zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"]) {
   assert.match(screenerPage, new RegExp(signal), `screener signal is missing: ${signal}`);
 }
-assert.match(screenerPage, /\.filter\(\(row\) => row\.screener_match\)/, "the screener UI must render the backend-proven matching candle instead of re-filtering the complete signal snapshot");
-assert.match(screenerPage, /emptyReason/, "an empty strategy result must explain whether signals are missing, unmatched, or filtered out by the search text");
-assert.match(marketReadFunction, /SCREENER_SNAPSHOTS_UNAVAILABLE/, "a failed screener snapshot query must surface as an error instead of a silently empty result set");
+assert.match(screenerPage, /row\.screener_match\?\.timeframe === timeframe/, "the screener UI must render the backend-proven matching candle instead of re-filtering the complete signal snapshot");
 assert.doesNotMatch(screenerPage, /\.filter\(\(row\) => row\.signals\?\.\[timeframe\]/, "the frontend must not discard valid backend screener results when full snapshots are omitted from transport");
 assert.doesNotMatch(screenerPage, /function SignalEvidence|screener-evidence/, "strategy results must not be duplicated as non-actionable evidence cards");
 assert.equal((screenerPage.match(/<MarketTable/g) || []).length, 1, "strategy results must have exactly one actionable company list");
