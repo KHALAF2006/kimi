@@ -476,6 +476,74 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
 
   useEffect(() => { redraw(); }, [drawings, draft, redraw, mainPaneHeight]);
 
+  // Returns the drawing under a viewport coordinate, or null. Used both to
+  // decide whether the drawing canvas should swallow the pointer (mouse) and
+  // to resolve taps on touch devices.
+  const drawingAt = useCallback((clientX, clientY) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !chart || !series) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null;
+    const point = canvasPoint({ clientX, clientY }, canvas, chart, series);
+    if (!point) return null;
+    return [...drawingsRef.current]
+      .sort((a, b) => Number(b.zIndex || 0) - Number(a.zIndex || 0))
+      .find((drawing) => {
+        if (!drawing.visible) return false;
+        const points = drawing.points.map((item) => toCanvasPoint(item, chart, series)).filter(Boolean);
+        return points.length === drawing.points.length
+          && drawingHitTest(drawing.type, points, point, rect.width, rect.height, drawing.options).hit;
+      }) || null;
+  }, [chart, series]);
+
+  // In select mode the canvas stays pointer-transparent so the chart keeps its
+  // native pan / pinch / wheel behaviour, and only becomes interactive while a
+  // drawing is actually under the pointer. On touch there is no hover, so a
+  // short tap that did not move is resolved as a selection instead.
+  useEffect(() => {
+    const boundary = canvasRef.current?.parentElement;
+    if (!boundary) return undefined;
+    let frame = 0;
+    let tap = null;
+    const track = (event) => {
+      if (activeTool !== "select" || interactionRef.current || event.pointerType === "touch") return;
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => setPointerOverDrawing(Boolean(drawingAt(event.clientX, event.clientY))));
+    };
+    const down = (event) => {
+      if (event.pointerType !== "touch" || activeTool !== "select" || interactionRef.current) return;
+      tap = { x: event.clientX, y: event.clientY, at: Date.now() };
+    };
+    const up = (event) => {
+      if (!tap || event.pointerType !== "touch") return;
+      const moved = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
+      const quick = Date.now() - tap.at < 500;
+      tap = null;
+      if (moved > 12 || !quick) return;
+      const found = drawingAt(event.clientX, event.clientY);
+      setSelectedId(found ? found.clientId : "");
+      setPointerOverDrawing(Boolean(found));
+    };
+    const leave = () => setPointerOverDrawing(false);
+    boundary.addEventListener("pointermove", track, { passive: true });
+    boundary.addEventListener("pointerdown", down, { passive: true });
+    boundary.addEventListener("pointerup", up, { passive: true });
+    boundary.addEventListener("pointercancel", leave, { passive: true });
+    boundary.addEventListener("pointerleave", leave, { passive: true });
+    return () => {
+      boundary.removeEventListener("pointermove", track);
+      boundary.removeEventListener("pointerdown", down);
+      boundary.removeEventListener("pointerup", up);
+      boundary.removeEventListener("pointercancel", leave);
+      boundary.removeEventListener("pointerleave", leave);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [activeTool, drawingAt]);
+
+  useEffect(() => {
+    if (activeTool !== "select") setPointerOverDrawing(false);
+  }, [activeTool]);
+
   useEffect(() => {
     if (!chart || !canvasRef.current) return undefined;
     let firstFrame = 0;
@@ -516,28 +584,36 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
     setAllVisibility(Boolean(visibilityCommand.visible)).catch(() => {});
   }, [visibilityCommand?.id]);
 
+  // Every shortcut goes through this ref. Previously the listener closed over
+  // `drawings`, which is replaced as soon as a save round-trips with a server
+  // id - so Delete/Copy operated on a stale object and silently did nothing.
+  const shortcutsRef = useRef({});
+  shortcutsRef.current = { undo, redo, removeSelected, copySelected, pasteCopied, onResetChart, hasSelection: Boolean(selectedId) };
+
   useEffect(() => {
+    const editable = (target) => typeof target?.closest === "function" && Boolean(target.closest("input,select,textarea,[contenteditable=\"true\"]"));
     const handler = (event) => {
+      const actions = shortcutsRef.current;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
-        if (event.shiftKey) redo(); else undo();
+        if (event.shiftKey) actions.redo(); else actions.undo();
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
-        event.preventDefault(); redo();
+        event.preventDefault(); actions.redo();
       } else if (event.key === "Escape") {
         setDraft(null); setSelectedId(""); setActiveTool("select");
-      } else if ((event.key === "Delete" || event.key === "Backspace") && selectedId && !event.target.closest("input,select,textarea")) {
-        event.preventDefault(); removeSelected();
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && selectedId && !event.target.closest("input,select,textarea")) {
-        event.preventDefault(); copySelected();
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && !event.target.closest("input,select,textarea")) {
-        event.preventDefault(); pasteCopied();
+      } else if ((event.key === "Delete" || event.key === "Backspace") && actions.hasSelection && !editable(event.target)) {
+        event.preventDefault(); actions.removeSelected();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && actions.hasSelection && !editable(event.target)) {
+        event.preventDefault(); actions.copySelected();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && !editable(event.target)) {
+        event.preventDefault(); actions.pasteCopied();
       } else if (event.altKey && event.key.toLowerCase() === "r") {
-        event.preventDefault(); onResetChart?.();
+        event.preventDefault(); actions.onResetChart?.();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedId, clipboardDrawing, onResetChart]);
+  }, []);
 
   useEffect(() => {
     const boundary = canvasRef.current?.parentElement;
