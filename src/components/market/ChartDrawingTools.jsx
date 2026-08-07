@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import {
   cloneDrawings, createDrawing, DRAWING_TYPES, drawingFillPolygon, drawingHitTest, drawingSegments, lineStyleDash,
+  normalizedDrawing,
 } from "@/components/market/chartDrawingModel";
 import {
   deleteAllChartDrawings, deleteChartDrawing, deleteDrawingAlert, duplicateChartDrawing, loadChartDrawings,
@@ -60,10 +61,20 @@ function storedSelectionToolbarLayout() {
   }
 }
 
+function clipboardPayloadDrawing(value) {
+  const drawing = value?.drawing ? normalizedDrawing(value.drawing) : null;
+  if (!drawing) return null;
+  return {
+    ...drawing,
+    clipboardMarket: String(value.marketCode || "SA_MAIN").slice(0, 32),
+    clipboardSymbol: String(value.symbol || "").slice(0, 32),
+    clipboardInterval: String(value.interval || "").slice(0, 8),
+  };
+}
+
 function storedClipboardDrawing() {
   try {
-    const value = JSON.parse(localStorage.getItem(DRAWING_CLIPBOARD_STORAGE_KEY) || "null");
-    return value?.drawing ? { ...value.drawing, clipboardMarket: value.marketCode || "SA_MAIN", clipboardSymbol: value.symbol, clipboardInterval: value.interval } : null;
+    return clipboardPayloadDrawing(JSON.parse(localStorage.getItem(DRAWING_CLIPBOARD_STORAGE_KEY) || "null"));
   } catch {
     return null;
   }
@@ -718,6 +729,14 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
 
   function pointerDown(event) {
     if (!chart || !series || !canvasRef.current || !activeTool) return;
+    // A second finger means the user is pinch-zooming. Abandon whatever the
+    // first finger started and hand the gesture back to the chart.
+    if (event.isPrimary === false) {
+      interactionRef.current = null;
+      setDraft(null);
+      setPointerOverDrawing(false);
+      return;
+    }
     const point = canvasPoint(event, canvasRef.current, chart, series);
     if (!point) return;
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -729,8 +748,9 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
         const points = drawing.points.map((item) => toCanvasPoint(item, chart, series)).filter(Boolean);
         return points.length === drawing.points.length && drawingHitTest(drawing.type, points, point, canvas.width, canvas.height, drawing.options).hit;
       });
-      if (!found) { setSelectedId(""); return; }
+      if (!found) { setSelectedId(""); setPointerOverDrawing(false); return; }
       setSelectedId(found.clientId);
+      setPointerOverDrawing(true);
       if (found.locked) return;
       const points = found.points.map((item) => toCanvasPoint(item, chart, series));
       const hit = drawingHitTest(found.type, points, point, canvas.width, canvas.height, found.options);
@@ -751,6 +771,7 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
 
   function pointerMove(event) {
     if (!chart || !series || !canvasRef.current) return;
+    if (event.isPrimary === false) return;
     const point = canvasPoint(event, canvasRef.current, chart, series);
     if (!point) return;
     const interaction = interactionRef.current;
@@ -831,13 +852,26 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
     }
   }
 
+  function liveSelected() {
+    return drawingsRef.current.find((item) => item.clientId === selectedId) || null;
+  }
+
   function removeSelected(force = false) {
-    return removeDrawing(selected, force);
+    const target = liveSelected();
+    if (!target) {
+      setStatus(isArabic ? "حدد رسماً أولاً ثم احذفه." : "Select a drawing before deleting.");
+      return undefined;
+    }
+    return removeDrawing(target, force);
   }
 
   async function copySelected() {
-    if (!selected) return;
-    const drawing = { ...cloneDrawings([selected])[0], clipboardMarket: marketCode, clipboardSymbol: symbol, clipboardInterval: interval };
+    const current = liveSelected();
+    if (!current) {
+      setStatus(isArabic ? "حدد رسماً أولاً ثم انسخه." : "Select a drawing before copying.");
+      return;
+    }
+    const drawing = { ...cloneDrawings([current])[0], clipboardMarket: marketCode, clipboardSymbol: symbol, clipboardInterval: interval };
     setClipboardDrawing(drawing);
     const payload = { version: 1, marketCode, symbol, interval, drawing };
     localStorage.setItem(DRAWING_CLIPBOARD_STORAGE_KEY, JSON.stringify(payload));
@@ -850,18 +884,26 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
   }
 
   async function pasteCopied() {
+    // The in-app clipboard is authoritative. The system clipboard is only an
+    // optional upgrade: reading it can prompt, reject, or be unavailable, and
+    // previously any of those paths could leave the paste doing nothing at all.
     let source = clipboardDrawing || storedClipboardDrawing();
-    try {
-      const systemValue = await navigator.clipboard?.readText?.();
-      if (systemValue?.startsWith(DRAWING_CLIPBOARD_PREFIX)) {
-        const payload = JSON.parse(systemValue.slice(DRAWING_CLIPBOARD_PREFIX.length));
-        if (payload?.drawing) source = { ...payload.drawing, clipboardMarket: payload.marketCode || "SA_MAIN", clipboardSymbol: payload.symbol, clipboardInterval: payload.interval };
+    if (!source) {
+      try {
+        const systemValue = await navigator.clipboard?.readText?.();
+        if (systemValue?.startsWith(DRAWING_CLIPBOARD_PREFIX) && systemValue.length < 200_000) {
+          source = clipboardPayloadDrawing(JSON.parse(systemValue.slice(DRAWING_CLIPBOARD_PREFIX.length))) || source;
+        }
+      } catch {
+        // Browser clipboard access is optional; the in-app clipboard is the fallback.
       }
-    } catch {
-      // Browser clipboard access is optional; use the durable in-app clipboard.
     }
     if (!source) {
       setStatus(isArabic ? "انسخ رسماً أولاً ثم استخدم اللصق." : "Copy a drawing before pasting.");
+      return;
+    }
+    if (!chart || !series || !canvasRef.current) {
+      setStatus(isArabic ? "الشارت غير جاهز بعد. أعد المحاولة بعد تحميل الشموع." : "The chart is not ready yet. Retry once candles load.");
       return;
     }
     try {
@@ -888,9 +930,27 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
       replaceDrawings([...drawingsRef.current, copy]);
       setSelectedId(copy.clientId);
       setActiveTool("select");
+      setPointerOverDrawing(true);
       setStatus(isArabic ? "تم لصق نسخة مستقلة من الرسم." : "An independent drawing copy was pasted.");
     } catch (error) {
-      setStatus(displayError(error, isArabic));
+      // Keep the paste visible locally and retry persistence in the background
+      // so a transient backend failure never looks like "paste does nothing".
+      const localCopy = {
+        ...source,
+        clientId: crypto.randomUUID(),
+        serverId: null,
+        alert: null,
+        locked: false,
+        visible: true,
+        zIndex: Math.max(0, ...drawingsRef.current.map((item) => Number(item.zIndex || 0))) + 1,
+        points: offsetPointsForPaste(source, chart, series, canvasRef.current),
+      };
+      replaceDrawings([...drawingsRef.current, localCopy]);
+      setSelectedId(localCopy.clientId);
+      setActiveTool("select");
+      setPointerOverDrawing(true);
+      persist(localCopy).catch(() => {});
+      setStatus(`${isArabic ? "تم اللصق محلياً؛ تعذر الحفظ على الخادم:" : "Pasted locally; server save failed:"} ${displayError(error, isArabic)}`);
     } finally {
       setBusyDrawingId("");
     }
@@ -1134,8 +1194,10 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
 
     <canvas
       ref={canvasRef}
-      className={"chart-drawing-canvas " + (activeTool ? "chart-drawing-canvas-active" : "")}
-      style={{ height: mainPaneHeight }}
+      className={"chart-drawing-canvas "
+        + (activeTool && activeTool !== "select" ? "chart-drawing-canvas-active " : "")
+        + (activeTool === "select" && pointerOverDrawing ? "chart-drawing-canvas-grab " : "")}
+      style={{ height: mainPaneHeight, touchAction: activeTool && activeTool !== "select" ? "none" : "auto" }}
       onPointerDown={pointerDown}
       onPointerMove={pointerMove}
       onPointerUp={pointerUp}
