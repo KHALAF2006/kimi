@@ -241,7 +241,10 @@ assert.match(companyChart, /MomentumZonePrimitive/, "investor zones must be draw
 assert.match(companyChart, /candlesSeries\.attachPrimitive\(zonePrimitiveRef\.current\)/, "the zone primitive must be attached to the candle series");
 assert.match(companyChart, /detachPrimitive\(zonePrimitiveRef\.current\)/, "the zone primitive must be detached when the chart is disposed");
 assert.doesNotMatch(companyChart, /momentum-zone-overlay/, "investor zones must not be re-introduced as lagging absolutely positioned DOM boxes");
-assert.match(companyChart, /fittedIdentityRef\.current !== identityKeyRef\.current/, "the chart must only auto-fit when its identity changes, so a user pan is never snapped back");
+assert.match(companyChart, /createViewportController/, "one controller must arbitrate the visible range so the pane restore cannot overwrite the initial fit and hide every candle");
+assert.match(companyChart, /viewportRef\.current\.captureRange/, "the pane effect must not capture a range while a fit is still pending");
+assert.match(companyChart, /viewportRef\.current\.isFitPending\(\)/, "the chart must only auto-fit when its identity changes, so a user pan is never snapped back");
+assert.doesNotMatch(companyChart, /if \(visibleRange\) chart\.timeScale\(\)\.setVisibleLogicalRange\(visibleRange\)/, "restoring a stale range unconditionally is what parked the viewport on whitespace");
 assert.match(companyChart, /vertTouchDrag: true/, "tablet users must be able to drag the chart vertically as well as horizontally");
 assert.match(companyChart, /kineticScroll: \{ touch: true/, "touch panning must keep kinetic momentum on tablets");
 assert.doesNotMatch(companyChart, /"شموع عادية"/, "candle display names must use the trader-recognised term for filled candles");

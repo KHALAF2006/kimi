@@ -12,6 +12,7 @@ import ChartSettingsSheet from "@/components/market/ChartSettingsSheet";
 import { CHART_REPLAY_SPEEDS, nextReplayCursor, normalizeReplaySpeed, replayCandles, replayStartIndex } from "@/lib/chart-replay";
 import { chartControlTransition } from "@/lib/chart-controls";
 import { MomentumZonePrimitive } from "@/lib/momentum-zone-primitive";
+import { createViewportController } from "@/lib/chart-viewport";
 import { persistSuccessfulChartSelection, readSuccessfulChartSelection } from "@/lib/chart-timeframes";
 
 const intervalOptions = [
@@ -165,8 +166,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const preferenceSaveQueueRef = useRef(/** @type {Promise<any>} */ (Promise.resolve(null)));
   const momentumLinesRef = useRef([]);
   const zonePrimitiveRef = useRef(/** @type {MomentumZonePrimitive | null} */ (null));
-  const identityKeyRef = useRef("");
-  const fittedIdentityRef = useRef("");
+  const viewportRef = useRef(createViewportController());
   const overlayUpdateRef = useRef(() => {});
   const overlayFrameRef = useRef(0);
   const hoverFrameRef = useRef(0);
@@ -243,7 +243,6 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   replayModeRef.current = replayState.mode;
   replayStartTimeRef.current = replayState.startTime;
   const indicatorKey = `${chartTarget}:${interval}`;
-  identityKeyRef.current = `${marketCode}:${chartTarget}:${interval}:${range}`;
   const backendMomentum = useMemo(() => indicatorState.key === indicatorKey ? normalizeMomentum(indicatorState.momentum, theme) : null, [indicatorState, indicatorKey, theme]);
   const identityName = sector ? (isArabic ? `مؤشر قطاع ${sector}` : `${sector} sector index`) : (isArabic ? companyNameAr || companyNameEn : companyNameEn || companyNameAr);
   const chartTitle = sector ? identityName : (isArabic ? "الرسم البياني" : "Chart");
@@ -316,6 +315,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const anyIndicatorVisible = showVolume || showMomentum || showRsi || showSma20 || showSma50;
   const anyReversalVisible = chartPreferences.reversal.pinBar.enabled || chartPreferences.reversal.engulfing.enabled;
   const onDrawingVisibilityChange = useCallback((visible) => setDrawingsVisible(visible), []);
+
+  useEffect(() => {
+    viewportRef.current.requestFit();
+  }, [marketCode, chartTarget, interval, range]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setRequestedPeakLookbackDays(momentumSettings.peakLookbackDays), 250);
@@ -600,6 +603,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       priceLineVisible: true,
       lastValueVisible: true,
     }, 0);
+    viewportRef.current.requestFit();
     zonePrimitiveRef.current = new MomentumZonePrimitive({ isArabic });
     candlesSeries.attachPrimitive(zonePrimitiveRef.current);
     watermarkRef.current = createTextWatermark(chart.panes()[0], {
@@ -792,7 +796,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    const visibleRange = chart.timeScale().getVisibleLogicalRange();
+    const visibleRange = viewportRef.current.captureRange(() => chart.timeScale().getVisibleLogicalRange());
 
     if (rsiSeriesRef.current) chart.removeSeries(rsiSeriesRef.current);
     if (volumeSeriesRef.current) chart.removeSeries(volumeSeriesRef.current);
@@ -833,7 +837,12 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       panes[0]?.setHeight(mainPaneTarget);
       if (showVolume) panes[1]?.setHeight(volumePaneTarget);
       if (showRsi) panes[showVolume ? 2 : 1]?.setHeight(rsiPaneTarget);
-      if (visibleRange) chart.timeScale().setVisibleLogicalRange(visibleRange);
+      viewportRef.current.apply({
+        savedRange: visibleRange,
+        hasData: orderedCandlesRef.current.length > 0,
+        setRange: (range) => chart.timeScale().setVisibleLogicalRange(range),
+        fitContent: () => chart.timeScale().fitContent(),
+      });
       overlayUpdateRef.current();
     });
   }, [showVolume, showRsi, rsiSettings.lineColor, rsiSettings.lineWidth, rsiSettings.upper, rsiSettings.lower, rsiSettings.upperColor, rsiSettings.lowerColor, chartHeight, mainPaneTarget, volumePaneTarget, rsiPaneTarget, theme, language, interval, isArabic]);
@@ -845,15 +854,20 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   useEffect(() => {
     volumeSeriesRef.current?.setData(visibleOrderedCandles.map((candle) => ({ time: candle.time, value: candle.volume, color: candle.close >= candle.open ? "#16a34acc" : "#dc2626cc" })));
     actualPriceSeriesRef.current?.setData(visibleOrderedCandles.map((candle) => ({ time: candle.time, value: candle.close })));
-    // Only auto-fit when the chart identity actually changed. Re-fitting on
-    // every refresh is what made the chart snap back and feel stuck whenever
-    // the user dragged it to the right.
+    // Only auto-fit when the chart identity actually changed, so a user pan is
+    // never snapped back on a routine refresh. The fit is deferred into an
+    // animation frame so it competes fairly with the pane effect's restore
+    // instead of being silently overwritten by it.
     if (visibleOrderedCandles.length) {
       if (replayActive) chartRef.current?.timeScale().scrollToRealTime();
-      else if (fittedIdentityRef.current !== identityKeyRef.current) {
-        fittedIdentityRef.current = identityKeyRef.current;
-        chartRef.current?.timeScale().fitContent();
-      }
+      else if (viewportRef.current.isFitPending()) window.requestAnimationFrame(() => {
+        const chart = chartRef.current;
+        if (!chart) return;
+        viewportRef.current.apply({
+          hasData: true,
+          fitContent: () => chart.timeScale().fitContent(),
+        });
+      });
     }
     window.requestAnimationFrame(() => overlayUpdateRef.current());
   }, [visibleOrderedCandles, replayActive]);
