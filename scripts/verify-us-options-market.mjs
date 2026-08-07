@@ -24,6 +24,7 @@ const catalogModule = await importTypeScriptModule("./base44/shared/us-options-c
 const timingModule = await importTypeScriptModule("./base44/shared/us-options-timing.ts");
 const timeframeModule = await importTypeScriptModule("./src/lib/chart-timeframes.js");
 const intelligenceModule = await importTypeScriptModule("./base44/shared/us-company-intelligence.ts");
+const incrementalCandleModule = await importTypeScriptModule("./base44/shared/incremental-candle-sync.ts");
 const catalog = catalogModule.US_OPTIONS_CATALOG;
 const symbols = catalog.companies.map((item) => item.symbol);
 assert.equal(catalog.market.market_code, "US_OPTIONS");
@@ -49,6 +50,28 @@ assert.equal(timingModule.alertIntervalDue("2h", "2026-08-04T14:30:00.000Z", fal
 assert.equal(timingModule.alertIntervalDue("1wk", "2026-04-02T20:00:00.000Z", true, { nextTradingDate: "2026-04-06" }), true, "the Thursday close before Good Friday must finalize the trading week");
 assert.equal(timingModule.alertIntervalDue("1mo", "2026-05-29T20:00:00.000Z", true, { nextTradingDate: "2026-06-01" }), true, "the final trading session must finalize the month");
 assert.equal(timingModule.alertIntervalDue("1mo", "2026-05-28T20:00:00.000Z", true, { nextTradingDate: "2026-05-29" }), false);
+
+const storedCursorFixture = incrementalCandleModule.latestStoredCandleByInstrument([
+  { instrument_id: "aapl", quality_status: "verified", bars: [{ time: "2026-08-04T14:00:00.000Z", close: 100 }] },
+  { instrument_id: "aapl", quality_status: "quarantined", bars: [{ time: "2026-08-04T14:15:00.000Z", close: 999 }] },
+]);
+assert.equal(storedCursorFixture.get("aapl").time, "2026-08-04T14:00:00.000Z", "a quarantined candle must never advance the durable cursor");
+const incrementalWindowFixture = incrementalCandleModule.incrementalProviderWindow(storedCursorFixture.get("aapl").time, new Date("2026-08-04T14:45:00.000Z"), { overlapBars: 2 });
+assert.equal(incrementalWindowFixture.mode, "incremental");
+assert.equal(new Date(incrementalWindowFixture.period1 * 1000).toISOString(), "2026-08-04T13:45:00.000Z", "two overlap candles must include the cursor candle and the one before it");
+assert.equal(incrementalCandleModule.incrementalProviderWindow(null, new Date("2026-08-04T14:45:00.000Z")).mode, "bootstrap");
+assert.equal(incrementalCandleModule.incrementalProviderWindow("2026-07-01T14:00:00.000Z", new Date("2026-08-04T14:45:00.000Z")).mode, "gap_recovery");
+assert.equal(incrementalCandleModule.earliestRecentGapByInstrument([
+  { instrument_id: "aapl", bars: [{ time: "2026-08-04T13:45:00.000Z" }, { time: "2026-08-04T14:15:00.000Z" }] },
+], new Date("2026-08-04T14:45:00.000Z")).get("aapl").time, "2026-08-04T14:00:00.000Z", "an interior missing candle must move the next request back to the gap");
+assert.deepEqual(
+  incrementalCandleModule.mergeCandleBars(
+    [{ time: "2026-08-04T13:45:00.000Z", close: 99 }, { time: "2026-08-04T14:00:00.000Z", close: 100 }],
+    [{ time: "2026-08-04T14:00:00.000Z", close: 101 }, { time: "2026-08-04T14:15:00.000Z", close: 102 }],
+  ).map((bar) => bar.close),
+  [99, 101, 102],
+  "an overlapping provider candle must correct the stored candle without duplicating or deleting the session",
+);
 
 const memoryStorage = new Map();
 globalThis.localStorage = {
@@ -143,6 +166,10 @@ assert.match(drawingService, /kmy_chart_drawings_\$\{marketCode\}_\$\{symbol\}/)
 
 const ingestion = await source("base44/functions/usOptionsMarketIngestion/source.ts");
 assert.match(ingestion, /url\.searchParams\.set\("interval", "5m"\)/);
+assert.match(ingestion, /incrementalProviderWindow/);
+assert.match(ingestion, /earliestRecentGapByInstrument/);
+assert.match(ingestion, /url\.searchParams\.set\("period1"/);
+assert.match(ingestion, /mergeCandleBars\(existing\?\.bars, session\.bars\)/);
 assert.match(ingestion, /new Set\(bar\.component_times\)\.size === 3/, "a published 15-minute candle must contain all three five-minute components");
 assert.match(ingestion, /QuoteObservation\.bulkCreate/, "accepted provider observations must remain auditable before promotion");
 assert.match(ingestion, /preserved_last_good/, "failed batch coverage must preserve the previous public snapshot");
@@ -159,8 +186,8 @@ assert.match(ingestion, /async function ensureCatalog/);
 assert.match(ingestion, /batch_count/);
 assert.match(ingestion, /batch_index/);
 assert.match(ingestion, /barsBySession/, "the five-day provider response must be partitioned into durable exchange sessions");
-assert.match(ingestion, /for \(const session of item\.sessions\)/, "every returned 15-minute session must be persisted, not only the current day");
-assert.match(ingestion, /canonical_version: "us-options-intraday-v2"/);
+assert.match(ingestion, /for \(const session of mergedSessions\)/, "every returned 15-minute session must be merged and persisted, not only the current day");
+assert.match(ingestion, /canonical_version: "us-options-intraday-v3"/);
 assert.match(ingestion, /forcedRecovery = body\.force === true/);
 assert.match(ingestion, /!forcedRecovery && \(minute < 600 \|\| minute > closeMinute \+ 30\)/);
 assert.match(ingestion, /body\.action === "data_status"/);

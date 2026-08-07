@@ -3,6 +3,7 @@ import { readJsonBody, replyError, requirePermission, requireTrustedOwner } from
 import { entityRows as rows, upsertEntityRows as upsertMany } from "../../shared/entity-batch.ts";
 import { US_BENCHMARKS_CATALOG, US_BENCHMARKS_MARKET_CODE, US_BENCHMARKS_PROVIDER_CODE } from "../../shared/us-benchmarks-catalog.ts";
 import { alertIntervalDue } from "../../shared/us-options-timing.ts";
+import { earliestRecentGapByInstrument, incrementalProviderWindow, indexCandleChunks, latestStoredCandleByInstrument, mergeCandleBars, summarizeProviderWindows } from "../../shared/incremental-candle-sync.ts";
 
 const DELAY_SECONDS = 900;
 const FRESHNESS_GRACE_SECONDS = 8 * 60;
@@ -91,13 +92,17 @@ async function ensureCatalog(base44, now) {
   return { source, instruments, bySymbol };
 }
 
-async function fetchChart(providerSymbol, interval, range) {
+async function fetchChart(providerSymbol, interval, rangeOrWindow) {
   const url = new URL(`${BASE_URL}/v8/finance/chart/${encodeURIComponent(providerSymbol)}`);
   url.searchParams.set("interval", interval);
-  if (range === "full") {
+  const request = typeof rangeOrWindow === "object" && rangeOrWindow !== null ? rangeOrWindow : { range: rangeOrWindow };
+  if (Number.isFinite(request.period1) && Number.isFinite(request.period2)) {
+    url.searchParams.set("period1", String(request.period1));
+    url.searchParams.set("period2", String(request.period2));
+  } else if (request.range === "full") {
     url.searchParams.set("period1", "0");
     url.searchParams.set("period2", String(Math.ceil(Date.now() / 1000) + 86400));
-  } else url.searchParams.set("range", range);
+  } else url.searchParams.set("range", String(request.range || "5d"));
   url.searchParams.set("includePrePost", "false");
   url.searchParams.set("events", "div,splits");
   url.searchParams.set("includeAdjustedClose", "true");
@@ -122,6 +127,22 @@ async function fetchChart(providerSymbol, interval, range) {
 function validPrice(value) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function quoteFromBars(bars, previousClose, marketCap = 0) {
+  const first = bars[0];
+  const last = bars.at(-1);
+  return {
+    last_price: last.close,
+    previous_close: previousClose,
+    change_value: last.close - previousClose,
+    change_percent: (last.close - previousClose) / previousClose * 100,
+    open: first.open,
+    high: Math.max(...bars.map((bar) => bar.high)),
+    low: Math.min(...bars.map((bar) => bar.low)),
+    volume: bars.reduce((sum, bar) => sum + Math.max(0, Number(bar.volume || 0)), 0),
+    market_cap: Math.max(0, Number(marketCap || 0)),
+  };
 }
 
 function normalizeIntraday(item, result, now) {
@@ -162,10 +183,10 @@ function normalizeIntraday(item, result, now) {
   if (!sessionDate || !currentBars.length || !providerAsOf) throw new Error("no_eligible_session_bars");
   const previousClose = validPrice(result?.meta?.chartPreviousClose ?? result?.meta?.previousClose);
   if (!previousClose) throw new Error("missing_previous_close");
-  const first = currentBars[0];
   const last = currentBars.at(-1);
   const canonicalProviderAsOf = new Date(Date.parse(last.time) + 15 * 60 * 1000).toISOString();
-  return { item, sessionDate, providerAsOf: canonicalProviderAsOf, sessions: [...sessions.entries()].map(([date, values]) => ({ date, bars: completeBars(values) })).filter((session) => session.bars.length), quote: { last_price: last.close, previous_close: previousClose, change_value: last.close - previousClose, change_percent: (last.close - previousClose) / previousClose * 100, open: first.open, high: Math.max(...currentBars.map((bar) => bar.high)), low: Math.min(...currentBars.map((bar) => bar.low)), volume: currentBars.reduce((sum, bar) => sum + bar.volume, 0), market_cap: Math.max(0, Number(result?.meta?.marketCap || 0)) } };
+  const marketCap = Math.max(0, Number(result?.meta?.marketCap || 0));
+  return { item, sessionDate, providerAsOf: canonicalProviderAsOf, sessions: [...sessions.entries()].map(([date, values]) => ({ date, bars: completeBars(values) })).filter((session) => session.bars.length), previousClose, marketCap, quote: quoteFromBars(currentBars, previousClose, marketCap) };
 }
 
 async function queueAlertDeliveries(base44, rule, bucket) {
@@ -212,6 +233,17 @@ async function evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate) 
 async function incremental(base44, catalog, source, now, options = {}) {
   const range = options.range === "1mo" ? "1mo" : "5d";
   const writeQuotes = options.writeQuotes !== false;
+  const storedChunks = rows(await base44.asServiceRole.entities.CandleChunk.filter({ market_code: US_BENCHMARKS_MARKET_CODE, interval: "15m" }, "-end_time", 2000));
+  const chunkByKey = indexCandleChunks(storedChunks);
+  const latestStored = latestStoredCandleByInstrument(storedChunks);
+  const recentGaps = earliestRecentGapByInstrument(storedChunks, now);
+  const providerWindows = new Map(catalog.map((instrument) => {
+    if (range === "1mo") return [instrument.symbol, { mode: "archive", range: "1mo" }];
+    const gap = recentGaps.get(instrument.id);
+    const window = incrementalProviderWindow(gap?.time || latestStored.get(instrument.id)?.time, now, { overlapBars: 2, bootstrapRange: "5d" });
+    return [instrument.symbol, gap && window.mode === "incremental" ? { ...window, mode: "gap_recovery" } : window];
+  }));
+  const providerWindowSummary = summarizeProviderWindows(providerWindows);
   const output = [];
   const failures = [];
   let cursor = 0;
@@ -223,7 +255,7 @@ async function incremental(base44, catalog, source, now, options = {}) {
         failures.push({ symbol: instrument.symbol, error: "catalog_mapping_missing" });
         continue;
       }
-      try { output.push(normalizeIntraday(item, await fetchChart(item.providerSymbol, "5m", range), now)); }
+      try { output.push(normalizeIntraday(item, await fetchChart(item.providerSymbol, "5m", providerWindows.get(instrument.symbol)), now)); }
       catch (error) { failures.push({ symbol: item.symbol, error: String(error?.message || "provider_failed") }); }
     }
   }
@@ -244,12 +276,22 @@ async function incremental(base44, catalog, source, now, options = {}) {
   const chunks = [];
   for (const value of output) {
     const instrument = catalog.find((row) => row.symbol === value.item.symbol);
+    if (!instrument) continue;
+    const mergedSessions = value.sessions.map((session) => {
+      const chunkKey = `${US_BENCHMARKS_MARKET_CODE}:${value.item.symbol}:15m:${session.date}`;
+      const existing = chunkByKey.get(chunkKey);
+      return { ...session, chunkKey, existing, bars: mergeCandleBars(existing?.bars, session.bars) };
+    }).filter((session) => session.bars.length);
+    const currentBars = mergedSessions.find((session) => session.date === value.sessionDate)?.bars || [];
+    if (!currentBars.length) continue;
+    const quote = quoteFromBars(currentBars, value.previousClose, value.marketCap);
     const delay = Math.max(0, Math.floor((Date.now() - Date.parse(value.providerAsOf)) / 1000));
     const fresh = delay <= DELAY_SECONDS + FRESHNESS_GRACE_SECONDS;
-    if (writeQuotes) quotes.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, session_date: value.sessionDate, symbol: value.item.symbol, ...value.quote, source_id: source.id, source_time: value.providerAsOf, provider_as_of: value.providerAsOf, last_trade_time: value.providerAsOf, received_time: received, delay_seconds: delay, license_status: "pending", quote_time: value.providerAsOf, quality_status: fresh ? "verified" : "stale", snapshot_version: snapshotVersion, market_phase: isFinal ? "closed" : "continuous", freshness_status: fresh ? "fresh" : "stale", is_final: isFinal, run_id: run.id });
-    for (const session of value.sessions) {
-      const sessionComplete = (session.date !== value.sessionDate || isFinal) && session.bars.length === expectedSessionBars(session.date);
-      chunks.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: value.item.symbol, interval: "15m", chunk_key: `${US_BENCHMARKS_MARKET_CODE}:${value.item.symbol}:15m:${session.date}`, session_date: session.date, start_time: session.bars[0].time, end_time: session.bars.at(-1).time, bars: session.bars, bar_count: session.bars.length, checksum: await digest(session.bars), source_id: source.id, run_id: run.id, snapshot_version: snapshotVersion, provider_as_of: value.providerAsOf, received_time: received, quality_status: fresh ? "verified" : "stale", canonical_version: "us-benchmarks-intraday-v3", is_final: sessionComplete, bucket_count: session.bars.length, completeness_status: sessionComplete ? "complete" : session.bars.length >= 4 ? "degraded" : "incomplete", is_historical_archive: session.date !== value.sessionDate, adjustment_mode: "none" });
+    if (writeQuotes) quotes.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, session_date: value.sessionDate, symbol: value.item.symbol, ...quote, source_id: source.id, source_time: value.providerAsOf, provider_as_of: value.providerAsOf, last_trade_time: value.providerAsOf, received_time: received, delay_seconds: delay, license_status: "pending", quote_time: value.providerAsOf, quality_status: fresh ? "verified" : "stale", snapshot_version: snapshotVersion, market_phase: isFinal ? "closed" : "continuous", freshness_status: fresh ? "fresh" : "stale", is_final: isFinal, run_id: run.id });
+    for (const session of mergedSessions) {
+      const sessionComplete = (session.existing?.is_final === true || session.date !== value.sessionDate || isFinal)
+        && session.bars.length === expectedSessionBars(session.date);
+      chunks.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: value.item.symbol, interval: "15m", chunk_key: session.chunkKey, session_date: session.date, start_time: session.bars[0].time, end_time: session.bars.at(-1).time, bars: session.bars, bar_count: session.bars.length, checksum: await digest(session.bars), source_id: source.id, run_id: run.id, snapshot_version: snapshotVersion, provider_as_of: sessionComplete ? new Date(Date.parse(session.bars.at(-1).time) + 15 * 60 * 1000).toISOString() : value.providerAsOf, received_time: received, quality_status: sessionComplete ? "verified" : fresh ? "verified" : "stale", canonical_version: "us-benchmarks-intraday-v4", is_final: sessionComplete, bucket_count: session.bars.length, completeness_status: sessionComplete ? "complete" : session.bars.length >= 4 ? "degraded" : "incomplete", is_historical_archive: session.existing?.is_historical_archive === true || session.date !== value.sessionDate, adjustment_mode: "none" });
     }
   }
   const coverage = output.length / catalog.length * 100;
@@ -262,8 +304,8 @@ async function incremental(base44, catalog, source, now, options = {}) {
     const nextTradingDate = isFinal ? await nextTradingSessionDate(base44, clock.date) : "";
     await evaluateAlerts(base44, quotes, isFinal, nextTradingDate);
   }
-  await base44.asServiceRole.entities.IngestionRun.update(run.id, { status, finished_at: new Date().toISOString(), success_count: output.length, failed_count: catalog.length - output.length, coverage_percent: coverage, provider_as_of: output.map((value) => value.providerAsOf).sort().at(-1) || null, snapshot_version: snapshotVersion, notes: JSON.stringify(failures).slice(0, 1000) });
-  return { status, market_code: US_BENCHMARKS_MARKET_CODE, run_id: run.id, range, expected: catalog.length, accepted: output.length, rejected: failures.length, coverage_percent: coverage, quote_count: quotes.length, session_chunk_count: chunks.length, candle_bar_count: chunks.reduce((sum, chunk) => sum + chunk.bar_count, 0), quotes: quoteResult, candles: candleResult, failures };
+  await base44.asServiceRole.entities.IngestionRun.update(run.id, { status, finished_at: new Date().toISOString(), success_count: output.length, failed_count: catalog.length - output.length, coverage_percent: coverage, provider_as_of: output.map((value) => value.providerAsOf).sort().at(-1) || null, snapshot_version: snapshotVersion, notes: `${JSON.stringify(failures).slice(0, 700)};windows:${JSON.stringify(providerWindowSummary)}`.slice(0, 1000) });
+  return { status, market_code: US_BENCHMARKS_MARKET_CODE, run_id: run.id, range, expected: catalog.length, accepted: output.length, rejected: failures.length, coverage_percent: coverage, quote_count: quotes.length, session_chunk_count: chunks.length, candle_bar_count: chunks.reduce((sum, chunk) => sum + chunk.bar_count, 0), quotes: quoteResult, candles: candleResult, failures, provider_windows: providerWindowSummary };
 }
 
 async function expireStaleRuns(base44, now) {
@@ -295,13 +337,13 @@ async function pendingIntradayArchiveInstruments(base44, catalog, batchSize = 8)
     .slice(0, Math.min(8, Math.max(1, Number(batchSize) || 8)));
 }
 
-function normalizeDaily(result, currentDate) {
+function normalizeDaily(result, currentDate, includeCurrentSession = false) {
   const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
   const quote = result?.indicators?.quote?.[0] || {};
   const bars = [];
   for (let index = 0; index < timestamps.length; index += 1) {
     const time = new Date(Number(timestamps[index]) * 1000).toISOString();
-    if (time.slice(0, 10) >= currentDate) continue;
+    if (time.slice(0, 10) > currentDate || !includeCurrentSession && time.slice(0, 10) === currentDate) continue;
     const open = validPrice(quote.open?.[index]);
     const high = validPrice(quote.high?.[index]);
     const low = validPrice(quote.low?.[index]);
@@ -319,6 +361,16 @@ async function refreshRecentDaily(base44, catalog, source, now) {
   if (existingRuns.some((item) => ["success", "partial"].includes(item.status))) return { status: "skipped", reason: "already_refreshed", market_code: US_BENCHMARKS_MARKET_CODE, slot_key: slotKey };
   const run = await base44.asServiceRole.entities.IngestionRun.create({ run_type: "daily_refresh", market_code: US_BENCHMARKS_MARKET_CODE, slot_key: slotKey, slot_kind: "session_final", scheduled_for: now.toISOString(), lease_expires_at: new Date(now.getTime() + 3 * 60 * 1000).toISOString(), started_at: now.toISOString(), total_records: catalog.length, success_count: 0, failed_count: 0, status: "running", source_id: source.id, notes: "Incremental daily candle refresh; historical years remain stored" });
   const syncRows = rows(await base44.asServiceRole.entities.HistoricalCandleSync.filter({ market_code: US_BENCHMARKS_MARKET_CODE, interval: "1d" }, "-completed_at", 500));
+  const dailyWindows = new Map(catalog.map((instrument) => {
+    const sync = syncRows.find((row) => row.instrument_id === instrument.id);
+    return [instrument.symbol, incrementalProviderWindow(sync?.latest_bar_time, now, {
+      overlapBars: 2,
+      barIntervalMs: 24 * 60 * 60 * 1000,
+      maxIncrementalAgeMs: 45 * 24 * 60 * 60 * 1000,
+      bootstrapRange: "1mo",
+    })];
+  }));
+  const dailyWindowSummary = summarizeProviderWindows(dailyWindows);
   const output = [];
   const failures = [];
   let cursor = 0;
@@ -327,17 +379,28 @@ async function refreshRecentDaily(base44, catalog, source, now) {
       const instrument = catalog[cursor++];
       const item = US_BENCHMARKS_CATALOG.instruments.find((value) => value.symbol === instrument.symbol);
       try {
-        const recent = normalizeDaily(await fetchChart(item.providerSymbol, "1d", "1mo"), clock.date);
+        const recent = normalizeDaily(await fetchChart(item.providerSymbol, "1d", dailyWindows.get(instrument.symbol)), clock.date, true);
         if (!recent.length) throw new Error("recent_daily_empty");
-        const year = recent.at(-1).time.slice(0, 4);
-        const key = `${US_BENCHMARKS_MARKET_CODE}:${instrument.symbol}:1d:history:${year}`;
-        const existingChunks = rows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, interval: "1d", chunk_key: key }, "-end_time", 5));
-        const byDay = new Map([...(existingChunks[0]?.bars || []), ...recent].map((bar) => [String(bar.time).slice(0, 10), bar]));
-        const bars = [...byDay.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time));
-        const chunk = { instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, interval: "1d", chunk_key: key, start_time: bars[0].time, end_time: bars.at(-1).time, bars, bar_count: bars.length, checksum: await digest(bars), source_id: source.id, run_id: run.id, snapshot_version: await digest(recent), provider_as_of: bars.at(-1).time, received_time: new Date().toISOString(), quality_status: "verified", canonical_version: "us-benchmarks-daily-v2", is_final: true, bucket_count: bars.length, completeness_status: "complete", is_historical_archive: true, adjustment_mode: "none", history_from: bars[0].time.slice(0, 10), history_to: bars.at(-1).time.slice(0, 10) };
-        await upsertMany(base44, "CandleChunk", [chunk], ["instrument_id", "interval", "chunk_key"], { instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, interval: "1d" });
+        const groups = new Map();
+        for (const bar of recent) {
+          const year = bar.time.slice(0, 4);
+          if (!groups.has(year)) groups.set(year, []);
+          groups.get(year).push(bar);
+        }
+        let addedBars = 0;
+        let latestBar = null;
+        for (const [year, yearBars] of groups) {
+          const key = `${US_BENCHMARKS_MARKET_CODE}:${instrument.symbol}:1d:history:${year}`;
+          const existingChunks = rows(await base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, interval: "1d", chunk_key: key }, "-end_time", 5));
+          const byDay = new Map([...(existingChunks[0]?.bars || []), ...yearBars].map((bar) => [String(bar.time).slice(0, 10), bar]));
+          const bars = [...byDay.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time));
+          addedBars += Math.max(0, bars.length - Number(existingChunks[0]?.bar_count || 0));
+          latestBar = !latestBar || Date.parse(bars.at(-1).time) > Date.parse(latestBar.time) ? bars.at(-1) : latestBar;
+          const chunk = { instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, interval: "1d", chunk_key: key, start_time: bars[0].time, end_time: bars.at(-1).time, bars, bar_count: bars.length, checksum: await digest(bars), source_id: source.id, run_id: run.id, snapshot_version: await digest(yearBars), provider_as_of: bars.at(-1).time, received_time: new Date().toISOString(), quality_status: "verified", canonical_version: "us-benchmarks-daily-v3", is_final: true, bucket_count: bars.length, completeness_status: "complete", is_historical_archive: true, adjustment_mode: "none", history_from: bars[0].time.slice(0, 10), history_to: bars.at(-1).time.slice(0, 10) };
+          await upsertMany(base44, "CandleChunk", [chunk], ["instrument_id", "interval", "chunk_key"], { instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, interval: "1d" });
+        }
         const sync = syncRows.find((row) => row.instrument_id === instrument.id);
-        if (sync) await base44.asServiceRole.entities.HistoricalCandleSync.update(sync.id, { latest_bar_time: bars.at(-1).time, requested_to: clock.date, bar_count: Math.max(Number(sync.bar_count || 0), Number(sync.bar_count || 0) + Math.max(0, bars.length - Number(existingChunks[0]?.bar_count || 0))), checksum: await digest([sync.checksum || "", bars]), last_attempt_at: new Date().toISOString(), completed_at: new Date().toISOString(), status: "complete", coverage_verified: true, provider_partial: false, run_id: run.id });
+        if (sync && latestBar) await base44.asServiceRole.entities.HistoricalCandleSync.update(sync.id, { latest_bar_time: latestBar.time, requested_to: clock.date, bar_count: Number(sync.bar_count || 0) + addedBars, checksum: await digest([sync.checksum || "", recent]), last_attempt_at: new Date().toISOString(), completed_at: new Date().toISOString(), status: "complete", coverage_verified: true, provider_partial: false, run_id: run.id });
         output.push({ symbol: instrument.symbol, bars: recent.length });
       } catch (error) { failures.push({ symbol: instrument.symbol, error: String(error?.message || "daily_refresh_failed") }); }
     }
@@ -345,8 +408,8 @@ async function refreshRecentDaily(base44, catalog, source, now) {
   await Promise.all(Array.from({ length: 8 }, () => worker()));
   const coverage = output.length / catalog.length * 100;
   const status = coverage >= 99 ? "success" : coverage >= 95 ? "partial" : "failed";
-  await base44.asServiceRole.entities.IngestionRun.update(run.id, { status, finished_at: new Date().toISOString(), success_count: output.length, failed_count: failures.length, coverage_percent: coverage, provider_as_of: output.length ? now.toISOString() : null, notes: JSON.stringify(failures).slice(0, 1000) });
-  return { status, market_code: US_BENCHMARKS_MARKET_CODE, run_id: run.id, accepted: output.length, rejected: failures.length, coverage_percent: coverage, failures };
+  await base44.asServiceRole.entities.IngestionRun.update(run.id, { status, finished_at: new Date().toISOString(), success_count: output.length, failed_count: failures.length, coverage_percent: coverage, provider_as_of: output.length ? now.toISOString() : null, notes: `${JSON.stringify(failures).slice(0, 700)};windows:${JSON.stringify(dailyWindowSummary)}`.slice(0, 1000) });
+  return { status, market_code: US_BENCHMARKS_MARKET_CODE, run_id: run.id, accepted: output.length, rejected: failures.length, coverage_percent: coverage, failures, provider_windows: dailyWindowSummary };
 }
 
 async function historical(base44, catalog, source, body) {

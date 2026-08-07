@@ -2,6 +2,7 @@ import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 import { readJsonBody, replyError, requirePermission, requireTrustedOwner } from "../../shared/security.ts";
 import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE, US_OPTIONS_SYMBOLS } from "../../shared/us-options-catalog.ts";
 import { alertIntervalDue, delayedCutoffMs, isCompletedDelayedBar, US_OPTIONS_DELAY_SECONDS } from "../../shared/us-options-timing.ts";
+import { earliestRecentGapByInstrument, incrementalProviderWindow, indexCandleChunks, latestStoredCandleByInstrument, mergeCandleBars, summarizeProviderWindows } from "../../shared/incremental-candle-sync.ts";
 
 const PROVIDER_CODE = "REFERENCE_YAHOO_US_OPTIONS_T15";
 const DELAY_SECONDS = US_OPTIONS_DELAY_SECONDS;
@@ -61,6 +62,27 @@ function validNumber(value) {
 function validVolume(value) {
   const number = Number(value || 0);
   return Number.isFinite(number) && number >= 0 ? number : 0;
+}
+
+function expectedSessionBars(sessionDate) {
+  return EARLY_CLOSE_2026.has(sessionDate) ? 14 : 26;
+}
+
+function quoteFromBars(bars, previousClose, marketCap = 0) {
+  const first = bars[0];
+  const last = bars.at(-1);
+  const changeValue = last.close - previousClose;
+  return {
+    last_price: last.close,
+    previous_close: previousClose,
+    change_value: changeValue,
+    change_percent: changeValue / previousClose * 100,
+    open: first.open,
+    high: Math.max(...bars.map((bar) => bar.high)),
+    low: Math.min(...bars.map((bar) => bar.low)),
+    volume: bars.reduce((sum, bar) => sum + validVolume(bar.volume), 0),
+    market_cap: validVolume(marketCap),
+  };
 }
 
 function checksum(value) {
@@ -196,10 +218,13 @@ async function ensureCatalog(base44, now) {
   return { source, instruments, bySymbol: new Map(instruments.map((instrument) => [instrument.symbol, instrument])) };
 }
 
-async function fetchChart(symbol, now = new Date()) {
+async function fetchChart(symbol, now = new Date(), window = { mode: "bootstrap", range: "5d" }) {
   const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
   url.searchParams.set("interval", "5m");
-  url.searchParams.set("range", "5d");
+  if (Number.isFinite(window?.period1) && Number.isFinite(window?.period2)) {
+    url.searchParams.set("period1", String(window.period1));
+    url.searchParams.set("period2", String(window.period2));
+  } else url.searchParams.set("range", String(window?.range || "5d"));
   url.searchParams.set("includePrePost", "false");
   url.searchParams.set("events", "div,splits");
   let lastError = null;
@@ -214,7 +239,7 @@ async function fetchChart(symbol, now = new Date()) {
       if (!response.ok) throw new Error(`provider_http_${response.status}`);
       const result = (await response.json())?.chart?.result?.[0];
       if (!result) throw new Error("provider_empty_chart");
-      return normalizeChart(symbol, result, now);
+      return { ...normalizeChart(symbol, result, now), requestMode: window.mode || "bootstrap" };
     } catch (error) {
       lastError = error;
       if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
@@ -269,9 +294,7 @@ function normalizeChart(symbol, result, now) {
   const providerAsOf = new Date(Date.parse(bars.at(-1).time) + 15 * 60 * 1000).toISOString();
   const previousClose = validNumber(result?.meta?.chartPreviousClose ?? result?.meta?.previousClose);
   if (!previousClose) throw new Error("missing_previous_close");
-  const first = bars[0];
-  const last = bars.at(-1);
-  const changeValue = last.close - previousClose;
+  const marketCap = validVolume(result?.meta?.marketCap);
   return {
     symbol,
     sessionDate,
@@ -279,28 +302,20 @@ function normalizeChart(symbol, result, now) {
     lastTradeTime: providerAsOf,
     bars,
     sessions,
-    quote: {
-      last_price: last.close,
-      previous_close: previousClose,
-      change_value: changeValue,
-      change_percent: changeValue / previousClose * 100,
-      open: first.open,
-      high: Math.max(...bars.map((bar) => bar.high)),
-      low: Math.min(...bars.map((bar) => bar.low)),
-      volume: bars.reduce((sum, bar) => sum + bar.volume, 0),
-      market_cap: validVolume(result?.meta?.marketCap),
-    },
+    previousClose,
+    marketCap,
+    quote: quoteFromBars(bars, previousClose, marketCap),
   };
 }
 
-async function fetchUniverse(now, symbols) {
+async function fetchUniverse(now, symbols, windowsBySymbol) {
   const output = [];
   const failures = [];
   let cursor = 0;
   async function worker() {
     while (cursor < symbols.length) {
       const symbol = symbols[cursor++];
-      try { output.push(await fetchChart(symbol, now)); }
+      try { output.push(await fetchChart(symbol, now, windowsBySymbol.get(symbol))); }
       catch (error) { failures.push({ symbol, message: error?.message || "provider_failed" }); }
     }
   }
@@ -415,7 +430,17 @@ Deno.serve(async (req) => {
       started_at: now.toISOString(), total_records: batchInstruments.length, success_count: 0, failed_count: 0,
       status: "running", source_id: source.id, notes: "U.S. optionable company T+15 incremental candle update",
     });
-    const { output, failures } = await fetchUniverse(now, batchSymbols);
+    const existingIntraday = await readRowsWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: US_OPTIONS_MARKET_CODE, interval: "15m" }, "-end_time", 2000));
+    const chunkByKey = indexCandleChunks(existingIntraday);
+    const latestStored = latestStoredCandleByInstrument(existingIntraday);
+    const recentGaps = earliestRecentGapByInstrument(existingIntraday, now);
+    const windowsBySymbol = new Map(batchInstruments.map((instrument) => {
+      const gap = recentGaps.get(instrument.id);
+      const window = incrementalProviderWindow(gap?.time || latestStored.get(instrument.id)?.time, now, { overlapBars: 2, bootstrapRange: "5d" });
+      return [instrument.symbol, gap && window.mode === "incremental" ? { ...window, mode: "gap_recovery" } : window];
+    }));
+    const providerWindowSummary = summarizeProviderWindows(windowsBySymbol);
+    const { output, failures } = await fetchUniverse(now, batchSymbols, windowsBySymbol);
     const received = new Date().toISOString();
     const snapshotVersion = `${US_OPTIONS_MARKET_CODE}:${clock.date}:${Date.now()}`;
     const isFinal = minute >= closeMinute + 15;
@@ -425,26 +450,36 @@ Deno.serve(async (req) => {
     for (const item of output) {
       const instrument = bySymbol.get(item.symbol);
       if (!instrument) continue;
+      const mergedSessions = item.sessions.map((session) => {
+        const chunkKey = `${US_OPTIONS_MARKET_CODE}:${item.symbol}:15m:${session.sessionDate}`;
+        const existing = chunkByKey.get(chunkKey);
+        return { ...session, chunkKey, existing, bars: mergeCandleBars(existing?.bars, session.bars) };
+      }).filter((session) => session.bars.length);
+      const currentBars = mergedSessions.find((session) => session.sessionDate === item.sessionDate)?.bars || [];
+      if (!currentBars.length) continue;
+      const quote = quoteFromBars(currentBars, item.previousClose, item.marketCap);
       const delay = Math.max(0, Math.floor((Date.now() - Date.parse(item.providerAsOf)) / 1000));
       const freshnessStatus = delay <= DELAY_SECONDS + FRESHNESS_GRACE_SECONDS ? "fresh" : "stale";
       acceptedQuotes.push({
         instrument_id: instrument.id, market_code: US_OPTIONS_MARKET_CODE, session_date: item.sessionDate,
-        symbol: item.symbol, ...item.quote, source_id: source.id, source_time: item.providerAsOf,
+        symbol: item.symbol, ...quote, source_id: source.id, source_time: item.providerAsOf,
         provider_as_of: item.providerAsOf, last_trade_time: item.lastTradeTime, received_time: received,
         delay_seconds: delay, license_status: "pending", quote_time: item.providerAsOf,
         quality_status: freshnessStatus === "fresh" ? "verified" : "stale", snapshot_version: snapshotVersion,
         market_phase: isFinal ? "closed" : "continuous", freshness_status: freshnessStatus, is_final: isFinal, run_id: run.id,
       });
-      for (const session of item.sessions) {
-        const sessionFinal = session.sessionDate !== item.sessionDate || isFinal;
+      for (const session of mergedSessions) {
+        const sessionFinal = (session.existing?.is_final === true || session.sessionDate !== item.sessionDate || isFinal)
+          && session.bars.length === expectedSessionBars(session.sessionDate);
+        const completenessStatus = sessionFinal ? "complete" : session.bars.length >= 4 ? "partial" : "incomplete";
         chunks.push({
           instrument_id: instrument.id, market_code: US_OPTIONS_MARKET_CODE, symbol: item.symbol, interval: "15m",
-          chunk_key: `${US_OPTIONS_MARKET_CODE}:${item.symbol}:15m:${session.sessionDate}`, session_date: session.sessionDate,
+          chunk_key: session.chunkKey, session_date: session.sessionDate,
           start_time: session.bars[0].time, end_time: session.bars.at(-1).time, bars: session.bars,
           bar_count: session.bars.length, checksum: await checksum(session.bars), source_id: source.id, run_id: run.id,
-          snapshot_version: snapshotVersion, provider_as_of: sessionFinal ? session.bars.at(-1).time : item.providerAsOf, received_time: received,
-          quality_status: sessionFinal ? "verified" : freshnessStatus === "fresh" ? "verified" : "stale", canonical_version: "us-options-intraday-v2", is_final: sessionFinal,
-          bucket_count: session.bars.length, completeness_status: sessionFinal ? "complete" : "partial", is_historical_archive: session.sessionDate !== item.sessionDate, adjustment_mode: "none",
+          snapshot_version: snapshotVersion, provider_as_of: sessionFinal ? new Date(Date.parse(session.bars.at(-1).time) + 15 * 60 * 1000).toISOString() : item.providerAsOf, received_time: received,
+          quality_status: sessionFinal ? "verified" : freshnessStatus === "fresh" ? "verified" : "stale", canonical_version: "us-options-intraday-v3", is_final: sessionFinal,
+          bucket_count: session.bars.length, completeness_status: completenessStatus, is_historical_archive: session.existing?.is_historical_archive === true || session.sessionDate !== item.sessionDate, adjustment_mode: "none",
         });
       }
     }
@@ -475,14 +510,14 @@ Deno.serve(async (req) => {
       status, finished_at: new Date().toISOString(), success_count: acceptedQuotes.length,
       failed_count: batchInstruments.length - acceptedQuotes.length, coverage_percent: coverage,
       provider_as_of: acceptedQuotes.map((quote) => quote.provider_as_of).sort().at(-1) || null,
-      snapshot_version: snapshotVersion, notes: `quotes:${acceptedQuotes.length};failures:${failures.length}`,
+      snapshot_version: snapshotVersion, notes: `quotes:${acceptedQuotes.length};failures:${failures.length};windows:${JSON.stringify(providerWindowSummary)}`,
     });
     if (status === "failed") throw Object.assign(new Error(`U.S. options coverage failed: ${coverage.toFixed(2)}%`), { status: 503, code: "US_OPTIONS_COVERAGE_FAILED" });
     return Response.json({
       status, market_code: US_OPTIONS_MARKET_CODE, session_date: clock.date, run_id: run.id,
       coverage_percent: coverage, quotes: quoteResult, candles: candleResult,
       accepted: acceptedQuotes.length, rejected: failures.length, snapshot_version: snapshotVersion, is_final: isFinal,
-      batch_index: batchIndex, batch_count: batchCount,
+      batch_index: batchIndex, batch_count: batchCount, provider_windows: providerWindowSummary,
     });
   } catch (error) {
     if (base44 && run?.id) {

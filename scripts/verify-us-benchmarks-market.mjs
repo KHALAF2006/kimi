@@ -16,10 +16,18 @@ assert.deepEqual(resolveAvailableMarkets({ identity: { role: "owner" }, market_a
 
 const ingestion = await source("base44/functions/usBenchmarksMarketIngestion/entry.ts");
 assert.match(ingestion, /new Set\(bar\.component_times\)\.size === 3/, "15-minute candles must require all three five-minute components");
+assert.match(ingestion, /incrementalProviderWindow/, "normal benchmark cycles must resume from the latest stored candle");
+assert.match(ingestion, /earliestRecentGapByInstrument/, "a recent interior gap must widen only the affected instrument request");
+assert.match(ingestion, /url\.searchParams\.set\("period1"/, "an incremental provider window must request only the missing tail");
+assert.match(ingestion, /mergeCandleBars\(existing\?\.bars, session\.bars\)/, "overlap candles must merge into the durable session instead of replacing it");
+assert.match(ingestion, /canonical_version: "us-benchmarks-intraday-v4"/);
 assert.match(ingestion, /QuoteObservation\.bulkCreate/, "every accepted quote batch must be retained as immutable observations");
 assert.match(ingestion, /preserved_last_good/, "failed coverage must preserve last-known-good public data");
 assert.match(ingestion, /coverage >= 99[\s\S]*coverage >= 95/, "coverage thresholds must be healthy at 99% and degraded at 95%+");
 assert.match(ingestion, /action === "daily_refresh"/, "daily history must update incrementally after the initial full archive");
+assert.match(ingestion, /barIntervalMs: 24 \* 60 \* 60 \* 1000/, "daily close reconciliation must resume from the stored daily cursor");
+assert.match(ingestion, /canonical_version: "us-benchmarks-daily-v3"/, "daily overlap corrections must remain split into durable yearly chunks");
+assert.match(ingestion, /clock\.date, true\)/, "the after-close workflow must persist the completed current session instead of remaining one day behind");
 assert.match(ingestion, /action === "data_status"/, "operations must expose benchmark quote, candle, history and signal coverage");
 assert.match(ingestion, /MarketSession\.filter\(\{ market_code: US_BENCHMARKS_MARKET_CODE/, "scheduled ingestion must honor the stored U.S. session calendar");
 assert.match(ingestion, /MarketHoliday\.filter\(\{ market_code: US_BENCHMARKS_MARKET_CODE/, "scheduled ingestion must skip stored market holidays");
