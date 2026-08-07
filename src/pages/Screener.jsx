@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Activity, CandlestickChart, Search, TrendingUp } from "lucide-react";
+import { Activity, ChartCandlestick, Search, TrendingUp } from "lucide-react";
 import ServicePage from "@/components/ServicePage";
 import MarketTable from "@/components/market/MarketTable";
 import { usePreferences } from "@/lib/preferences";
@@ -7,15 +7,15 @@ import { useActiveMarket } from "@/lib/MarketContext";
 
 const signalOptions = [
   { value: "", ar: "كل الإشارات", en: "All signals", icon: Activity },
-  { value: "bullish_pin_bar", ar: "بن بار شرائية", en: "Bullish pin bar", icon: CandlestickChart, direction: "bullish" },
-  { value: "bearish_pin_bar", ar: "بن بار بيعية", en: "Bearish pin bar", icon: CandlestickChart, direction: "bearish" },
-  { value: "bullish_engulfing", ar: "شمعة بالعة شرائية", en: "Bullish engulfing", icon: CandlestickChart, direction: "bullish" },
-  { value: "bearish_engulfing", ar: "شمعة بالعة بيعية", en: "Bearish engulfing", icon: CandlestickChart, direction: "bearish" },
-  { value: "bullish_zone_pin_bar", ar: "بن بار شرائية داخل منطقة", en: "Bullish zone pin bar", icon: CandlestickChart, direction: "bullish" },
-  { value: "bearish_zone_pin_bar", ar: "بن بار بيعية داخل منطقة", en: "Bearish zone pin bar", icon: CandlestickChart, direction: "bearish" },
-  { value: "pin_bar_signal", ar: "كل شموع بن بار", en: "All pin bars", icon: CandlestickChart },
-  { value: "engulfing_signal", ar: "كل الشموع البالعة", en: "All engulfing candles", icon: CandlestickChart },
-  { value: "zone_pin_bar", ar: "كل بن بار داخل منطقة", en: "All zone pin bars", icon: CandlestickChart },
+  { value: "bullish_pin_bar", ar: "بن بار شرائية", en: "Bullish pin bar", icon: ChartCandlestick, direction: "bullish" },
+  { value: "bearish_pin_bar", ar: "بن بار بيعية", en: "Bearish pin bar", icon: ChartCandlestick, direction: "bearish" },
+  { value: "bullish_engulfing", ar: "شمعة بالعة شرائية", en: "Bullish engulfing", icon: ChartCandlestick, direction: "bullish" },
+  { value: "bearish_engulfing", ar: "شمعة بالعة بيعية", en: "Bearish engulfing", icon: ChartCandlestick, direction: "bearish" },
+  { value: "bullish_zone_pin_bar", ar: "بن بار شرائية داخل منطقة", en: "Bullish zone pin bar", icon: ChartCandlestick, direction: "bullish" },
+  { value: "bearish_zone_pin_bar", ar: "بن بار بيعية داخل منطقة", en: "Bearish zone pin bar", icon: ChartCandlestick, direction: "bearish" },
+  { value: "pin_bar_signal", ar: "كل شموع بن بار", en: "All pin bars", icon: ChartCandlestick },
+  { value: "engulfing_signal", ar: "كل الشموع البالعة", en: "All engulfing candles", icon: ChartCandlestick },
+  { value: "zone_pin_bar", ar: "كل بن بار داخل منطقة", en: "All zone pin bars", icon: ChartCandlestick },
   { value: "price_cross_sma20", ar: "اختراق السعر لمتوسط 20", en: "Price crossed SMA 20", icon: TrendingUp },
   { value: "price_cross_sma50", ar: "اختراق السعر لمتوسط 50", en: "Price crossed SMA 50", icon: TrendingUp },
   { value: "sma20_cross_sma50", ar: "تقاطع متوسط 20 فوق 50", en: "SMA 20 crossed above SMA 50", icon: TrendingUp },
