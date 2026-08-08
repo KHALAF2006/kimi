@@ -5382,9 +5382,9 @@ function availableIntervals(storedIntervals) {
 function normalizedMarketCode(value) {
   return String(value || "").trim().toUpperCase();
 }
-function candleChunkBelongsToMarket(chunk, marketCode) {
+function storedMarketRecordBelongsToMarket(record, marketCode) {
   const requestedMarket = normalizedMarketCode(marketCode);
-  const storedMarket = normalizedMarketCode(chunk?.market_code);
+  const storedMarket = normalizedMarketCode(record?.market_code);
   if (requestedMarket === "SA_MAIN") return !storedMarket || storedMarket === requestedMarket;
   return storedMarket === requestedMarket;
 }
@@ -5398,13 +5398,38 @@ async function readStoredCandleChunks(base44, filter, marketCode, sort, limit) {
     sort,
     limit
   )));
-  return chunks.filter((chunk) => candleChunkBelongsToMarket(chunk, marketCode));
+  return chunks.filter((chunk) => storedMarketRecordBelongsToMarket(chunk, marketCode));
 }
-async function storedCandlesForInterval(base44, instrumentId, interval, marketCode) {
+function candleIdentityFilter(instruments, interval, marketCode) {
+  if (normalizedMarketCode(marketCode) === "SA_MAIN") {
+    const symbols = instruments.map((instrument) => String(instrument.symbol || "").trim().toUpperCase()).filter(Boolean);
+    return { symbol: symbols.length === 1 ? symbols[0] : { $in: symbols }, interval };
+  }
+  const instrumentIds = instruments.map((instrument) => instrument.id);
+  return { instrument_id: instrumentIds.length === 1 ? instrumentIds[0] : { $in: instrumentIds }, interval };
+}
+function instrumentForCandleChunk(chunk, instrumentsById, instrumentsBySymbol, marketCode) {
+  if (normalizedMarketCode(marketCode) === "SA_MAIN") {
+    return instrumentsBySymbol.get(String(chunk.symbol || "").trim().toUpperCase()) || null;
+  }
+  return instrumentsById.get(chunk.instrument_id) || null;
+}
+async function readHistoricalSyncs(base44, instrument, marketCode) {
+  const requestedMarket = normalizedMarketCode(marketCode);
+  const filter = requestedMarket === "SA_MAIN"
+    ? { symbol: String(instrument.symbol || "").trim().toUpperCase(), interval: "1d" }
+    : { instrument_id: instrument.id, market_code: requestedMarket, interval: "1d" };
+  const rows = await optionalRows(
+    () => base44.asServiceRole.entities.HistoricalCandleSync.filter(filter, "-completed_at", 20),
+    "historical candle sync"
+  );
+  return rows.filter((row) => storedMarketRecordBelongsToMarket(row, marketCode));
+}
+async function storedCandlesForInterval(base44, instrument, interval, marketCode) {
   const series = [];
   const allChunks = [];
   for (const storedInterval of fallbackIntervals(interval)) {
-    const chunks = (await readStoredCandleChunks(base44, { instrument_id: instrumentId, interval: storedInterval }, marketCode, "-end_time", 500))
+    const chunks = (await readStoredCandleChunks(base44, candleIdentityFilter([instrument], storedInterval, marketCode), marketCode, "-end_time", 500))
       .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
       .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
     if (!chunks.length) continue;
@@ -5426,15 +5451,20 @@ async function storedCandlesForInterval(base44, instrumentId, interval, marketCo
     storedIntervals: merged.storedIntervals
   };
 }
-async function storedCandlesForInstruments(base44, instrumentIds, interval, marketCode) {
-  const requestedIds = new Set(instrumentIds);
-  const chunksByInstrument = new Map(instrumentIds.map((id) => [id, []]));
+async function storedCandlesForInstruments(base44, instruments, interval, marketCode) {
+  const instrumentsById = new Map(instruments.map((instrument) => [instrument.id, instrument]));
+  const instrumentsBySymbol = new Map(instruments.map((instrument) => [String(instrument.symbol || "").trim().toUpperCase(), instrument]));
+  const chunksByInstrument = new Map(instruments.map((instrument) => [instrument.id, []]));
   for (const storedInterval of fallbackIntervals(interval)) {
-    const chunks = (await readStoredCandleChunks(base44, { instrument_id: { $in: instrumentIds }, interval: storedInterval }, marketCode, "-end_time", 5e3))
-      .filter((chunk) => requestedIds.has(chunk.instrument_id) && chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
-    for (const chunk of chunks) chunksByInstrument.get(chunk.instrument_id)?.push(chunk);
+    const chunks = (await readStoredCandleChunks(base44, candleIdentityFilter(instruments, storedInterval, marketCode), marketCode, "-end_time", 5e3))
+      .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+    for (const chunk of chunks) {
+      const instrument = instrumentForCandleChunk(chunk, instrumentsById, instrumentsBySymbol, marketCode);
+      if (instrument) chunksByInstrument.get(instrument.id)?.push(chunk);
+    }
   }
-  return new Map(instrumentIds.map((instrumentId) => {
+  return new Map(instruments.map((instrument) => {
+    const instrumentId = instrument.id;
     const chunks = (chunksByInstrument.get(instrumentId) || []).sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
     const series = fallbackIntervals(interval).map((storedInterval) => {
       const matching = chunks.filter((chunk) => chunk.interval === storedInterval);
@@ -5459,11 +5489,8 @@ async function chartResponse(base44, body, sources) {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
   const [stored, historyRows] = await Promise.all([
-    storedCandlesForInterval(base44, instrument.id, interval, body.market_code),
-    optionalRows(
-      () => base44.asServiceRole.entities.HistoricalCandleSync.filter({ instrument_id: instrument.id, interval: "1d" }, "-completed_at", 20),
-      "historical candle sync"
-    )
+    storedCandlesForInterval(base44, instrument, interval, body.market_code),
+    readHistoricalSyncs(base44, instrument, body.market_code)
   ]);
   if (!stored.bars.length) {
     throw Object.assign(new Error("Stored chart data is not available until a market ingestion run provides it"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
@@ -5622,13 +5649,16 @@ function sectorWeights(instruments, quoteByInstrument) {
 }
 async function sectorSummaries(base44, instruments, quoteByInstrument, marketCode) {
   const equities = instruments.filter((instrument) => instrument.status !== "delisted");
-  const equityIds = new Set(equities.map((instrument) => instrument.id));
-  const recentDailyChunks = (await readStoredCandleChunks(base44, { instrument_id: { $in: equities.map((instrument) => instrument.id) }, interval: "1d" }, marketCode, "-end_time", 1e3))
-    .filter((chunk) => equityIds.has(chunk.instrument_id) && chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+  const equitiesById = new Map(equities.map((instrument) => [instrument.id, instrument]));
+  const equitiesBySymbol = new Map(equities.map((instrument) => [String(instrument.symbol || "").trim().toUpperCase(), instrument]));
+  const recentDailyChunks = (await readStoredCandleChunks(base44, candleIdentityFilter(equities, "1d", marketCode), marketCode, "-end_time", 1e3))
+    .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
   const chunksByInstrument = new Map();
   for (const chunk of recentDailyChunks) {
-    if (!chunksByInstrument.has(chunk.instrument_id)) chunksByInstrument.set(chunk.instrument_id, []);
-    chunksByInstrument.get(chunk.instrument_id).push(chunk);
+    const instrument = instrumentForCandleChunk(chunk, equitiesById, equitiesBySymbol, marketCode);
+    if (!instrument) continue;
+    if (!chunksByInstrument.has(instrument.id)) chunksByInstrument.set(instrument.id, []);
+    chunksByInstrument.get(instrument.id).push(chunk);
   }
   const barsByInstrument = new Map(equities.map((instrument) => [instrument.id, normalizedStoredBars(chunksByInstrument.get(instrument.id) || [], marketCode)]));
   const groups = new Map();
@@ -5736,7 +5766,7 @@ async function sectorChartResponse(base44, body) {
   const quoteByInstrument = new Map();
   for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
   const weights = sectorWeights(instruments, quoteByInstrument);
-  const storedByInstrument = await storedCandlesForInstruments(base44, instruments.map((instrument) => instrument.id), interval, requestedMarket);
+  const storedByInstrument = await storedCandlesForInstruments(base44, instruments, interval, requestedMarket);
   const candlesByInstrument = instruments.map((instrument) => ({
     instrument,
     stored: storedByInstrument.get(instrument.id) || { bars: [] }

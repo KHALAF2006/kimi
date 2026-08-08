@@ -347,12 +347,15 @@ assert.match(dashboardPage, /readMarketSupplement\(\{ action: "sector_summaries"
 assert.match(dashboardPage, /refreshWarning: retained \? "last_snapshot_retained"/, "a transient same-market refresh failure must retain the last successful snapshot");
 assert.doesNotMatch(dashboardPage, /MarketDataStatus/, "the removed market-status banner must not be mounted on the dashboard");
 assert.match(marketReadFunction, /fallbackIntervals\(interval\)/, "weekly and monthly chart requests must fall back to stored daily or intraday candles");
-assert.match(marketReadFunction, /storedCandlesForInterval\(base44, instrument\.id, interval, body\.market_code\)/, "company and sector charts must share the same market-aware candle aggregation path");
+assert.match(marketReadFunction, /storedCandlesForInterval\(base44, instrument, interval, body\.market_code\)/, "company charts must read stored candles through the complete market instrument identity");
 assert.match(marketReadFunction, /mergeStoredCandleSeries\(series, interval, marketCandleOptions\(marketCode\)\)/, "stored historical and fresh intraday candles must be merged using the active market timezone");
 assert.match(marketReadFunction, /requestedMarket === "SA_MAIN" \? filter : \{ \.\.\.filter, market_code: requestedMarket \}/, "Saudi reads must recover legacy candle chunks without weakening explicit market filters elsewhere");
-assert.match(marketReadFunction, /if \(requestedMarket === "SA_MAIN"\) return !storedMarket \|\| storedMarket === requestedMarket/, "Saudi compatibility reads must accept only legacy untagged or explicitly Saudi candle chunks");
+assert.match(marketReadFunction, /if \(requestedMarket === "SA_MAIN"\) return !storedMarket \|\| storedMarket === requestedMarket/, "Saudi compatibility reads must accept only legacy untagged or explicitly Saudi stored records");
 assert.match(marketReadFunction, /return storedMarket === requestedMarket/, "non-Saudi candle reads must keep exact market isolation");
 assert.equal((marketReadFunction.match(/readStoredCandleChunks\(base44,/g) || []).length, 4, "all company, multi-instrument, and sector-summary candle reads must share the compatibility guard");
+assert.match(marketReadFunction, /return \{ symbol: symbols\.length === 1 \? symbols\[0\] : \{ \$in: symbols \}, interval \}/, "Saudi candle reads must resolve legacy archives by stable exchange symbol rather than a regenerated entity id");
+assert.match(marketReadFunction, /readHistoricalSyncs\(base44, instrument, body\.market_code\)/, "historical completeness metadata must use the same legacy-compatible Saudi identity");
+assert.match(marketReadFunction, /storedCandlesForInstruments\(base44, instruments, interval, requestedMarket\)/, "sector charts must resolve legacy chunks back to current instruments by symbol");
 assert.match(marketReadFunction, /technical_signals/, "market reads must expose persisted technical signals to the screener");
 assert.match(marketReadFunction, /bullish_zone_pin_bar/, "the protected screener must filter bullish pin bars inside investor zones");
 assert.match(marketReadFunction, /bearish_zone_pin_bar/, "the protected screener must filter bearish pin bars inside investor zones");
