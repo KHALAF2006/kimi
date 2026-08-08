@@ -372,7 +372,7 @@
   .drawing-object-tree .danger { @apply text-red-600 dark:text-red-400; }
   .chart-drawing-canvas { @apply pointer-events-none absolute left-0 top-0 z-[5] touch-none; width:calc(100% - var(--drawing-price-axis-width, 74px)); }
   .chart-drawing-canvas-active { @apply pointer-events-auto cursor-crosshair; }
-  .drawing-selection-toolbar { @apply absolute z-[12] grid max-w-[calc(100%-16px)] overflow-hidden rounded-xl border border-slate-200 bg-white/95 text-[10px] shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; width:max-content; }
+  .drawing-selection-toolbar { @apply pointer-events-auto absolute z-[50] grid max-w-[calc(100%-16px)] overflow-hidden rounded-xl border border-slate-200 bg-white/95 text-[10px] shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; width:max-content; }
   .drawing-selection-primary { @apply flex min-h-10 w-full items-center gap-1 border-b border-slate-200 p-1.5 dark:border-slate-700; }
   .drawing-selection-primary > b { @apply min-w-0 flex-1 truncate px-2 text-slate-700 dark:text-slate-200; }
   .drawing-selection-properties { @apply flex max-w-full flex-wrap items-center gap-1 overflow-x-auto overscroll-contain p-1.5; }

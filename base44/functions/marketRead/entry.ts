@@ -5854,12 +5854,15 @@ async function sectorChartResponse(base44, body) {
   }));
   const latestTime = Math.max(...candlesByInstrument.flatMap(({ stored }) => stored.bars.map((bar) => new Date(bar.time).getTime())).filter(Number.isFinite));
   if (!Number.isFinite(latestTime)) throw Object.assign(new Error("Stored sector chart data is not available"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
+  const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : latestTime - RANGE_MILLISECONDS[range];
   const series = candlesByInstrument.map(({ instrument, stored }) => {
-    const bars = stored.bars.filter((bar) => Number(bar.close) > 0);
-    const base = Number(bars[0]?.close);
-    return { instrument, weight: weights.get(instrument.id) || 0, base, bars };
+    const fullBars = stored.bars.filter((bar) => Number(bar.close) > 0);
+    const base = Number(fullBars[0]?.close);
+    const bars = fullBars.filter((bar) => new Date(bar.time).getTime() >= cutoff);
+    return { instrument, weight: weights.get(instrument.id) || 0, base, bars, fullBars };
   }).filter((item) => Number.isFinite(item.base) && item.base > 0 && item.bars.length);
   if (!series.length) throw Object.assign(new Error("Stored sector chart data contains no valid candles"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
+  const coverageTimeline = [...new Set(series.flatMap((item) => item.fullBars.map((bar) => new Date(bar.time).toISOString())))].sort();
   const timestamps = [...new Set(series.flatMap((item) => item.bars.map((bar) => new Date(bar.time).toISOString())))].sort();
   const barMaps = new Map(series.map((item) => [item.instrument.id, new Map(item.bars.map((bar) => [new Date(bar.time).toISOString(), bar]))]));
   const allCandles = timestamps.map((time) => {
@@ -5880,9 +5883,8 @@ async function sectorChartResponse(base44, body) {
       volume: members.reduce((sum, value) => sum + Math.max(0, Number(value.bar.volume || 0)), 0)
     };
   }).filter(Boolean);
-  const rangeMetadata = candleRangeMetadata(allCandles, interval, range, false);
-  const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : latestTime - RANGE_MILLISECONDS[range];
-  const candles = allCandles.filter((bar) => new Date(bar.time).getTime() >= cutoff);
+  const rangeMetadata = candleRangeMetadata(coverageTimeline.map((time) => ({ time })), interval, range, false);
+  const candles = allCandles;
   if (candles.length < 2) throw Object.assign(new Error("Stored sector chart data is incomplete"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   const momentumIndicator = calculateMomentumZones(
     candles,
@@ -5911,7 +5913,7 @@ async function sectorChartResponse(base44, body) {
       available_ranges: rangeMetadata.availableRanges,
       range_complete: rangeMetadata.complete,
       returned_bar_count: candles.length,
-      stored_bar_count: allCandles.length
+      stored_bar_count: coverageTimeline.length
     }
   };
 }

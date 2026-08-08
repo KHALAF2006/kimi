@@ -17,3 +17,41 @@ export function clampFloatingToolbarPosition({ x, y, width, height, boundaryWidt
     y: Math.max(inset, Math.min(maxY, Number(y) || 0)),
   };
 }
+
+function overlaps(left, right, gap = 0) {
+  return left.x < right.x + right.width + gap
+    && left.x + left.width + gap > right.x
+    && left.y < right.y + right.height + gap
+    && left.y + left.height + gap > right.y;
+}
+
+export function placeFloatingToolbarPosition({
+  x,
+  y,
+  width,
+  height,
+  boundaryWidth,
+  boundaryHeight,
+  obstacles = [],
+  padding = 4,
+}) {
+  const base = clampFloatingToolbarPosition({ x, y, width, height, boundaryWidth, boundaryHeight, padding });
+  const normalizedObstacles = obstacles.filter((item) => item && Number(item.width) > 0 && Number(item.height) > 0);
+  const candidate = (nextX, nextY) => ({
+    ...clampFloatingToolbarPosition({ x: nextX, y: nextY, width, height, boundaryWidth, boundaryHeight, padding }),
+    width: Number(width) || 0,
+    height: Number(height) || 0,
+  });
+  const right = Number(boundaryWidth) - Number(width) - Number(padding);
+  const bottom = Number(boundaryHeight) - Number(height) - Number(padding);
+  const candidates = [
+    candidate(base.x, base.y),
+    candidate(right, padding),
+    candidate(padding, padding),
+    candidate(right, bottom),
+    candidate(padding, bottom),
+  ];
+  const available = candidates.find((item) => normalizedObstacles.every((obstacle) => !overlaps(item, obstacle, padding)));
+  const result = available || candidates[0];
+  return { x: result.x, y: result.y };
+}

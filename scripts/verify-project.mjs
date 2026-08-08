@@ -316,7 +316,8 @@ assert.match(drawingTools, /host\.addEventListener\("pointerdown", onPointerDown
 assert.match(drawingTools, /if \(isDrawingUiEvent\(event\)/, "capture-phase drawing hit testing must ignore contextual drawing controls before clearing selection");
 assert.match(drawingTools, /className="drawing-selection-toolbar" data-drawing-ui="true"/, "selected drawing controls must remain mounted while color, width, lock, median, and delete actions run");
 assert.match(drawingTools, /data-action="delete-selected-drawing"/, "selected drawing deletion must stay visible in the contextual toolbar header");
-assert.match(drawingTools, /clampFloatingToolbarPosition/, "the selected drawing toolbar must be clamped inside the current chart pane");
+assert.match(drawingTools, /placeFloatingToolbarPosition/, "the selected drawing toolbar must stay inside the chart without covering other chart controls");
+assert.match(chartStyles, /\.drawing-selection-toolbar[^}]*pointer-events-auto[^}]*z-\[50\]/, "selected drawing controls must stay above every chart overlay and accept input");
 assert.match(drawingTools, /data-action="clear-all-drawings"/, "delete-all must remain a distinct explicit action from selected drawing deletion");
 assert.match(drawingTools, /pointerType === "touch" \? 16/, "touch selection must use a larger hit target than mouse selection");
 assert.doesNotMatch(drawingTools, /activeTool === "select"/, "drawing editing must not require a separate select or move mode");
@@ -409,6 +410,8 @@ assert.match(marketReadFunction, /readIndicatorSnapshots\(base44, \{ instrument_
 assert.match(marketReadFunction, /readIndicatorSnapshots\(base44, \{[\s\S]*?indicator_key: "technical_signals"[\s\S]*?\}, requestedMarket, "-source_as_of", 1000\)/, "the Saudi screener must recover legacy technical signals through the same market guard");
 assert.match(marketReadFunction, /storedCandlesForInstruments\(base44, instruments, interval, requestedMarket, range\)/, "sector charts must resolve legacy chunks back to current instruments by symbol and requested range");
 assert.match(marketReadFunction, /const pendingIds = new Set/, "sector charts must track constituents that still need a fallback interval");
+assert.match(marketReadFunction, /const cutoff = range === "max"[\s\S]*?fullBars\.filter\(\(bar\) => new Date\(bar\.time\)\.getTime\(\) >= cutoff\)/, "sector aggregation must process only candles inside the requested display range");
+assert.match(marketReadFunction, /coverageTimeline/, "sector range metadata must retain full stored-history coverage after range-limited aggregation");
 assert.match(marketReadFunction, /if \(!pendingInstruments\.length\) break/, "sector charts must stop reading fallback intervals once every constituent has sufficient coverage");
 assert.match(marketReadFunction, /technical_signals/, "market reads must expose persisted technical signals to the screener");
 assert.match(marketReadFunction, /bullish_zone_pin_bar/, "the protected screener must filter bullish pin bars inside investor zones");
@@ -552,11 +555,12 @@ assert.match(companyIntelligence, /CorporateAction/, "company intelligence must 
 assert.match(companyIntelligence, /"bootstrap"/, "company intelligence must support an owner-controlled initial full import");
 
 const { drawingSegments, drawingFillPolygon, drawingHitTest, smoothCurveSegments } = await import(new URL("../src/components/market/chartDrawingModel.js", import.meta.url));
-const { clampFloatingToolbarPosition, isDrawingUiEvent } = await import(new URL("../src/components/market/chartDrawingEvents.js", import.meta.url));
+const { clampFloatingToolbarPosition, isDrawingUiEvent, placeFloatingToolbarPosition } = await import(new URL("../src/components/market/chartDrawingEvents.js", import.meta.url));
 assert.equal(isDrawingUiEvent({ composedPath: () => [{ dataset: { drawingUi: "true" } }] }), true, "contextual toolbar pointer events must be recognized before chart capture handlers run");
 assert.equal(isDrawingUiEvent({ composedPath: () => [{ dataset: {} }], target: { closest: () => null } }), false, "empty chart pointer events must remain available for drawing hit testing and chart gestures");
 assert.deepEqual(clampFloatingToolbarPosition({ x: 900, y: 600, width: 260, height: 90, boundaryWidth: 800, boundaryHeight: 500 }), { x: 536, y: 406 }, "a persisted contextual toolbar position must be recovered inside the chart pane");
 assert.deepEqual(clampFloatingToolbarPosition({ x: -40, y: -20, width: 260, height: 90, boundaryWidth: 800, boundaryHeight: 500 }), { x: 4, y: 4 }, "a contextual toolbar must not cross the leading or top chart edge");
+assert.deepEqual(placeFloatingToolbarPosition({ x: 4, y: 96, width: 350, height: 90, boundaryWidth: 1500, boundaryHeight: 470, obstacles: [{ x: 4, y: 96, width: 430, height: 230 }] }), { x: 1146, y: 4 }, "a contextual toolbar must move away from an overlapping zone card");
 const modelWidth = 800;
 const modelHeight = 500;
 const horizontalPoints = [{ x: 120, y: 220 }];

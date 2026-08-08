@@ -7,7 +7,7 @@ import {
 import {
   cloneDrawings, createDrawing, DRAWING_TYPES, drawingFillPolygon, drawingHitTest, drawingSegments, lineStyleDash,
 } from "@/components/market/chartDrawingModel";
-import { clampFloatingToolbarPosition, isDrawingUiEvent } from "@/components/market/chartDrawingEvents";
+import { isDrawingUiEvent, placeFloatingToolbarPosition } from "@/components/market/chartDrawingEvents";
 import {
   deleteAllChartDrawings, deleteChartDrawing, deleteDrawingAlert, duplicateChartDrawing, loadChartDrawings,
   saveChartDrawing, saveDrawingAlert, setAllChartDrawingsVisibility,
@@ -451,13 +451,25 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
         if (!toolbar || !boundary) return;
         const toolbarRect = toolbar.getBoundingClientRect();
         const boundaryRect = boundary.getBoundingClientRect();
-        const next = clampFloatingToolbarPosition({
+        const obstacles = [...boundary.querySelectorAll(".drawing-tools-bar, .momentum-price-panel")]
+          .filter((element) => element !== toolbar && element.offsetParent !== null)
+          .map((element) => {
+            const rect = element.getBoundingClientRect();
+            return {
+              x: rect.left - boundaryRect.left,
+              y: rect.top - boundaryRect.top,
+              width: rect.width,
+              height: rect.height,
+            };
+          });
+        const next = placeFloatingToolbarPosition({
           x: toolbarRect.left - boundaryRect.left,
           y: toolbarRect.top - boundaryRect.top,
           width: toolbarRect.width,
           height: toolbarRect.height,
           boundaryWidth: boundaryRect.width,
           boundaryHeight: Math.min(boundaryRect.height, mainPaneHeight),
+          obstacles,
           padding: 4,
         });
         setSelectionToolbarLayout((value) => (
@@ -472,7 +484,10 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
     const boundary = canvasRef.current?.parentElement;
     const observer = new ResizeObserver(ensureInside);
     if (toolbar) observer.observe(toolbar);
-    if (boundary) observer.observe(boundary);
+    if (boundary) {
+      observer.observe(boundary);
+      boundary.querySelectorAll(".drawing-tools-bar, .momentum-price-panel").forEach((element) => observer.observe(element));
+    }
     window.addEventListener("resize", ensureInside);
     return () => {
       observer.disconnect();
