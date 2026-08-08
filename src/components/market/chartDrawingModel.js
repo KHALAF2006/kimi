@@ -274,9 +274,10 @@ export function drawingSegments(type, points, width, height, options = {}) {
   return [];
 }
 
-export function drawingHitTest(type, points, pointer, width, height, options) {
-  const handleIndex = points.findIndex((point) => Math.hypot(point.x - pointer.x, point.y - pointer.y) <= 8);
+export function drawingHitTest(type, points, pointer, width, height, options, tolerance = 7) {
+  const hitTolerance = Math.max(4, Number(tolerance) || 7);
+  const handleIndex = points.findIndex((point) => Math.hypot(point.x - pointer.x, point.y - pointer.y) <= hitTolerance + 2);
   if (handleIndex >= 0) return { hit: true, handleIndex };
-  const hit = drawingSegments(type, points, width, height, options).some(([start, end]) => distanceToSegment(pointer, start, end) <= 7);
+  const hit = drawingSegments(type, points, width, height, options).some(([start, end]) => distanceToSegment(pointer, start, end) <= hitTolerance);
   return { hit, handleIndex: -1 };
 }

@@ -43,6 +43,10 @@ assert.match(ingestion, /Math\.min\(8,/, "archive repair must use bounded batche
 const signals = await source("base44/functions/usBenchmarksSignalRefresh/source.ts");
 for (const token of ["technical_signals", "momentum_zones", '"1wk"', '"1mo"', "market_code: US_BENCHMARKS_MARKET_CODE"]) assert.match(signals, new RegExp(token));
 assert.doesNotMatch(signals, /deleteMany|functions\.invoke\("usBenchmarksSignalRefresh"/, "signal projection must neither erase another market nor recurse through the service API");
+const signalConfig = JSON.parse(await source("base44/functions/usBenchmarksSignalRefresh/function.jsonc"));
+assert.deepEqual(signalConfig.automations.map((item) => item.cron_expression), ["30 22 * * 1-5", "30 23 * * 1-5"], "benchmark signals need DST-safe post-close projection slots");
+assert.ok(signalConfig.automations.every((item) => item.function_args?.market_code === US_BENCHMARKS_MARKET_CODE && item.is_active), "every benchmark signal automation must remain market-scoped and active");
+assert.match(signals, /already_projected/, "the DST-safe duplicate slot must be idempotently skipped");
 
 const saudiSignals = await source("base44/functions/marketSignalRefresh/source.ts");
 assert.doesNotMatch(saudiSignals, /deleteMany|functions\.invoke\("marketSignalRefresh"/, "Saudi projection must stay in-process and must never delete another market");

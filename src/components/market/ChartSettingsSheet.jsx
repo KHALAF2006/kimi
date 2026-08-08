@@ -3,7 +3,7 @@ import { ChartCandlestick, Grid2X2, Palette, RotateCcw, Save, SlidersHorizontal,
 import { chartVisualDefaults, sanitizeChartPreferences } from "@/lib/chart-visuals";
 
 const candleTypes = [
-  { value: "candles", ar: "شموع عادية", en: "Candles" },
+  { value: "candles", ar: "شموع ممتلئة", en: "Filled candles" },
   { value: "hollow", ar: "شموع مفرغة", en: "Hollow candles" },
   { value: "heikin_ashi", ar: "هايكن آشي", en: "Heikin Ashi" },
 ];

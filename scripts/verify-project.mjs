@@ -234,10 +234,11 @@ assert.match(companyChart, /axisLabelVisible:\s*false,\s*title:\s*""/, "investor
 assert.match(companyChart, /rsiSettings\.lineColor/);
 assert.match(companyChart, /momentumSettings\.zones/);
 assert.match(companyChart, /className=\{["']ohlc-strip ["'] \+ \(hovered \? ["']["'] : ["']invisible["']\)\}/, "the OHLC strip must reserve its height so pane hover cannot shake the chart");
-assert.match(companyChart, /subscribeCrosshairMove[\s\S]*scheduleOverlayUpdate\(\)/, "zone geometry must follow crosshair movement without a duplicate pointermove listener");
-assert.doesNotMatch(companyChart, /interactionEvents = \[[^\]]*["']pointermove["']/, "chart movement must not schedule duplicate overlay work from both the chart and DOM pointer events");
+assert.match(companyChart, /new InvestorZonePrimitive\(\)/, "investor zones must render through the chart primitive lifecycle instead of a React DOM overlay");
+assert.match(companyChart, /candlesSeries\.attachPrimitive\(investorZonePrimitive\)/, "investor zones must be attached to the price series so zoom and scale use price coordinates");
+assert.doesNotMatch(companyChart, /setZoneGeometry/, "chart navigation must not trigger React state updates for zone geometry");
 assert.match(companyChart, /sameHoveredCandle\(hoveredRef\.current, next\)/, "crosshair state must skip React renders while the hovered candle is unchanged");
-assert.match(companyChart, /sameZoneGeometry\(current, zones\)/, "zone synchronization must avoid redundant React layout updates");
+assert.match(companyChart, /kineticScroll:\s*\{\s*mouse:\s*true,\s*touch:\s*true\s*\}/, "mouse and touch panning must retain kinetic scrolling");
 assert.match(companyChart, /showMomentumCard/, "momentum price card must have its own visibility state");
 assert.match(companyChart, /showMomentum\s*&&\s*momentum\?\.zones/, "hiding all indicators must also hide the investor-zone price card");
 assert.match(companyChart, /ChartDrawingTools/, "the verified chart must mount the drawing layer");
@@ -263,6 +264,30 @@ assert.match(chartStyles, /\.indicator-hub-toggle > span:nth-child\(2\)\s*\{[^}]
 assert.doesNotMatch(chartStyles, /\.chart-shell:fullscreen \.chart-company-navigation\s*\{[^}]*hidden/, "fullscreen must never hide previous/next company navigation");
 assert.match(chartStyles, /\.chart-shell:fullscreen \.chart-company-navigation > button:not\(\.secondary-button\)[^{]*\{[^}]*min-h-8/, "fullscreen company navigation must remain present in a compact form");
 assert.match(chartStyles, /\.chart-shell:fullscreen \.chart-canvas-wrap[^{]*\{[^}]*flex-1/, "fullscreen chart must consume the remaining viewport instead of leaving dead space");
+assert.match(chartStyles, /@media \(min-width:768px\) and \(max-width:1279px\)[\s\S]*?min-width:44px;\s*min-height:44px;/, "tablet chart controls must provide touch-safe 44px targets");
+assert.match(chartStyles, /@media \(max-width:767px\)[\s\S]*?min-width:44px;\s*min-height:44px;/, "mobile chart controls must provide touch-safe 44px targets");
+assert.match(chartStyles, /@media \(min-width:768px\) and \(max-width:1279px\)[\s\S]*?\.chart-chip \{ min-height:44px; min-width:44px;/, "tablet timeframe chips must provide 44px touch targets");
+assert.match(chartStyles, /@media \(max-width:767px\)[\s\S]*?\.chart-chip \{ min-height:44px; min-width:44px;/, "mobile timeframe chips must provide 44px touch targets");
+assert.match(chartStyles, /\.chart-shell \.secondary-button, \.chart-shell \.momentum-card-eye \{ min-height:44px; \}/, "chart secondary and investor-zone controls must remain touch-safe");
+assert.match(chartStyles, /drawing-object-tree button, \.drawing-status button \{ min-width:44px; min-height:44px; \}/, "drawing object actions must remain touch-safe");
+assert.match(chartStyles, /@media \(min-width:768px\) and \(max-width:1279px\) and \(orientation:landscape\) and \(max-height:600px\)[\s\S]*?min-height:340px/, "landscape tablets must receive a compact chart height");
+assert.match(chartStyles, /\.chart-canvas-wrap\s*\{[^}]*height:clamp\(440px,62dvh,720px\)/, "chart height must adapt to the device viewport instead of using one fixed desktop size");
+
+const { InvestorZonePrimitive } = await import(new URL("../src/lib/investor-zone-primitive.js", import.meta.url));
+let zonePriceScale = 10;
+let zoneRenderRequests = 0;
+const zonePrimitive = new InvestorZonePrimitive();
+zonePrimitive.attached({
+  chart: { timeScale: () => ({ timeToCoordinate: () => 64 }) },
+  series: { priceToCoordinate: (price) => Number(price) * zonePriceScale },
+  requestUpdate: () => { zoneRenderRequests += 1; },
+});
+zonePrimitive.setData({ visible: true, referenceTime: 1_700_000_000, zones: [{ name: "zone", topPrice: 12, bottomPrice: 10, color: "#16a34a", fill: "rgba(22,163,74,.15)" }] });
+assert.deepEqual(zonePrimitive.paneViews()[0].zones.map(({ left, top, bottom }) => ({ left, top, bottom })), [{ left: 64, top: 120, bottom: 100 }], "investor zones must be projected from their stored prices and start time");
+zonePriceScale = 20;
+zonePrimitive.updateAllViews();
+assert.deepEqual(zonePrimitive.paneViews()[0].zones.map(({ left, top, bottom }) => ({ left, top, bottom })), [{ left: 64, top: 240, bottom: 200 }], "price-axis zoom must reproject the same zone prices instead of moving a DOM rectangle independently");
+assert.equal(zoneRenderRequests, 1, "zone data changes should request one chart render without React navigation state churn");
 
 assert.deepEqual(chartControlTransition(closedChartControls, { type: "toggle-menu", menu: "candle-type" }), { menu: "candle-type", panel: "" }, "candle menu must open from the shared control state");
 assert.deepEqual(chartControlTransition({ menu: "candle-type", panel: "" }, { type: "toggle-menu", menu: "indicators" }), { menu: "indicators", panel: "" }, "opening indicators must close the candle chooser");
@@ -282,6 +307,14 @@ assert.match(chartDrawingsFunction, /body\.action === "delete_all"/, "bulk drawi
 assert.match(chartDrawingsFunction, /drawing\.bulk\.delete/, "bulk drawing deletion must be audited");
 
 const drawingTools = await readFile(new URL("../src/components/market/ChartDrawingTools.jsx", import.meta.url), "utf8");
+assert.match(drawingTools, /finishDrawing\(value\)[\s\S]*?setActiveTool\(null\)/, "finishing a drawing must return pointer ownership to chart pan and pinch interactions");
+assert.match(drawingTools, /chart\.subscribeClick\(selectOnChartTap\)/, "a saved drawing must be selectable without permanently blocking chart navigation");
+assert.match(drawingTools, /pointerType === "touch" \? 14/, "touch selection must use a larger hit target than mouse selection");
+assert.match(drawingTools, /removeSelected\(\)/, "the selected drawing must expose individual deletion");
+assert.match(drawingTools, /pasteCopied\(\)/, "the drawing toolbar must expose a real paste action");
+const chartSettingsSheet = await readFile(new URL("../src/components/market/ChartSettingsSheet.jsx", import.meta.url), "utf8");
+assert.match(chartSettingsSheet, /شموع ممتلئة/, "the standard candle type must use the professional filled-candle label");
+assert.doesNotMatch(chartSettingsSheet, /شموع عادية/, "the non-standard ordinary-candles label must be removed");
 for (const tool of ["trend_line", "ray", "horizontal_line", "vertical_line", "arrow", "rectangle", "parallel_channel", "polyline", "curve", "brush", "price_range", "date_range", "date_and_price_range"]) {
   assert.match(drawingTools, new RegExp(tool), `drawing tool is missing: ${tool}`);
 }
@@ -372,6 +405,8 @@ assert.doesNotMatch(customerMarketTable, /data_state\?\.label/, "the market tabl
 const customerMarketTicker = await readFile(new URL("../src/components/market/MarketTicker.jsx", import.meta.url), "utf8");
 assert.doesNotMatch(customerMarketTicker, /data_state\?\.label/, "the ticker must not replay obsolete labels stored with old quotes");
 const screenerPage = await readFile(new URL("../src/pages/Screener.jsx", import.meta.url), "utf8");
+assert.match(screenerPage, /snapshot_count === 0/, "the screener must distinguish unavailable calculations from a genuine zero-match result");
+assert.match(screenerPage, /لا تعني النتيجة الصفرية عدم وجود إشارات/, "Arabic screener feedback must not report a false zero result when snapshots are missing");
 const appRouter = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
 assert.match(appRouter, /BrowserRouter as Router/, "the current React Router advisory is not applicable only while the app remains in declarative BrowserRouter mode");
 assert.doesNotMatch(appRouter, /unstable_|RSC|ServerAction|createRequestHandler/, "the client application must not activate the advisory's unstable RSC server-action path");

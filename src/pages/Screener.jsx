@@ -82,9 +82,13 @@ export default function Screener() {
         </section>
 
         {data.signal_coverage && data.signal_coverage.snapshot_count < data.signal_coverage.instrument_count && <div className="warning-banner" role="status">
-          {isArabic
-            ? "قد تظهر نتائج إضافية بعد اكتمال تحديث هذا الفاصل."
-            : "More results may appear when this timeframe finishes updating."}
+          {data.signal_coverage.snapshot_count === 0
+            ? (isArabic
+              ? "لم تكتمل حسابات هذا الفاصل لهذا السوق بعد؛ لا تعني النتيجة الصفرية عدم وجود إشارات."
+              : "This market timeframe has not been calculated yet; zero results do not mean there are no signals.")
+            : (isArabic
+              ? `اكتملت حسابات ${data.signal_coverage.snapshot_count} من ${data.signal_coverage.instrument_count} أداة، وقد تظهر نتائج إضافية بعد اكتمال التحديث.`
+              : `${data.signal_coverage.snapshot_count} of ${data.signal_coverage.instrument_count} instruments are calculated; more results may appear after refresh.`)}
         </div>}
 
         <p className="text-sm font-bold text-slate-500">

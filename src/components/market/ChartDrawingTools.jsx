@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle, ArrowUpRight, BellOff, BellPlus, ChevronDown, ChevronRight, ClipboardPaste, Copy, Eye, EyeOff, GitCommitHorizontal,
-  Grip, LayoutList, Lock, MousePointer2, MoveHorizontal, MoveVertical, Paintbrush, PanelLeftClose, PanelTopClose,
-  PenLine, Redo2, RefreshCcw, Route, Ruler, Spline, Square, Trash2, TrendingUp, Undo2, Unlock, X,
+  AlertTriangle, ArrowRightFromLine, ArrowUpRight, BellOff, BellPlus, ChartNoAxesCombined, ChevronDown, ChevronRight, ClipboardPaste, Copy, Eye, EyeOff,
+  Grip, LayoutList, Lock, Minus, MousePointer2, MoveHorizontal, MoveVertical, Paintbrush, PanelLeftClose, PanelTopClose,
+  Redo2, RefreshCcw, Ruler, SeparatorVertical, Spline, Square, Trash2, TrendingUp, Undo2, Unlock, Waypoints, X,
 } from "lucide-react";
 import {
   cloneDrawings, createDrawing, DRAWING_TYPES, drawingFillPolygon, drawingHitTest, drawingSegments, lineStyleDash,
@@ -14,13 +14,13 @@ import {
 
 const icons = {
   trend_line: TrendingUp,
-  ray: GitCommitHorizontal,
-  horizontal_line: MoveHorizontal,
-  vertical_line: MoveVertical,
+  ray: ArrowRightFromLine,
+  horizontal_line: Minus,
+  vertical_line: SeparatorVertical,
   arrow: ArrowUpRight,
   rectangle: Square,
-  parallel_channel: Route,
-  polyline: PenLine,
+  parallel_channel: ChartNoAxesCombined,
+  polyline: Waypoints,
   curve: Spline,
   brush: Paintbrush,
   price_range: MoveVertical,
@@ -629,8 +629,22 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
     replaceDrawings(next);
     setDraft(null);
     setSelectedId(finished.clientId);
-    setActiveTool("select");
+    // Return interaction ownership to the chart immediately. The saved object
+    // remains selected and can be deleted or styled from its contextual bar.
+    setActiveTool(null);
     persist(finished).catch(() => {});
+  }
+
+  function findDrawingAtPoint(point, tolerance = 7) {
+    const canvas = canvasRef.current?.getBoundingClientRect();
+    if (!canvas) return null;
+    const ordered = [...drawingsRef.current].sort((a, b) => Number(b.zIndex || 0) - Number(a.zIndex || 0));
+    return ordered.find((drawing) => {
+      if (!drawing.visible) return false;
+      const points = drawing.points.map((item) => toCanvasPoint(item, chart, series)).filter(Boolean);
+      return points.length === drawing.points.length
+        && drawingHitTest(drawing.type, points, point, canvas.width, canvas.height, drawing.options, tolerance).hit;
+    }) || null;
   }
 
   function pointerDown(event) {
@@ -640,17 +654,13 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
     event.currentTarget.setPointerCapture(event.pointerId);
     if (activeTool === "select") {
       const canvas = canvasRef.current.getBoundingClientRect();
-      const ordered = [...drawingsRef.current].sort((a, b) => Number(b.zIndex || 0) - Number(a.zIndex || 0));
-      const found = ordered.find((drawing) => {
-        if (!drawing.visible) return false;
-        const points = drawing.points.map((item) => toCanvasPoint(item, chart, series)).filter(Boolean);
-        return points.length === drawing.points.length && drawingHitTest(drawing.type, points, point, canvas.width, canvas.height, drawing.options).hit;
-      });
+      const tolerance = event.pointerType === "touch" ? 14 : event.pointerType === "pen" ? 10 : 7;
+      const found = findDrawingAtPoint(point, tolerance);
       if (!found) { setSelectedId(""); return; }
       setSelectedId(found.clientId);
       if (found.locked) return;
       const points = found.points.map((item) => toCanvasPoint(item, chart, series));
-      const hit = drawingHitTest(found.type, points, point, canvas.width, canvas.height, found.options);
+      const hit = drawingHitTest(found.type, points, point, canvas.width, canvas.height, found.options, tolerance);
       interactionRef.current = { mode: hit.handleIndex >= 0 ? "handle" : "move", handleIndex: hit.handleIndex, start: point, original: cloneDrawings([found])[0], before: cloneDrawings(drawingsRef.current) };
       return;
     }
@@ -665,6 +675,18 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
     setDraft({ ...value, points: [point, point] });
     interactionRef.current = { mode: activeTool === "brush" ? "brush" : "draw" };
   }
+
+  useEffect(() => {
+    if (!chart || !series || activeTool) return undefined;
+    const selectOnChartTap = (param) => {
+      if (!param?.point || Number(param.point.y) > Number(mainPaneHeight || 0)) return;
+      const tolerance = param.sourceEvent?.pointerType === "touch" ? 14 : 9;
+      const found = findDrawingAtPoint(param.point, tolerance);
+      setSelectedId(found?.clientId || "");
+    };
+    chart.subscribeClick(selectOnChartTap);
+    return () => chart.unsubscribeClick(selectOnChartTap);
+  }, [chart, series, activeTool, mainPaneHeight]);
 
   function pointerMove(event) {
     if (!chart || !series || !canvasRef.current) return;
@@ -804,7 +826,7 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
         });
       replaceDrawings([...drawingsRef.current, copy]);
       setSelectedId(copy.clientId);
-      setActiveTool("select");
+      setActiveTool(null);
       setStatus(isArabic ? "تم لصق نسخة مستقلة من الرسم." : "An independent drawing copy was pasted.");
     } catch (error) {
       setStatus(displayError(error, isArabic));
@@ -998,7 +1020,7 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
   const selectedType = useMemo(() => DRAWING_TYPES.find((item) => item.id === selected?.type), [selected]);
 
   return <>
-    {toolbarLayout.hidden && <button type="button" className="drawing-tools-restore" onClick={resetToolbarLayout} title={isArabic ? "إظهار أدوات الرسم وإعادتها لموضعها" : "Show and reset drawing tools"} aria-label={isArabic ? "إظهار أدوات الرسم وإعادتها لموضعها" : "Show and reset drawing tools"}><PenLine size={17} /><span>{isArabic ? "أدوات الرسم" : "Drawing tools"}</span><Eye size={15} /></button>}
+    {toolbarLayout.hidden && <button type="button" className="drawing-tools-restore" onClick={resetToolbarLayout} title={isArabic ? "إظهار أدوات الرسم وإعادتها لموضعها" : "Show and reset drawing tools"} aria-label={isArabic ? "إظهار أدوات الرسم وإعادتها لموضعها" : "Show and reset drawing tools"}><Waypoints size={17} /><span>{isArabic ? "أدوات الرسم" : "Drawing tools"}</span><Eye size={15} /></button>}
     {!toolbarLayout.hidden && <div ref={toolbarRef} style={toolbarStyle} onKeyDown={toolbarKeyDown} className={"drawing-tools-bar " + (toolbarLayout.orientation === "vertical" ? "drawing-tools-vertical" : "drawing-tools-horizontal") + (toolbarLayout.collapsed ? " drawing-tools-collapsed" : "")} data-drawing-instance={instanceRef.current} data-active-tool={activeTool || ""} role="toolbar" aria-orientation={toolbarLayout.orientation === "vertical" ? "vertical" : "horizontal"} aria-label={isArabic ? "أدوات الرسم" : "Drawing tools"}>
       <button type="button" className="drawing-toolbar-drag-handle" onPointerDown={beginToolbarDrag} onPointerMove={moveToolbar} onPointerUp={finishToolbarDrag} onPointerCancel={finishToolbarDrag} title={isArabic ? "اسحب لتحريك شريط الأدوات" : "Drag to move toolbar"} aria-label={isArabic ? "تحريك شريط أدوات الرسم" : "Move drawing toolbar"}><Grip size={16} /></button>
       <div className="drawing-toolbar-controls">
@@ -1013,7 +1035,7 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
       {DRAWING_TYPES.map((tool) => {
         const Icon = icons[tool.id];
         const label = isArabic ? tool.ar : tool.en;
-        return <button type="button" key={tool.id} className={activeTool === tool.id ? "active" : ""} onClick={() => { setActiveTool(tool.id); setSelectedId(""); setDraft(null); }} title={label} aria-label={label}><Icon size={16} /></button>;
+        return <button type="button" key={tool.id} data-drawing-tool={tool.id} className={activeTool === tool.id ? "active" : ""} onClick={() => { setActiveTool(tool.id); setSelectedId(""); setDraft(null); }} title={label} aria-label={label}><Icon size={18} strokeWidth={1.75} /></button>;
       })}
       <span className="drawing-tools-separator" />
       <button type="button" onClick={undo} disabled={!undoStack.length} title={isArabic ? "تراجع" : "Undo"}><Undo2 size={16} /></button>
