@@ -5406,11 +5406,16 @@ async function readIndicatorSnapshots(base44, filter, marketCode, sort, limit) {
   const query = requestedMarket === "SA_MAIN"
     ? identityFilter
     : { ...identityFilter, market_code: requestedMarket };
-  const rows = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.IndicatorSnapshot.filter(
-    query,
-    sort,
-    limit
-  )));
+  const readSnapshots = () => {
+    if (sort && Number.isFinite(Number(limit))) {
+      return base44.asServiceRole.entities.IndicatorSnapshot.filter(query, sort, Number(limit));
+    }
+    if (sort) {
+      return base44.asServiceRole.entities.IndicatorSnapshot.filter(query, sort);
+    }
+    return base44.asServiceRole.entities.IndicatorSnapshot.filter(query);
+  };
+  const rows = entityRows(await entityReadWithRetry(readSnapshots));
   return rows.filter((row) => storedMarketRecordBelongsToMarket(row, marketCode));
 }
 function candleIdentityFilter(instruments, interval, marketCode) {
