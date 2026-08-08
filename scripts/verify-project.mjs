@@ -313,6 +313,9 @@ const drawingTools = await readFile(new URL("../src/components/market/ChartDrawi
 assert.match(drawingTools, /finishDrawing\(value\)[\s\S]*?setActiveTool\(null\)/, "finishing a drawing must return pointer ownership to chart pan and pinch interactions");
 assert.match(drawingTools, /beginExistingDrawingInteraction/, "a saved drawing must be directly selectable and editable without a separate move tool");
 assert.match(drawingTools, /host\.addEventListener\("pointerdown", onPointerDown, true\)/, "drawing hit testing must run in capture phase while leaving empty-chart gestures to the chart");
+assert.match(drawingTools, /if \(isDrawingUiEvent\(event\)/, "capture-phase drawing hit testing must ignore contextual drawing controls before clearing selection");
+assert.match(drawingTools, /className="drawing-selection-toolbar" data-drawing-ui="true"/, "selected drawing controls must remain mounted while color, width, lock, median, and delete actions run");
+assert.match(drawingTools, /data-action="clear-all-drawings"/, "delete-all must remain a distinct explicit action from selected drawing deletion");
 assert.match(drawingTools, /pointerType === "touch" \? 16/, "touch selection must use a larger hit target than mouse selection");
 assert.doesNotMatch(drawingTools, /activeTool === "select"/, "drawing editing must not require a separate select or move mode");
 assert.match(drawingTools, /function ParallelChannelIcon/, "the parallel channel must use a dedicated channel glyph instead of a volume-chart icon");
@@ -402,7 +405,9 @@ assert.match(marketReadFunction, /async function readIndicatorSnapshots/, "Saudi
 assert.match(marketReadFunction, /requestedMarket === "SA_MAIN"[\s\S]*?identityFilter[\s\S]*?market_code: requestedMarket/, "legacy Saudi indicator snapshots must be read without weakening explicit market isolation elsewhere");
 assert.match(marketReadFunction, /readIndicatorSnapshots\(base44, \{ instrument_id: instrument\.id, market_code: body\.market_code \}, body\.market_code\)/, "company investor zones must recover legacy Saudi snapshots");
 assert.match(marketReadFunction, /readIndicatorSnapshots\(base44, \{[\s\S]*?indicator_key: "technical_signals"[\s\S]*?\}, requestedMarket, "-source_as_of", 1000\)/, "the Saudi screener must recover legacy technical signals through the same market guard");
-assert.match(marketReadFunction, /storedCandlesForInstruments\(base44, instruments, interval, requestedMarket\)/, "sector charts must resolve legacy chunks back to current instruments by symbol");
+assert.match(marketReadFunction, /storedCandlesForInstruments\(base44, instruments, interval, requestedMarket, range\)/, "sector charts must resolve legacy chunks back to current instruments by symbol and requested range");
+assert.match(marketReadFunction, /const pendingIds = new Set/, "sector charts must track constituents that still need a fallback interval");
+assert.match(marketReadFunction, /if \(!pendingInstruments\.length\) break/, "sector charts must stop reading fallback intervals once every constituent has sufficient coverage");
 assert.match(marketReadFunction, /technical_signals/, "market reads must expose persisted technical signals to the screener");
 assert.match(marketReadFunction, /bullish_zone_pin_bar/, "the protected screener must filter bullish pin bars inside investor zones");
 assert.match(marketReadFunction, /bearish_zone_pin_bar/, "the protected screener must filter bearish pin bars inside investor zones");
@@ -545,6 +550,9 @@ assert.match(companyIntelligence, /CorporateAction/, "company intelligence must 
 assert.match(companyIntelligence, /"bootstrap"/, "company intelligence must support an owner-controlled initial full import");
 
 const { drawingSegments, drawingFillPolygon, drawingHitTest, smoothCurveSegments } = await import(new URL("../src/components/market/chartDrawingModel.js", import.meta.url));
+const { isDrawingUiEvent } = await import(new URL("../src/components/market/chartDrawingEvents.js", import.meta.url));
+assert.equal(isDrawingUiEvent({ composedPath: () => [{ dataset: { drawingUi: "true" } }] }), true, "contextual toolbar pointer events must be recognized before chart capture handlers run");
+assert.equal(isDrawingUiEvent({ composedPath: () => [{ dataset: {} }], target: { closest: () => null } }), false, "empty chart pointer events must remain available for drawing hit testing and chart gestures");
 const modelWidth = 800;
 const modelHeight = 500;
 const horizontalPoints = [{ x: 120, y: 220 }];

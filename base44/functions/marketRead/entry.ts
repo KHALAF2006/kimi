@@ -5505,16 +5505,33 @@ async function storedCandlesForInterval(base44, instrument, interval, marketCode
     storedIntervals: merged.storedIntervals
   };
 }
-async function storedCandlesForInstruments(base44, instruments, interval, marketCode) {
+function hasRequestedRange(bars, interval, range) {
+  if (!Array.isArray(bars) || bars.length < 2) return false;
+  if (range === "max") return false;
+  return candleRangeMetadata(bars, interval, range, false).complete;
+}
+async function storedCandlesForInstruments(base44, instruments, interval, marketCode, range) {
   const instrumentsById = new Map(instruments.map((instrument) => [instrument.id, instrument]));
   const instrumentsBySymbol = new Map(instruments.map((instrument) => [String(instrument.symbol || "").trim().toUpperCase(), instrument]));
   const chunksByInstrument = new Map(instruments.map((instrument) => [instrument.id, []]));
+  const pendingIds = new Set(instruments.map((instrument) => instrument.id));
   for (const storedInterval of fallbackIntervals(interval)) {
-    const chunks = (await readStoredCandleChunks(base44, candleIdentityFilter(instruments, storedInterval, marketCode), marketCode, "-end_time", 5e3))
+    const pendingInstruments = instruments.filter((instrument) => pendingIds.has(instrument.id));
+    if (!pendingInstruments.length) break;
+    const chunks = (await readStoredCandleChunks(base44, candleIdentityFilter(pendingInstruments, storedInterval, marketCode), marketCode, "-end_time", 5e3))
       .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
     for (const chunk of chunks) {
       const instrument = instrumentForCandleChunk(chunk, instrumentsById, instrumentsBySymbol, marketCode);
       if (instrument) chunksByInstrument.get(instrument.id)?.push(chunk);
+    }
+    for (const instrument of pendingInstruments) {
+      const instrumentChunks = chunksByInstrument.get(instrument.id) || [];
+      const candidateSeries = fallbackIntervals(interval).map((candidateInterval) => {
+        const matching = instrumentChunks.filter((chunk) => chunk.interval === candidateInterval);
+        return matching.length ? { interval: candidateInterval, bars: normalizedStoredBars(matching, marketCode) } : null;
+      }).filter(Boolean);
+      const candidate = mergeStoredCandleSeries(candidateSeries, interval, marketCandleOptions(marketCode));
+      if (hasRequestedRange(candidate.bars, interval, range)) pendingIds.delete(instrument.id);
     }
   }
   return new Map(instruments.map((instrument) => {
@@ -5830,7 +5847,7 @@ async function sectorChartResponse(base44, body) {
   const quoteByInstrument = new Map();
   for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
   const weights = sectorWeights(instruments, quoteByInstrument);
-  const storedByInstrument = await storedCandlesForInstruments(base44, instruments, interval, requestedMarket);
+  const storedByInstrument = await storedCandlesForInstruments(base44, instruments, interval, requestedMarket, range);
   const candlesByInstrument = instruments.map((instrument) => ({
     instrument,
     stored: storedByInstrument.get(instrument.id) || { bars: [] }

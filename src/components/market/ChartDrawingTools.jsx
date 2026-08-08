@@ -7,6 +7,7 @@ import {
 import {
   cloneDrawings, createDrawing, DRAWING_TYPES, drawingFillPolygon, drawingHitTest, drawingSegments, lineStyleDash,
 } from "@/components/market/chartDrawingModel";
+import { isDrawingUiEvent } from "@/components/market/chartDrawingEvents";
 import {
   deleteAllChartDrawings, deleteChartDrawing, deleteDrawingAlert, duplicateChartDrawing, loadChartDrawings,
   saveChartDrawing, saveDrawingAlert, setAllChartDrawingsVisibility,
@@ -673,7 +674,11 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
   }
 
   function beginExistingDrawingInteraction(event, captureTarget) {
-    if (!chart || !series || !canvasRef.current || activeTool || event.button > 0) return false;
+    // This listener runs in capture phase so drawings remain selectable while the
+    // chart owns pointer gestures. Never let it consume controls layered above
+    // the chart: doing so unmounts the contextual toolbar before its input/click
+    // event can update or delete the selected drawing.
+    if (isDrawingUiEvent(event) || !chart || !series || !canvasRef.current || activeTool || event.button > 0) return false;
     const point = canvasPoint(event, canvasRef.current, chart, series);
     if (!point || Number(point.y) > Number(mainPaneHeight || 0)) return false;
     const bounds = canvasRef.current.getBoundingClientRect();
@@ -1062,8 +1067,8 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
   const selectedType = useMemo(() => DRAWING_TYPES.find((item) => item.id === selected?.type), [selected]);
 
   return <>
-    {toolbarLayout.hidden && <button type="button" className="drawing-tools-restore" onClick={resetToolbarLayout} title={isArabic ? "إظهار أدوات الرسم وإعادتها لموضعها" : "Show and reset drawing tools"} aria-label={isArabic ? "إظهار أدوات الرسم وإعادتها لموضعها" : "Show and reset drawing tools"}><Waypoints size={17} /><span>{isArabic ? "أدوات الرسم" : "Drawing tools"}</span><Eye size={15} /></button>}
-    {!toolbarLayout.hidden && <div ref={toolbarRef} style={toolbarStyle} onKeyDown={toolbarKeyDown} className={"drawing-tools-bar " + (toolbarLayout.orientation === "vertical" ? "drawing-tools-vertical" : "drawing-tools-horizontal") + (toolbarLayout.collapsed ? " drawing-tools-collapsed" : "")} data-drawing-instance={instanceRef.current} data-active-tool={activeTool || ""} role="toolbar" aria-orientation={toolbarLayout.orientation === "vertical" ? "vertical" : "horizontal"} aria-label={isArabic ? "أدوات الرسم" : "Drawing tools"}>
+    {toolbarLayout.hidden && <button type="button" className="drawing-tools-restore" data-drawing-ui="true" onClick={resetToolbarLayout} title={isArabic ? "إظهار أدوات الرسم وإعادتها لموضعها" : "Show and reset drawing tools"} aria-label={isArabic ? "إظهار أدوات الرسم وإعادتها لموضعها" : "Show and reset drawing tools"}><Waypoints size={17} /><span>{isArabic ? "أدوات الرسم" : "Drawing tools"}</span><Eye size={15} /></button>}
+    {!toolbarLayout.hidden && <div ref={toolbarRef} style={toolbarStyle} onKeyDown={toolbarKeyDown} className={"drawing-tools-bar " + (toolbarLayout.orientation === "vertical" ? "drawing-tools-vertical" : "drawing-tools-horizontal") + (toolbarLayout.collapsed ? " drawing-tools-collapsed" : "")} data-drawing-ui="true" data-drawing-instance={instanceRef.current} data-active-tool={activeTool || ""} role="toolbar" aria-orientation={toolbarLayout.orientation === "vertical" ? "vertical" : "horizontal"} aria-label={isArabic ? "أدوات الرسم" : "Drawing tools"}>
       <button type="button" className="drawing-toolbar-drag-handle" onPointerDown={beginToolbarDrag} onPointerMove={moveToolbar} onPointerUp={finishToolbarDrag} onPointerCancel={finishToolbarDrag} title={isArabic ? "اسحب لتحريك شريط الأدوات" : "Drag to move toolbar"} aria-label={isArabic ? "تحريك شريط أدوات الرسم" : "Move drawing toolbar"}><Grip size={16} /></button>
       <div className="drawing-toolbar-controls">
         <button type="button" onClick={() => setToolbarLayout((value) => ({ ...value, orientation: value.orientation === "horizontal" ? "vertical" : "horizontal" }))} title={isArabic ? "تبديل اتجاه الشريط" : "Change toolbar orientation"} aria-label={isArabic ? "تبديل اتجاه شريط الرسم" : "Change drawing toolbar orientation"}>{toolbarLayout.orientation === "horizontal" ? <PanelLeftClose size={15} /> : <PanelTopClose size={15} />}</button>
@@ -1087,7 +1092,7 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
       </div>}
     </div>}
 
-    {showDrawingList && <aside className="drawing-object-tree" aria-label={isArabic ? "قائمة الرسومات" : "Drawing object tree"}>
+    {showDrawingList && <aside className="drawing-object-tree" data-drawing-ui="true" aria-label={isArabic ? "قائمة الرسومات" : "Drawing object tree"}>
       <header><b>{isArabic ? "قائمة الرسومات" : "Drawings"}</b><button type="button" onClick={() => setShowDrawingList(false)}><X size={14} /></button></header>
       {!drawings.length && <p>{isArabic ? "لا توجد رسومات محفوظة." : "No saved drawings."}</p>}
       {drawings.slice().sort((a, b) => Number(b.zIndex || 0) - Number(a.zIndex || 0)).map((drawing) => {
@@ -1101,9 +1106,9 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
       })}
     </aside>}
 
-    {status && <div className="drawing-status" role="status"><span>{status}</span><button type="button" onClick={() => setStatus("")}><X size={13} /></button></div>}
+    {status && <div className="drawing-status" data-drawing-ui="true" role="status"><span>{status}</span><button type="button" onClick={() => setStatus("")}><X size={13} /></button></div>}
 
-    {contextMenu && <div className="chart-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} role="menu" onPointerDown={(event) => event.stopPropagation()}>
+    {contextMenu && <div className="chart-context-menu" data-drawing-ui="true" style={{ left: contextMenu.x, top: contextMenu.y }} role="menu" onPointerDown={(event) => event.stopPropagation()}>
       <button type="button" role="menuitem" onClick={() => { onResetChart?.(); setContextMenu(null); }}><RefreshCcw size={15} />{isArabic ? "إعادة الرسم للوضع الطبيعي" : "Reset chart view"}<kbd>Alt+R</kbd></button>
       <button type="button" role="menuitem" disabled={!selected} onClick={() => { copySelected(); setContextMenu(null); }}><Copy size={15} />{isArabic ? "نسخ الرسم المحدد" : "Copy selected drawing"}<kbd>Ctrl+C</kbd></button>
       <button type="button" role="menuitem" onClick={() => { pasteCopied(); setContextMenu(null); }}><ClipboardPaste size={15} />{isArabic ? "لصق الرسم" : "Paste drawing"}<kbd>Ctrl+V</kbd></button>
@@ -1125,7 +1130,7 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
       aria-label={isArabic ? "طبقة الرسم على الشارت" : "Chart drawing layer"}
     />
 
-    {selected && <div ref={selectionToolbarRef} style={selectionToolbarStyle} className="drawing-selection-toolbar" role="toolbar" aria-label={isArabic ? "خصائص الرسم المحدد" : "Selected drawing properties"}>
+    {selected && <div ref={selectionToolbarRef} style={selectionToolbarStyle} className="drawing-selection-toolbar" data-drawing-ui="true" role="toolbar" aria-label={isArabic ? "خصائص الرسم المحدد" : "Selected drawing properties"}>
       <button type="button" className="drawing-selection-drag-handle" onPointerDown={beginSelectionToolbarDrag} onPointerMove={moveSelectionToolbar} onPointerUp={finishSelectionToolbarDrag} onPointerCancel={finishSelectionToolbarDrag} title={isArabic ? "اسحب لتحريك خصائص الرسم" : "Drag drawing properties"}><Grip size={15} /></button>
       <b>{isArabic ? selectedType?.ar : selectedType?.en}</b>
       <input type="color" value={selected.options.color} onChange={(event) => updateSelected({ options: { color: event.target.value } })} title={isArabic ? "لون الخط" : "Line color"} />
@@ -1148,7 +1153,7 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
       <button type="button" disabled={busyDrawingId === selected.clientId} className="danger" onClick={() => removeSelected()} title={isArabic ? "حذف الرسم" : "Delete"}><Trash2 size={15} /></button>
     </div>}
 
-    {showAlertEditor && selected && <div className="drawing-alert-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowAlertEditor(false)}>
+    {showAlertEditor && selected && <div className="drawing-alert-backdrop" data-drawing-ui="true" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowAlertEditor(false)}>
       <form className="drawing-alert-dialog" onSubmit={submitAlert}>
         <div><b>{isArabic ? "تنبيه الرسم" : "Drawing alert"}</b><button type="button" onClick={() => setShowAlertEditor(false)}><X size={16} /></button></div>
         <p>{isArabic ? "يُفحص السعر مقابل الرسم في دورات تحديث السوق. لا يُرسل تنبيه مكرر داخل مدة التهدئة." : "Price is evaluated against this drawing during market refresh cycles. Cooldown prevents duplicates."}</p>
@@ -1159,7 +1164,7 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
       </form>
     </div>}
 
-    {pendingConfirmation && <div className="drawing-confirm-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !busyDrawingId && setPendingConfirmation(null)}>
+    {pendingConfirmation && <div className="drawing-confirm-backdrop" data-drawing-ui="true" onMouseDown={(event) => event.target === event.currentTarget && !busyDrawingId && setPendingConfirmation(null)}>
       <section ref={confirmationRef} role="alertdialog" aria-modal="true" aria-labelledby="drawing-confirm-title" aria-describedby="drawing-confirm-description" className="drawing-confirm-dialog" dir={isArabic ? "rtl" : "ltr"}>
         <div className="drawing-confirm-accent" />
         <header className="drawing-confirm-header">
