@@ -315,6 +315,8 @@ assert.match(drawingTools, /beginExistingDrawingInteraction/, "a saved drawing m
 assert.match(drawingTools, /host\.addEventListener\("pointerdown", onPointerDown, true\)/, "drawing hit testing must run in capture phase while leaving empty-chart gestures to the chart");
 assert.match(drawingTools, /if \(isDrawingUiEvent\(event\)/, "capture-phase drawing hit testing must ignore contextual drawing controls before clearing selection");
 assert.match(drawingTools, /className="drawing-selection-toolbar" data-drawing-ui="true"/, "selected drawing controls must remain mounted while color, width, lock, median, and delete actions run");
+assert.match(drawingTools, /data-action="delete-selected-drawing"/, "selected drawing deletion must stay visible in the contextual toolbar header");
+assert.match(drawingTools, /clampFloatingToolbarPosition/, "the selected drawing toolbar must be clamped inside the current chart pane");
 assert.match(drawingTools, /data-action="clear-all-drawings"/, "delete-all must remain a distinct explicit action from selected drawing deletion");
 assert.match(drawingTools, /pointerType === "touch" \? 16/, "touch selection must use a larger hit target than mouse selection");
 assert.doesNotMatch(drawingTools, /activeTool === "select"/, "drawing editing must not require a separate select or move mode");
@@ -550,9 +552,11 @@ assert.match(companyIntelligence, /CorporateAction/, "company intelligence must 
 assert.match(companyIntelligence, /"bootstrap"/, "company intelligence must support an owner-controlled initial full import");
 
 const { drawingSegments, drawingFillPolygon, drawingHitTest, smoothCurveSegments } = await import(new URL("../src/components/market/chartDrawingModel.js", import.meta.url));
-const { isDrawingUiEvent } = await import(new URL("../src/components/market/chartDrawingEvents.js", import.meta.url));
+const { clampFloatingToolbarPosition, isDrawingUiEvent } = await import(new URL("../src/components/market/chartDrawingEvents.js", import.meta.url));
 assert.equal(isDrawingUiEvent({ composedPath: () => [{ dataset: { drawingUi: "true" } }] }), true, "contextual toolbar pointer events must be recognized before chart capture handlers run");
 assert.equal(isDrawingUiEvent({ composedPath: () => [{ dataset: {} }], target: { closest: () => null } }), false, "empty chart pointer events must remain available for drawing hit testing and chart gestures");
+assert.deepEqual(clampFloatingToolbarPosition({ x: 900, y: 600, width: 260, height: 90, boundaryWidth: 800, boundaryHeight: 500 }), { x: 536, y: 406 }, "a persisted contextual toolbar position must be recovered inside the chart pane");
+assert.deepEqual(clampFloatingToolbarPosition({ x: -40, y: -20, width: 260, height: 90, boundaryWidth: 800, boundaryHeight: 500 }), { x: 4, y: 4 }, "a contextual toolbar must not cross the leading or top chart edge");
 const modelWidth = 800;
 const modelHeight = 500;
 const horizontalPoints = [{ x: 120, y: 220 }];

@@ -372,8 +372,10 @@
   .drawing-object-tree .danger { @apply text-red-600 dark:text-red-400; }
   .chart-drawing-canvas { @apply pointer-events-none absolute left-0 top-0 z-[5] touch-none; width:calc(100% - var(--drawing-price-axis-width, 74px)); }
   .chart-drawing-canvas-active { @apply pointer-events-auto cursor-crosshair; }
-  .drawing-selection-toolbar { @apply absolute z-[12] flex max-w-[calc(100%-16px)] flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 text-[10px] shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; }
-  .drawing-selection-toolbar > b { @apply px-2 text-slate-700 dark:text-slate-200; }
+  .drawing-selection-toolbar { @apply absolute z-[12] grid max-w-[calc(100%-16px)] overflow-hidden rounded-xl border border-slate-200 bg-white/95 text-[10px] shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-950/95; width:max-content; }
+  .drawing-selection-primary { @apply flex min-h-10 w-full items-center gap-1 border-b border-slate-200 p-1.5 dark:border-slate-700; }
+  .drawing-selection-primary > b { @apply min-w-0 flex-1 truncate px-2 text-slate-700 dark:text-slate-200; }
+  .drawing-selection-properties { @apply flex max-w-full flex-wrap items-center gap-1 overflow-x-auto overscroll-contain p-1.5; }
   .drawing-selection-toolbar button { @apply grid h-8 min-w-8 place-items-center rounded-lg px-1.5 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800; }
   .drawing-selection-toolbar button.danger { @apply text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40; }
   .drawing-selection-toolbar .drawing-selection-drag-handle { @apply cursor-move touch-none bg-slate-100 dark:bg-slate-800; }
@@ -513,7 +515,8 @@
   .drawing-tools-horizontal { @apply w-[calc(100%-8px)]; }
   .drawing-tools-restore { @apply end-1 top-1 min-h-11 min-w-[136px]; }
   .drawing-object-tree { @apply end-1 top-14 max-h-[58vh] w-[calc(100%-8px)] overflow-y-auto; }
-  .drawing-selection-toolbar { @apply max-h-[44vh] max-w-[calc(100%-8px)] overflow-y-auto; }
+  .drawing-selection-toolbar { @apply max-h-[44vh] max-w-[calc(100%-8px)]; }
+  .drawing-selection-properties { @apply max-h-[calc(44vh-44px)] overflow-y-auto; }
   .chart-shell { @apply p-2; }
   .chart-canvas-wrap { height:clamp(420px,64dvh,680px); min-height:420px; }
   .chart-shell .icon-button, .chart-type-button, .indicator-hub-button, .drawing-tools-bar button, .drawing-selection-toolbar button, .drawing-object-tree button, .drawing-status button { min-width:44px; min-height:44px; }

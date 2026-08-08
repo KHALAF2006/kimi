@@ -7,7 +7,7 @@ import {
 import {
   cloneDrawings, createDrawing, DRAWING_TYPES, drawingFillPolygon, drawingHitTest, drawingSegments, lineStyleDash,
 } from "@/components/market/chartDrawingModel";
-import { isDrawingUiEvent } from "@/components/market/chartDrawingEvents";
+import { clampFloatingToolbarPosition, isDrawingUiEvent } from "@/components/market/chartDrawingEvents";
 import {
   deleteAllChartDrawings, deleteChartDrawing, deleteDrawingAlert, duplicateChartDrawing, loadChartDrawings,
   saveChartDrawing, saveDrawingAlert, setAllChartDrawingsVisibility,
@@ -439,6 +439,47 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
   useEffect(() => {
     localStorage.setItem(SELECTION_TOOLBAR_STORAGE_KEY, JSON.stringify(selectionToolbarLayout));
   }, [selectionToolbarLayout]);
+
+  useEffect(() => {
+    if (!selected) return undefined;
+    let frame = 0;
+    const ensureInside = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const toolbar = selectionToolbarRef.current;
+        const boundary = canvasRef.current?.parentElement;
+        if (!toolbar || !boundary) return;
+        const toolbarRect = toolbar.getBoundingClientRect();
+        const boundaryRect = boundary.getBoundingClientRect();
+        const next = clampFloatingToolbarPosition({
+          x: toolbarRect.left - boundaryRect.left,
+          y: toolbarRect.top - boundaryRect.top,
+          width: toolbarRect.width,
+          height: toolbarRect.height,
+          boundaryWidth: boundaryRect.width,
+          boundaryHeight: Math.min(boundaryRect.height, mainPaneHeight),
+          padding: 4,
+        });
+        setSelectionToolbarLayout((value) => (
+          Math.abs(Number(value.x) - next.x) < 0.5 && Math.abs(Number(value.y) - next.y) < 0.5
+            ? value
+            : next
+        ));
+      });
+    };
+    ensureInside();
+    const toolbar = selectionToolbarRef.current;
+    const boundary = canvasRef.current?.parentElement;
+    const observer = new ResizeObserver(ensureInside);
+    if (toolbar) observer.observe(toolbar);
+    if (boundary) observer.observe(boundary);
+    window.addEventListener("resize", ensureInside);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", ensureInside);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [selected?.clientId, selected?.type, mainPaneHeight]);
 
   useEffect(() => {
     onDrawingVisibilityChange(drawings.length === 0 || drawings.some((drawing) => drawing.visible));
@@ -1131,8 +1172,12 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
     />
 
     {selected && <div ref={selectionToolbarRef} style={selectionToolbarStyle} className="drawing-selection-toolbar" data-drawing-ui="true" role="toolbar" aria-label={isArabic ? "خصائص الرسم المحدد" : "Selected drawing properties"}>
-      <button type="button" className="drawing-selection-drag-handle" onPointerDown={beginSelectionToolbarDrag} onPointerMove={moveSelectionToolbar} onPointerUp={finishSelectionToolbarDrag} onPointerCancel={finishSelectionToolbarDrag} title={isArabic ? "اسحب لتحريك خصائص الرسم" : "Drag drawing properties"}><Grip size={15} /></button>
-      <b>{isArabic ? selectedType?.ar : selectedType?.en}</b>
+      <div className="drawing-selection-primary">
+        <button type="button" className="drawing-selection-drag-handle" onPointerDown={beginSelectionToolbarDrag} onPointerMove={moveSelectionToolbar} onPointerUp={finishSelectionToolbarDrag} onPointerCancel={finishSelectionToolbarDrag} title={isArabic ? "اسحب لتحريك خصائص الرسم" : "Drag drawing properties"}><Grip size={15} /></button>
+        <b>{isArabic ? selectedType?.ar : selectedType?.en}</b>
+        <button type="button" data-action="delete-selected-drawing" disabled={busyDrawingId === selected.clientId} className="danger" onClick={() => removeSelected()} title={isArabic ? "حذف الرسم المحدد" : "Delete selected drawing"} aria-label={isArabic ? "حذف الرسم المحدد" : "Delete selected drawing"}><Trash2 size={15} /></button>
+      </div>
+      <div className="drawing-selection-properties">
       <input type="color" value={selected.options.color} onChange={(event) => updateSelected({ options: { color: event.target.value } })} title={isArabic ? "لون الخط" : "Line color"} />
       {["rectangle", "parallel_channel", ...RANGE_TYPES].includes(selected.type) && <><input type="color" value={selected.options.fillColor || selected.options.color} onChange={(event) => updateSelected({ options: { fillColor: event.target.value } })} title={isArabic ? "لون التعبئة" : "Fill color"} /><label><span>{isArabic ? "شفافية" : "Opacity"}</span><input type="range" min="0" max="100" value={selected.options.fillOpacity} onChange={(event) => updateSelected({ options: { fillOpacity: Number(event.target.value) } })} /></label></>}
       <select value={selected.options.lineWidth} onChange={(event) => updateSelected({ options: { lineWidth: Number(event.target.value) } })} aria-label={isArabic ? "سماكة الخط" : "Line width"}><option value="1">1px</option><option value="2">2px</option><option value="3">3px</option><option value="4">4px</option></select>
@@ -1150,7 +1195,7 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
         <option value="front">{isArabic ? "إحضار إلى الأمام" : "Bring to front"}</option>
         <option value="back">{isArabic ? "إرسال إلى الخلف" : "Send to back"}</option>
       </select>}
-      <button type="button" disabled={busyDrawingId === selected.clientId} className="danger" onClick={() => removeSelected()} title={isArabic ? "حذف الرسم" : "Delete"}><Trash2 size={15} /></button>
+      </div>
     </div>}
 
     {showAlertEditor && selected && <div className="drawing-alert-backdrop" data-drawing-ui="true" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowAlertEditor(false)}>
