@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle, ArrowRightFromLine, ArrowUpRight, BellOff, BellPlus, ChartNoAxesCombined, ChevronDown, ChevronRight, ClipboardPaste, Copy, Eye, EyeOff,
-  Grip, LayoutList, Lock, Minus, MousePointer2, MoveHorizontal, MoveVertical, Paintbrush, PanelLeftClose, PanelTopClose,
+  AlertTriangle, ArrowRightFromLine, ArrowUpRight, BellOff, BellPlus, ChevronDown, ChevronRight, ClipboardPaste, Copy, Eye, EyeOff,
+  Grip, LayoutList, Lock, Minus, MoveHorizontal, MoveVertical, Paintbrush, PanelLeftClose, PanelTopClose,
   Redo2, RefreshCcw, Ruler, SeparatorVertical, Spline, Square, Trash2, TrendingUp, Undo2, Unlock, Waypoints, X,
 } from "lucide-react";
 import {
@@ -12,6 +12,14 @@ import {
   saveChartDrawing, saveDrawingAlert, setAllChartDrawingsVisibility,
 } from "@/services/drawingService";
 
+function ParallelChannelIcon({ size = 18, strokeWidth = 1.75 }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 8.5 21 4" />
+    <path d="m3 20 18-4.5" />
+    <path d="m4 14.1 16-4" strokeDasharray="2.5 2.5" />
+  </svg>;
+}
+
 const icons = {
   trend_line: TrendingUp,
   ray: ArrowRightFromLine,
@@ -19,7 +27,7 @@ const icons = {
   vertical_line: SeparatorVertical,
   arrow: ArrowUpRight,
   rectangle: Square,
-  parallel_channel: ChartNoAxesCombined,
+  parallel_channel: ParallelChannelIcon,
   polyline: Waypoints,
   curve: Spline,
   brush: Paintbrush,
@@ -652,18 +660,6 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
     const point = canvasPoint(event, canvasRef.current, chart, series);
     if (!point) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    if (activeTool === "select") {
-      const canvas = canvasRef.current.getBoundingClientRect();
-      const tolerance = event.pointerType === "touch" ? 14 : event.pointerType === "pen" ? 10 : 7;
-      const found = findDrawingAtPoint(point, tolerance);
-      if (!found) { setSelectedId(""); return; }
-      setSelectedId(found.clientId);
-      if (found.locked) return;
-      const points = found.points.map((item) => toCanvasPoint(item, chart, series));
-      const hit = drawingHitTest(found.type, points, point, canvas.width, canvas.height, found.options, tolerance);
-      interactionRef.current = { mode: hit.handleIndex >= 0 ? "handle" : "move", handleIndex: hit.handleIndex, start: point, original: cloneDrawings([found])[0], before: cloneDrawings(drawingsRef.current) };
-      return;
-    }
     const value = createDrawing(activeTool, point, Math.max(0, ...drawingsRef.current.map((item) => Number(item.zIndex || 0))) + 1);
     if (["horizontal_line", "vertical_line"].includes(activeTool)) return finishDrawing(value);
     if (["polyline", "curve", "parallel_channel"].includes(activeTool)) {
@@ -676,17 +672,32 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
     interactionRef.current = { mode: activeTool === "brush" ? "brush" : "draw" };
   }
 
-  useEffect(() => {
-    if (!chart || !series || activeTool) return undefined;
-    const selectOnChartTap = (param) => {
-      if (!param?.point || Number(param.point.y) > Number(mainPaneHeight || 0)) return;
-      const tolerance = param.sourceEvent?.pointerType === "touch" ? 14 : 9;
-      const found = findDrawingAtPoint(param.point, tolerance);
-      setSelectedId(found?.clientId || "");
+  function beginExistingDrawingInteraction(event, captureTarget) {
+    if (!chart || !series || !canvasRef.current || activeTool || event.button > 0) return false;
+    const point = canvasPoint(event, canvasRef.current, chart, series);
+    if (!point || Number(point.y) > Number(mainPaneHeight || 0)) return false;
+    const bounds = canvasRef.current.getBoundingClientRect();
+    const tolerance = event.pointerType === "touch" ? 16 : event.pointerType === "pen" ? 11 : 7;
+    const found = findDrawingAtPoint(point, tolerance);
+    setSelectedId(found?.clientId || "");
+    if (!found) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    if (found.locked) return true;
+    const points = found.points.map((item) => toCanvasPoint(item, chart, series)).filter(Boolean);
+    const hit = drawingHitTest(found.type, points, point, bounds.width, bounds.height, found.options, tolerance);
+    captureTarget?.setPointerCapture?.(event.pointerId);
+    interactionRef.current = {
+      mode: hit.handleIndex >= 0 ? "handle" : "move",
+      handleIndex: hit.handleIndex,
+      start: point,
+      original: cloneDrawings([found])[0],
+      before: cloneDrawings(drawingsRef.current),
+      captureTarget,
+      moved: false,
     };
-    chart.subscribeClick(selectOnChartTap);
-    return () => chart.unsubscribeClick(selectOnChartTap);
-  }, [chart, series, activeTool, mainPaneHeight]);
+    return true;
+  }
 
   function pointerMove(event) {
     if (!chart || !series || !canvasRef.current) return;
@@ -711,21 +722,52 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
           return moved || item;
         });
       }
+      interaction.moved = true;
+      interaction.changed = { ...original, points };
       setDrawings((values) => values.map((item) => item.clientId === original.clientId ? { ...item, points } : item));
     }
   }
 
-  function pointerUp(event) {
+  function pointerUp(event, captureTarget = event.currentTarget) {
     const interaction = interactionRef.current;
     interactionRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (captureTarget?.hasPointerCapture?.(event.pointerId)) captureTarget.releasePointerCapture(event.pointerId);
     if (interaction?.mode === "draw" || interaction?.mode === "brush") finishDrawing(draftRef.current);
     else if (interaction && ["move", "handle"].includes(interaction.mode)) {
-      const changed = drawingsRef.current.find((item) => item.clientId === interaction.original.clientId);
+      if (!interaction.moved) return;
+      const changed = interaction.changed || drawingsRef.current.find((item) => item.clientId === interaction.original.clientId);
       pushHistory(interaction.before);
       if (changed) persist(changed).catch(() => {});
     }
   }
+
+  useEffect(() => {
+    const host = canvasRef.current?.parentElement;
+    if (!host || !chart || !series || activeTool) return undefined;
+    const onPointerDown = (event) => beginExistingDrawingInteraction(event, host);
+    const onPointerMove = (event) => {
+      if (!interactionRef.current || !["move", "handle"].includes(interactionRef.current.mode)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      pointerMove(event);
+    };
+    const onPointerUp = (event) => {
+      if (!interactionRef.current || !["move", "handle"].includes(interactionRef.current.mode)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      pointerUp(event, host);
+    };
+    host.addEventListener("pointerdown", onPointerDown, true);
+    host.addEventListener("pointermove", onPointerMove, true);
+    host.addEventListener("pointerup", onPointerUp, true);
+    host.addEventListener("pointercancel", onPointerUp, true);
+    return () => {
+      host.removeEventListener("pointerdown", onPointerDown, true);
+      host.removeEventListener("pointermove", onPointerMove, true);
+      host.removeEventListener("pointerup", onPointerUp, true);
+      host.removeEventListener("pointercancel", onPointerUp, true);
+    };
+  }, [chart, series, activeTool, mainPaneHeight]);
 
   function updateSelected(patch) {
     if (!selected || selected.locked && !Object.hasOwn(patch, "locked")) return;
@@ -1031,7 +1073,6 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
         <button type="button" onClick={() => { setShowDrawingList(false); setToolbarLayout((value) => ({ ...value, hidden: true })); }} title={isArabic ? "إخفاء شريط الأدوات" : "Hide toolbar"} aria-label={isArabic ? "إخفاء شريط أدوات الرسم" : "Hide drawing toolbar"}><EyeOff size={15} /></button>
       </div>
       {!toolbarLayout.collapsed && <div className="drawing-toolbar-tools">
-      <button type="button" className={activeTool === "select" ? "active" : ""} onClick={() => setActiveTool(activeTool === "select" ? null : "select")} title={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"} aria-label={isArabic ? "تحديد وتحريك الرسومات" : "Select and move drawings"}><MousePointer2 size={16} /></button>
       {DRAWING_TYPES.map((tool) => {
         const Icon = icons[tool.id];
         const label = isArabic ? tool.ar : tool.en;
@@ -1052,7 +1093,7 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
       {drawings.slice().sort((a, b) => Number(b.zIndex || 0) - Number(a.zIndex || 0)).map((drawing) => {
         const type = DRAWING_TYPES.find((item) => item.id === drawing.type);
         return <div key={drawing.clientId} className={drawing.clientId === selectedId ? "active" : ""}>
-          <button type="button" className="drawing-object-select" onClick={() => { setSelectedId(drawing.clientId); setActiveTool("select"); }}>{isArabic ? type?.ar : type?.en}</button>
+          <button type="button" className="drawing-object-select" onClick={() => { setSelectedId(drawing.clientId); setActiveTool(null); }}>{isArabic ? type?.ar : type?.en}</button>
           <button type="button" onClick={() => toggleDrawingVisibility(drawing)} title={drawing.visible ? (isArabic ? "إخفاء" : "Hide") : (isArabic ? "إظهار" : "Show")}>{drawing.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
           <button type="button" onClick={() => toggleDrawingLock(drawing)} title={drawing.locked ? (isArabic ? "فتح القفل" : "Unlock") : (isArabic ? "قفل" : "Lock")}>{drawing.locked ? <Lock size={14} /> : <Unlock size={14} />}</button>
           <button type="button" className="danger" onClick={() => removeDrawing(drawing)} title={isArabic ? "حذف" : "Delete"}><Trash2 size={14} /></button>

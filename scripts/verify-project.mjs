@@ -239,6 +239,9 @@ assert.match(companyChart, /candlesSeries\.attachPrimitive\(investorZonePrimitiv
 assert.doesNotMatch(companyChart, /setZoneGeometry/, "chart navigation must not trigger React state updates for zone geometry");
 assert.match(companyChart, /sameHoveredCandle\(hoveredRef\.current, next\)/, "crosshair state must skip React renders while the hovered candle is unchanged");
 assert.match(companyChart, /kineticScroll:\s*\{\s*mouse:\s*true,\s*touch:\s*true\s*\}/, "mouse and touch panning must retain kinetic scrolling");
+assert.match(companyChart, /fittedDataScopeRef\.current !== dataScope/, "routine quote refreshes must preserve the user's pan and zoom instead of fitting the chart again");
+assert.match(companyChart, /nextMeta\?\.range_complete === false/, "partial stored history must never be persisted as a successful full-range selection");
+assert.match(companyChart, /historyMeta\.available_ranges\.includes\(item\.value\)/, "range controls must be governed by actual backend coverage");
 assert.match(companyChart, /showMomentumCard/, "momentum price card must have its own visibility state");
 assert.match(companyChart, /showMomentum\s*&&\s*momentum\?\.zones/, "hiding all indicators must also hide the investor-zone price card");
 assert.match(companyChart, /ChartDrawingTools/, "the verified chart must mount the drawing layer");
@@ -308,8 +311,11 @@ assert.match(chartDrawingsFunction, /drawing\.bulk\.delete/, "bulk drawing delet
 
 const drawingTools = await readFile(new URL("../src/components/market/ChartDrawingTools.jsx", import.meta.url), "utf8");
 assert.match(drawingTools, /finishDrawing\(value\)[\s\S]*?setActiveTool\(null\)/, "finishing a drawing must return pointer ownership to chart pan and pinch interactions");
-assert.match(drawingTools, /chart\.subscribeClick\(selectOnChartTap\)/, "a saved drawing must be selectable without permanently blocking chart navigation");
-assert.match(drawingTools, /pointerType === "touch" \? 14/, "touch selection must use a larger hit target than mouse selection");
+assert.match(drawingTools, /beginExistingDrawingInteraction/, "a saved drawing must be directly selectable and editable without a separate move tool");
+assert.match(drawingTools, /host\.addEventListener\("pointerdown", onPointerDown, true\)/, "drawing hit testing must run in capture phase while leaving empty-chart gestures to the chart");
+assert.match(drawingTools, /pointerType === "touch" \? 16/, "touch selection must use a larger hit target than mouse selection");
+assert.doesNotMatch(drawingTools, /activeTool === "select"/, "drawing editing must not require a separate select or move mode");
+assert.match(drawingTools, /function ParallelChannelIcon/, "the parallel channel must use a dedicated channel glyph instead of a volume-chart icon");
 assert.match(drawingTools, /removeSelected\(\)/, "the selected drawing must expose individual deletion");
 assert.match(drawingTools, /pasteCopied\(\)/, "the drawing toolbar must expose a real paste action");
 const chartSettingsSheet = await readFile(new URL("../src/components/market/ChartSettingsSheet.jsx", import.meta.url), "utf8");
@@ -357,6 +363,10 @@ assert.match(marketReadFunction, /body\.action === "sector"/, "sector details mu
 assert.match(marketReadFunction, /body\.action === "sector_chart"/, "sector chart candles must be built by the protected market backend");
 assert.match(marketReadFunction, /sectorWeights/, "sector index construction must use an explicit weighting function");
 assert.match(marketReadFunction, /storedCandlesForInstruments/, "sector charts must bulk-read stored candles instead of issuing one database query per constituent");
+assert.match(marketReadFunction, /INTERVAL_RANGE_MATRIX/, "the backend must reject interval and range combinations outside the supported chart contract");
+assert.match(marketReadFunction, /candleRangeMetadata/, "chart responses must calculate actual stored coverage before describing a requested range as complete");
+assert.match(marketReadFunction, /available_ranges/, "chart responses must disclose the ranges actually covered by stored candles");
+assert.match(marketReadFunction, /range_complete/, "chart responses must distinguish partial range data from complete coverage");
 assert.match(marketReadFunction, /instrument_type:\s*"sector_index"/, "sector search results must carry a first-class instrument identity");
 assert.match(marketReadFunction, /TASI_SYMBOL/, "the protected market directory must include the Saudi general market index");
 assert.match(marketReadFunction, /searchCandidateScore/, "instrument autocomplete must use deterministic exact, prefix, and substring ranking");
@@ -513,9 +523,10 @@ for (const key of ["ArrowDown", "ArrowUp", "Enter", "Escape"]) {
   assert.match(instrumentSearchInput, new RegExp(`event\\.key === "${key}"`), `instrument autocomplete must support ${key}`);
 }
 const historicalCompanyChart = await readFile(new URL("../src/components/market/CompanyChart.jsx", import.meta.url), "utf8");
-assert.match(historicalCompanyChart, /value:\s*"max",\s*ar:\s*"تاريخي"/, "the chart must expose a stored full-history range");
-assert.match(historicalCompanyChart, /rangeOptions\.map/, "all chart ranges must remain visible instead of disappearing with the selected interval");
-assert.match(historicalCompanyChart, /if \(!option\.intervals\.includes\(interval\)\) setInterval\("1d"\)/, "long history ranges must switch incompatible intraday views to daily candles");
+const chartTimeframes = await readFile(new URL("../src/lib/chart-timeframes.js", import.meta.url), "utf8");
+assert.match(chartTimeframes, /max:\s*\{\s*ar:\s*"تاريخي"/, "the shared chart contract must expose a stored full-history range");
+assert.match(historicalCompanyChart, /rangeOptions\.filter\(\(item\) => item\.intervals\.includes\(interval\)\)/, "the chart must show only ranges compatible with the selected interval");
+assert.doesNotMatch(historicalCompanyChart, /if \(!option\.intervals\.includes\(interval\)\) setInterval\("1d"\)/, "range selection must not silently replace the user's chosen interval");
 assert.match(historicalCompanyChart, /history_complete/, "the chart must disclose an incomplete historical archive");
 assert.match(historicalCompanyChart, /className="chart-type-popover chart-control-popover"/, "the candle-type chooser must use the shared collision-aware chart control layer");
 assert.match(historicalCompanyChart, /chart-shell-fullscreen/, "fullscreen mode must target the chart shell instead of the entire company page");
@@ -533,7 +544,7 @@ assert.match(companyIntelligence, /CompanyFinancial/, "company intelligence must
 assert.match(companyIntelligence, /CorporateAction/, "company intelligence must persist corporate actions");
 assert.match(companyIntelligence, /"bootstrap"/, "company intelligence must support an owner-controlled initial full import");
 
-const { drawingSegments, drawingFillPolygon, drawingHitTest } = await import(new URL("../src/components/market/chartDrawingModel.js", import.meta.url));
+const { drawingSegments, drawingFillPolygon, drawingHitTest, smoothCurveSegments } = await import(new URL("../src/components/market/chartDrawingModel.js", import.meta.url));
 const modelWidth = 800;
 const modelHeight = 500;
 const horizontalPoints = [{ x: 120, y: 220 }];
@@ -554,6 +565,11 @@ assert.equal(drawingSegments("date_range", rectanglePoints, modelWidth, modelHei
 assert.equal(drawingSegments("date_and_price_range", rectanglePoints, modelWidth, modelHeight).length, 6, "combined range must include the box and both measurements");
 assert.equal(drawingHitTest("horizontal_line", horizontalPoints, { x: 620, y: 222 }, modelWidth, modelHeight).hit, true, "extended horizontal line must remain selectable after chart navigation");
 assert.equal(drawingHitTest("rectangle", rectanglePoints, { x: 180, y: 101 }, modelWidth, modelHeight).hit, true, "rectangle border must be selectable without filling the price pane");
+const curvePoints = [{ x: 100, y: 220 }, { x: 220, y: 110 }, { x: 360, y: 210 }];
+const curveSegments = smoothCurveSegments(curvePoints);
+assert.ok(curveSegments.length > curvePoints.length, "curve hit testing must sample the rendered spline instead of its control polygon");
+const curveMidpoint = curveSegments[Math.floor(curveSegments.length / 2)][1];
+assert.equal(drawingHitTest("curve", curvePoints, curveMidpoint, modelWidth, modelHeight).hit, true, "the visible curve must be selectable between its control points");
 
 const sharedSecurity = await readFile(new URL("../base44/shared/security.ts", import.meta.url), "utf8");
 assert.match(sharedSecurity, /profile\?\.acquisition_source === "platform_owner_bootstrap"/, "owner access must be rooted in the server-managed platform owner marker");

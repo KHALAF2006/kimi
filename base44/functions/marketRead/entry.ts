@@ -5316,6 +5316,42 @@ var RANGE_MILLISECONDS = {
   "5y": 5 * 366 * 24 * 60 * 60 * 1e3,
   "10y": 10 * 366 * 24 * 60 * 60 * 1e3
 };
+var INTERVAL_RANGE_MATRIX = {
+  "15m": ["5d", "1mo"],
+  "1h": ["5d", "1mo", "3mo"],
+  "2h": ["5d", "1mo", "3mo"],
+  "3h": ["5d", "1mo", "3mo"],
+  "4h": ["5d", "1mo", "3mo"],
+  "1d": ["5d", "1mo", "3mo", "1y", "2y", "5y", "10y", "max"],
+  "1wk": ["3mo", "1y", "2y", "5y", "10y", "max"],
+  "1mo": ["1y", "2y", "5y", "10y", "max"]
+};
+function rangeToleranceMilliseconds(range) {
+  if (range === "5d") return 2 * 24 * 60 * 60 * 1e3;
+  if (["1mo", "3mo"].includes(range)) return 4 * 24 * 60 * 60 * 1e3;
+  return 10 * 24 * 60 * 60 * 1e3;
+}
+function candleRangeMetadata(bars, interval, range, historyComplete = false) {
+  const validTimes = bars.map((bar) => new Date(bar.time).getTime()).filter(Number.isFinite).sort((a, b) => a - b);
+  const earliest = validTimes[0];
+  const latest = validTimes.at(-1);
+  if (!Number.isFinite(earliest) || !Number.isFinite(latest)) {
+    return { requestedFrom: null, availableFrom: null, availableTo: null, complete: false, availableRanges: [] };
+  }
+  const supported = INTERVAL_RANGE_MATRIX[interval] || [];
+  const completeFor = (candidate) => {
+    if (candidate === "max") return historyComplete;
+    const duration = RANGE_MILLISECONDS[candidate];
+    return Number.isFinite(duration) && earliest <= latest - duration + rangeToleranceMilliseconds(candidate);
+  };
+  return {
+    requestedFrom: range === "max" ? null : new Date(latest - RANGE_MILLISECONDS[range]).toISOString(),
+    availableFrom: new Date(earliest).toISOString(),
+    availableTo: new Date(latest).toISOString(),
+    complete: completeFor(range),
+    availableRanges: supported.filter(completeFor)
+  };
+}
 function marketCandleOptions(marketCode) {
   return marketCode === "SA_MAIN" ? { timeZone: "Asia/Riyadh", sessionStartMinutes: 600, weekStartsOn: 0 } : { timeZone: "America/New_York", sessionStartMinutes: 570, weekStartsOn: 1 };
 }
@@ -5503,7 +5539,7 @@ async function chartResponse(base44, body, sources) {
   const instrument = await instrumentFor(base44, body);
   const interval = String(body.interval || "1d");
   const range = String(body.range || "3mo");
-  if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range)) {
+  if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range) || !INTERVAL_RANGE_MATRIX[interval]?.includes(range)) {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
   const [stored, historyRows] = await Promise.all([
@@ -5515,12 +5551,14 @@ async function chartResponse(base44, body, sources) {
   }
   const latestChunk = stored.latestChunk;
   const latestBarTime = new Date(stored.bars[stored.bars.length - 1].time).getTime();
+  const history = historyRows.find((item) => item.status === "complete" && item.coverage_verified === true && item.provider_partial !== true) || historyRows[0] || null;
+  const historyComplete = history?.status === "complete" && history?.coverage_verified === true && history?.provider_partial !== true;
+  const rangeMetadata = candleRangeMetadata(stored.bars, interval, range, historyComplete);
   const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : latestBarTime - RANGE_MILLISECONDS[range];
   const candles = stored.bars.filter((bar) => new Date(bar.time).getTime() >= cutoff);
   if (!candles.length) throw Object.assign(new Error("Stored chart data contains no valid candles for the requested range"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   const source = sources.find((item) => item.id === latestChunk.source_id) || null;
   const asOf = latestChunk.provider_as_of || stored.latestSourceTime || latestChunk.end_time || candles[candles.length - 1].time;
-  const history = historyRows.find((item) => item.status === "complete" && item.coverage_verified === true && item.provider_partial !== true) || historyRows[0] || null;
   const momentumBars = stored.bars.map((bar, index) => ({
     ...bar,
     is_final: index < stored.bars.length - 1 || latestChunk?.is_final !== false,
@@ -5556,11 +5594,19 @@ async function chartResponse(base44, body, sources) {
       run_id: latestChunk.run_id || null,
       provider_as_of: latestChunk.provider_as_of || asOf,
       history_status: history?.status || "not_started",
-      history_complete: history?.status === "complete" && history?.coverage_verified === true && history?.provider_partial !== true,
+      history_complete: historyComplete,
       history_available_from: history?.earliest_bar_time || stored.bars[0]?.time || null,
       history_available_to: history?.latest_bar_time || stored.bars.at(-1)?.time || null,
       history_bar_count: Number(history?.bar_count || stored.bars.length),
-      history_provider_partial: history?.provider_partial === true
+      history_provider_partial: history?.provider_partial === true,
+      requested_range: range,
+      requested_from: rangeMetadata.requestedFrom,
+      available_from: rangeMetadata.availableFrom,
+      available_to: rangeMetadata.availableTo,
+      available_ranges: rangeMetadata.availableRanges,
+      range_complete: rangeMetadata.complete,
+      returned_bar_count: candles.length,
+      stored_bar_count: stored.bars.length
     }
   };
 }
@@ -5777,7 +5823,7 @@ async function sectorChartResponse(base44, body) {
   const { requestedMarket, sector, instruments } = await sectorInstruments(base44, body);
   const interval = String(body.interval || "1d");
   const range = String(body.range || "3mo");
-  if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range)) {
+  if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range) || !INTERVAL_RANGE_MATRIX[interval]?.includes(range)) {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
   const quotes = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ market_code: requestedMarket, instrument_id: { $in: instruments.map((instrument) => instrument.id) } }, "-quote_time", 1000)));
@@ -5791,16 +5837,15 @@ async function sectorChartResponse(base44, body) {
   }));
   const latestTime = Math.max(...candlesByInstrument.flatMap(({ stored }) => stored.bars.map((bar) => new Date(bar.time).getTime())).filter(Number.isFinite));
   if (!Number.isFinite(latestTime)) throw Object.assign(new Error("Stored sector chart data is not available"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
-  const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : latestTime - RANGE_MILLISECONDS[range];
   const series = candlesByInstrument.map(({ instrument, stored }) => {
-    const bars = stored.bars.filter((bar) => new Date(bar.time).getTime() >= cutoff && Number(bar.close) > 0);
+    const bars = stored.bars.filter((bar) => Number(bar.close) > 0);
     const base = Number(bars[0]?.close);
     return { instrument, weight: weights.get(instrument.id) || 0, base, bars };
   }).filter((item) => Number.isFinite(item.base) && item.base > 0 && item.bars.length);
   if (!series.length) throw Object.assign(new Error("Stored sector chart data contains no valid candles"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   const timestamps = [...new Set(series.flatMap((item) => item.bars.map((bar) => new Date(bar.time).toISOString())))].sort();
   const barMaps = new Map(series.map((item) => [item.instrument.id, new Map(item.bars.map((bar) => [new Date(bar.time).toISOString(), bar]))]));
-  const candles = timestamps.map((time) => {
+  const allCandles = timestamps.map((time) => {
     const members = series.map((item) => ({ item, bar: barMaps.get(item.instrument.id).get(time) })).filter((value) => value.bar);
     const presentWeight = members.reduce((sum, value) => sum + value.item.weight, 0);
     if (!presentWeight) return null;
@@ -5818,6 +5863,9 @@ async function sectorChartResponse(base44, body) {
       volume: members.reduce((sum, value) => sum + Math.max(0, Number(value.bar.volume || 0)), 0)
     };
   }).filter(Boolean);
+  const rangeMetadata = candleRangeMetadata(allCandles, interval, range, false);
+  const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : latestTime - RANGE_MILLISECONDS[range];
+  const candles = allCandles.filter((bar) => new Date(bar.time).getTime() >= cutoff);
   if (candles.length < 2) throw Object.assign(new Error("Stored sector chart data is incomplete"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   const momentumIndicator = calculateMomentumZones(
     candles,
@@ -5836,7 +5884,18 @@ async function sectorChartResponse(base44, body) {
       formula_version: MOMENTUM_FORMULA_VERSION,
     } : null,
     as_of: candles[candles.length - 1].time,
-    methodology: series.some((item) => Number(quoteByInstrument.get(item.instrument.id)?.market_cap || 0) > 0) ? "market_cap_weighted" : "equal_weighted"
+    methodology: series.some((item) => Number(quoteByInstrument.get(item.instrument.id)?.market_cap || 0) > 0) ? "market_cap_weighted" : "equal_weighted",
+    data_meta: {
+      requested_interval: interval,
+      requested_range: range,
+      requested_from: rangeMetadata.requestedFrom,
+      available_from: rangeMetadata.availableFrom,
+      available_to: rangeMetadata.availableTo,
+      available_ranges: rangeMetadata.availableRanges,
+      range_complete: rangeMetadata.complete,
+      returned_bar_count: candles.length,
+      stored_bar_count: allCandles.length
+    }
   };
 }
 Deno.serve(async (req) => {

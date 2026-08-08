@@ -11,28 +11,14 @@ import ChartDrawingTools from "@/components/market/ChartDrawingTools";
 import ChartSettingsSheet from "@/components/market/ChartSettingsSheet";
 import { CHART_REPLAY_SPEEDS, nextReplayCursor, normalizeReplaySpeed, replayCandles, replayStartIndex } from "@/lib/chart-replay";
 import { chartControlTransition } from "@/lib/chart-controls";
-import { persistSuccessfulChartSelection, readSuccessfulChartSelection } from "@/lib/chart-timeframes";
+import {
+  bestAvailableRange, CHART_INTERVAL_LABELS, CHART_INTERVALS, CHART_RANGE_LABELS, CHART_RANGES,
+  persistSuccessfulChartSelection, readSuccessfulChartSelection,
+} from "@/lib/chart-timeframes";
 import { InvestorZonePrimitive } from "@/lib/investor-zone-primitive";
 
-const intervalOptions = [
-  { value: "15m", ar: "15 د", en: "15m", defaultRange: "5d" },
-  { value: "1h", ar: "ساعة", en: "1H", defaultRange: "1mo" },
-  { value: "2h", ar: "ساعتان", en: "2H", defaultRange: "5d" },
-  { value: "3h", ar: "3 ساعات", en: "3H", defaultRange: "5d" },
-  { value: "4h", ar: "4 ساعات", en: "4H", defaultRange: "5d" },
-  { value: "1d", ar: "يوم", en: "1D", defaultRange: "1y" },
-  { value: "1wk", ar: "أسبوع", en: "1W", defaultRange: "5y" },
-  { value: "1mo", ar: "شهر", en: "1M", defaultRange: "5y" },
-];
-
-const rangeOptions = [
-  { value: "5d", ar: "5 أيام", en: "5D", intervals: ["15m", "1h", "2h", "3h", "4h", "1d"] },
-  { value: "1mo", ar: "شهر", en: "1M", intervals: ["15m", "1h", "2h", "3h", "4h", "1d"] },
-  { value: "3mo", ar: "3 أشهر", en: "3M", intervals: ["1h", "2h", "3h", "4h", "1d", "1wk"] },
-  { value: "1y", ar: "سنة", en: "1Y", intervals: ["1d", "1wk", "1mo"] },
-  { value: "5y", ar: "5 سنوات", en: "5Y", intervals: ["1d", "1wk", "1mo"] },
-  { value: "max", ar: "تاريخي", en: "History", intervals: ["1d", "1wk", "1mo"] },
-];
+const intervalOptions = CHART_INTERVALS.map((item) => ({ ...item, ...CHART_INTERVAL_LABELS[item.value] }));
+const rangeOptions = CHART_RANGES.map((item) => ({ ...item, ...CHART_RANGE_LABELS[item.value] }));
 const intradayIntervals = new Set(["15m", "1h", "2h", "3h", "4h"]);
 
 function ChartControlPopover({ open, onOpenChange, trigger, className, isArabic, portalContainer, children }) {
@@ -172,6 +158,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const replayModeRef = useRef("idle");
   const replayStartTimeRef = useRef(null);
   const replayTimerRef = useRef(0);
+  const fittedDataScopeRef = useRef("");
   const chartTarget = sector || symbol;
   const chartTargetType = sector ? "sector" : symbol === "TASI" ? "market-index" : "instrument";
   const safeRequestedInterval = symbol === "TASI" && intradayIntervals.has(requestedInterval) ? "" : requestedInterval;
@@ -448,8 +435,24 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         const nextCandles = Array.isArray(data.candles) ? data.candles : [];
         if (!nextCandles.length) throw Object.assign(new Error("chart_data_not_available"), { code: "CHART_DATA_NOT_AVAILABLE" });
         setCandles(nextCandles);
-        setHistoryMeta(data.data_meta || null);
+        const nextMeta = data.data_meta || null;
+        setHistoryMeta(nextMeta);
         setIndicatorState({ key: indicatorKey, momentum: data.momentum_indicator || null });
+        if (nextMeta?.range_complete === false) {
+          const fallbackRange = bestAvailableRange(interval, nextMeta.available_ranges);
+          if (fallbackRange && fallbackRange !== range) {
+            setRecoveryNotice(isArabic
+              ? `النطاق المطلوب غير مكتمل في الأرشيف؛ عُرض أكبر نطاق مكتمل وهو ${CHART_RANGE_LABELS[fallbackRange]?.ar || fallbackRange}.`
+              : `The requested range is not complete in storage; the largest complete range (${CHART_RANGE_LABELS[fallbackRange]?.en || fallbackRange}) is being shown.`);
+            setRange(fallbackRange);
+            return;
+          }
+          setRecoveryNotice(isArabic
+            ? "المعروض هو كامل الجزء المخزن لهذا الفاصل، ولا يُقدَّم على أنه يغطي النطاق المطلوب."
+            : "All stored bars for this interval are shown, but they do not cover the requested range.");
+          setError("");
+          return;
+        }
         const successful = persistSuccessfulChartSelection(marketCode, chartTargetType, chartTarget, { interval, range });
         successfulSelectionRef.current = successful;
         setError("");
@@ -543,6 +546,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
 
   useEffect(() => {
     if (!containerRef.current) return;
+    fittedDataScopeRef.current = "";
     const dark = theme === "dark";
     const visual = resolvedChartColors(chartPreferences, theme);
     const chart = createChart(containerRef.current, {
@@ -839,12 +843,14 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   useEffect(() => {
     volumeSeriesRef.current?.setData(visibleOrderedCandles.map((candle) => ({ time: candle.time, value: candle.volume, color: candle.close >= candle.open ? "#16a34acc" : "#dc2626cc" })));
     actualPriceSeriesRef.current?.setData(visibleOrderedCandles.map((candle) => ({ time: candle.time, value: candle.close })));
-    if (visibleOrderedCandles.length) {
+    const dataScope = `${marketCode}:${chartTargetType}:${chartTarget}:${interval}:${range}`;
+    if (visibleOrderedCandles.length && fittedDataScopeRef.current !== dataScope) {
+      fittedDataScopeRef.current = dataScope;
       if (replayActive) chartRef.current?.timeScale().scrollToRealTime();
       else chartRef.current?.timeScale().fitContent();
     }
     window.requestAnimationFrame(() => overlayUpdateRef.current());
-  }, [visibleOrderedCandles, replayActive]);
+  }, [visibleOrderedCandles, replayActive, marketCode, chartTargetType, chartTarget, interval, range]);
 
   useEffect(() => { rsiSeriesRef.current?.setData(rsiData); }, [rsiData]);
   useEffect(() => { sma20SeriesRef.current?.setData(sma20Data); }, [sma20Data]);
@@ -931,10 +937,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
 
   function changeRange(nextRange) {
     const option = rangeOptions.find((item) => item.value === nextRange);
-    if (!option) return;
+    if (!option || !option.intervals.includes(interval)) return;
+    if (historyMeta?.requested_interval === interval && Array.isArray(historyMeta.available_ranges) && !historyMeta.available_ranges.includes(nextRange)) return;
     setRecoveryNotice("");
     setError("");
-    if (!option.intervals.includes(interval)) setInterval("1d");
     setRange(nextRange);
   }
 
@@ -1189,9 +1195,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         const unavailable = symbol === "TASI" && intradayIntervals.has(item.value);
         return <button type="button" key={item.value} disabled={unavailable} title={unavailable ? (isArabic ? "هذا الفاصل غير متاح لتاسي حالياً" : "This timeframe is not available for TASI right now") : undefined} onClick={() => changeInterval(item.value)} className={"chart-chip " + (interval === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>;
       })}</div></div>
-      <div className="chart-control-group"><span>{isArabic ? "النطاق" : "Range"}</span><div>{rangeOptions.map((item) => {
-        const switchesToDaily = !item.intervals.includes(interval);
-        return <button type="button" key={item.value} onClick={() => changeRange(item.value)} title={switchesToDaily ? (isArabic ? "يفتح هذا النطاق على الفاصل اليومي" : "Opens this range on the daily interval") : undefined} className={"chart-chip " + (range === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>;
+      <div className="chart-control-group"><span>{isArabic ? "النطاق" : "Range"}</span><div>{rangeOptions.filter((item) => item.intervals.includes(interval)).map((item) => {
+        const availabilityKnown = historyMeta?.requested_interval === interval && Array.isArray(historyMeta.available_ranges);
+        const unavailable = availabilityKnown && !historyMeta.available_ranges.includes(item.value);
+        return <button type="button" key={item.value} disabled={unavailable} onClick={() => changeRange(item.value)} title={unavailable ? (isArabic ? "لا توجد شموع مخزنة تكفي هذا النطاق" : "Stored candles do not yet cover this range") : undefined} className={"chart-chip " + (range === item.value ? "chart-chip-active" : "")}>{isArabic ? item.ar : item.en}</button>;
       })}</div></div>
     </div>
 
@@ -1250,6 +1257,9 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     </div>}
     {!loading && !error && !candles.length && <div className="chart-message">{isArabic ? "لا توجد بيانات لهذا النطاق حالياً." : "No data is available for this range right now."}</div>}
     {!loading && !error && range === "max" && historyMeta?.history_complete === false && <div className="chart-history-status" role="status">{isArabic ? "السجل التاريخي لهذا السهم غير مكتمل بعد؛ المعروض هو الجزء المحفوظ فقط." : "This instrument's historical archive is not complete yet; only stored candles are shown."}</div>}
+    {!loading && !error && historyMeta?.available_from && historyMeta?.available_to && <div className="chart-history-status" role="status">
+      {isArabic ? "التغطية الفعلية" : "Actual coverage"}: <b dir="ltr">{formatChartDate(historyMeta.available_from, "en-GB", intradayIntervals.has(interval))}</b> – <b dir="ltr">{formatChartDate(historyMeta.available_to, "en-GB", intradayIntervals.has(interval))}</b> · <b dir="ltr">{Number(historyMeta.returned_bar_count || candles.length)}</b> {isArabic ? "شمعة" : "bars"}
+    </div>}
 
     <div ref={canvasWrapRef} className="chart-canvas-wrap">
       <div ref={containerRef} className="absolute inset-0" />

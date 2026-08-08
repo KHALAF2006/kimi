@@ -83,6 +83,10 @@ timeframeModule.persistSuccessfulChartSelection("US_OPTIONS", "instrument", "PLT
 assert.deepEqual(timeframeModule.readSuccessfulChartSelection("SA_MAIN", "instrument", "1111"), { interval: "1d", range: "1y" }, "Saudi chart selection must remain market and instrument scoped");
 assert.deepEqual(timeframeModule.readSuccessfulChartSelection("US_OPTIONS", "instrument", "PLTR"), { interval: "2h", range: "5d" }, "U.S. chart selection must not leak into Saudi state");
 assert.deepEqual(timeframeModule.normalizeChartSelection({ interval: "2h", range: "5y" }), { interval: "2h", range: "5d" }, "an invalid intraday range must recover to the bounded default");
+assert.deepEqual(timeframeModule.rangesForInterval("15m").map((item) => item.value), ["5d", "1mo"], "15-minute controls must not advertise unsupported long ranges");
+assert.deepEqual(timeframeModule.rangesForInterval("3h").map((item) => item.value), ["5d", "1mo", "3mo"], "three-hour controls must expose only its supported ranges");
+assert.equal(timeframeModule.bestAvailableRange("3h", ["5d"]), "5d", "partial intraday history must fall back to a range actually covered by stored candles");
+assert.equal(timeframeModule.bestAvailableRange("15m", []), null, "the UI must not claim a completed range when no range has proven coverage");
 
 const instrumentFixture = { id: "instrument-aapl", symbol: "AAPL", name_en: "Apple Inc." };
 const nowFixture = "2026-08-04T12:00:00.000Z";

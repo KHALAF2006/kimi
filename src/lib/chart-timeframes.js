@@ -1,6 +1,6 @@
 export const CHART_INTERVALS = Object.freeze([
   { value: "15m", defaultRange: "5d", intraday: true },
-  { value: "1h", defaultRange: "1mo", intraday: true },
+  { value: "1h", defaultRange: "5d", intraday: true },
   { value: "2h", defaultRange: "5d", intraday: true },
   { value: "3h", defaultRange: "5d", intraday: true },
   { value: "4h", defaultRange: "5d", intraday: true },
@@ -18,11 +18,31 @@ export const CHART_RANGES = Object.freeze([
   { value: "max", intervals: ["1d", "1wk", "1mo"] },
 ]);
 
+export const CHART_INTERVAL_LABELS = Object.freeze({
+  "15m": { ar: "15 د", en: "15m" },
+  "1h": { ar: "ساعة", en: "1H" },
+  "2h": { ar: "ساعتان", en: "2H" },
+  "3h": { ar: "3 ساعات", en: "3H" },
+  "4h": { ar: "4 ساعات", en: "4H" },
+  "1d": { ar: "يوم", en: "1D" },
+  "1wk": { ar: "أسبوع", en: "1W" },
+  "1mo": { ar: "شهر", en: "1M" },
+});
+
+export const CHART_RANGE_LABELS = Object.freeze({
+  "5d": { ar: "5 أيام", en: "5D" },
+  "1mo": { ar: "شهر", en: "1M" },
+  "3mo": { ar: "3 أشهر", en: "3M" },
+  "1y": { ar: "سنة", en: "1Y" },
+  "5y": { ar: "5 سنوات", en: "5Y" },
+  max: { ar: "تاريخي", en: "History" },
+});
+
 const intervalValues = new Set(CHART_INTERVALS.map((item) => item.value));
 
 export function chartSelectionStorageKey(marketCode, targetType, target) {
   const safe = [marketCode, targetType, target].map((value) => encodeURIComponent(String(value || "unknown"))).join(":");
-  return `kmy_chart_selection_v3:${safe}`;
+  return `kmy_chart_selection_v4:${safe}`;
 }
 
 export function defaultRangeForInterval(interval) {
@@ -31,6 +51,21 @@ export function defaultRangeForInterval(interval) {
 
 export function isSupportedChartSelection(interval, range) {
   return intervalValues.has(interval) && CHART_RANGES.some((item) => item.value === range && item.intervals.includes(interval));
+}
+
+export function rangesForInterval(interval) {
+  return CHART_RANGES.filter((item) => item.intervals.includes(interval));
+}
+
+export function isRangeAvailable(availableRanges, range) {
+  return !Array.isArray(availableRanges) || availableRanges.includes(range);
+}
+
+export function bestAvailableRange(interval, availableRanges) {
+  const supported = rangesForInterval(interval).map((item) => item.value);
+  if (!Array.isArray(availableRanges)) return defaultRangeForInterval(interval);
+  const available = supported.filter((value) => availableRanges.includes(value));
+  return available.at(-1) || null;
 }
 
 export function normalizeChartSelection(selection = {}) {

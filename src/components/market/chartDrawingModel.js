@@ -171,6 +171,34 @@ function rectangleSegments(bounds) {
   ];
 }
 
+export function smoothCurveSegments(points, tension = 0.85, subdivisions = 18) {
+  if (points.length < 2) return [];
+  const sampled = [points[0]];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const previous = points[index - 1] || points[index];
+    const start = points[index];
+    const end = points[index + 1];
+    const next = points[index + 2] || end;
+    const firstControl = {
+      x: start.x + (end.x - previous.x) / 6 * tension,
+      y: start.y + (end.y - previous.y) / 6 * tension,
+    };
+    const secondControl = {
+      x: end.x - (next.x - start.x) / 6 * tension,
+      y: end.y - (next.y - start.y) / 6 * tension,
+    };
+    for (let step = 1; step <= subdivisions; step += 1) {
+      const t = step / subdivisions;
+      const inverse = 1 - t;
+      sampled.push({
+        x: inverse ** 3 * start.x + 3 * inverse ** 2 * t * firstControl.x + 3 * inverse * t ** 2 * secondControl.x + t ** 3 * end.x,
+        y: inverse ** 3 * start.y + 3 * inverse ** 2 * t * firstControl.y + 3 * inverse * t ** 2 * secondControl.y + t ** 3 * end.y,
+      });
+    }
+  }
+  return sampled.slice(1).map((point, index) => [sampled[index], point]);
+}
+
 function clipPolygonToRect(polygon, width, height) {
   const boundaries = [
     [(point) => point.x >= 0, (a, b) => ({ x: 0, y: a.y + (b.y - a.y) * ((0 - a.x) / (b.x - a.x)) })],
@@ -270,7 +298,8 @@ export function drawingSegments(type, points, width, height, options = {}) {
       [{ x: bounds.left, y: middleY }, { x: bounds.right, y: middleY }],
     ];
   }
-  if (["polyline", "brush", "curve"].includes(type)) return points.slice(1).map((point, index) => [points[index], point]);
+  if (type === "curve") return smoothCurveSegments(points);
+  if (["polyline", "brush"].includes(type)) return points.slice(1).map((point, index) => [points[index], point]);
   return [];
 }
 
