@@ -1,28 +1,4 @@
 {
   "name": "usBenchmarksSignalRefresh",
-  "entry": "entry.ts",
-  "automations": [
-    {
-      "name": "U.S. benchmarks signals after close - daylight time",
-      "description": "Projects stored daily candles into daily, weekly and monthly signals after the New York close. A date-scoped idempotency key prevents duplicate projection.",
-      "type": "scheduled",
-      "schedule_mode": "recurring",
-      "schedule_type": "cron",
-      "cron_expression": "30 22 * * 1-5",
-      "function_args": { "market_code": "US_BENCHMARKS", "source": "daily_automation" },
-      "ends_type": "never",
-      "is_active": true
-    },
-    {
-      "name": "U.S. benchmarks signals after close - standard time",
-      "description": "Second DST-safe projection slot. The function skips it when the same market session was already projected.",
-      "type": "scheduled",
-      "schedule_mode": "recurring",
-      "schedule_type": "cron",
-      "cron_expression": "30 23 * * 1-5",
-      "function_args": { "market_code": "US_BENCHMARKS", "source": "daily_automation" },
-      "ends_type": "never",
-      "is_active": true
-    }
-  ]
+  "entry": "entry.ts"
 }

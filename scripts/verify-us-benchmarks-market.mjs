@@ -44,9 +44,8 @@ const signals = await source("base44/functions/usBenchmarksSignalRefresh/source.
 for (const token of ["technical_signals", "momentum_zones", '"1wk"', '"1mo"', "market_code: US_BENCHMARKS_MARKET_CODE"]) assert.match(signals, new RegExp(token));
 assert.doesNotMatch(signals, /deleteMany|functions\.invoke\("usBenchmarksSignalRefresh"/, "signal projection must neither erase another market nor recurse through the service API");
 const signalConfig = JSON.parse(await source("base44/functions/usBenchmarksSignalRefresh/function.jsonc"));
-assert.deepEqual(signalConfig.automations.map((item) => item.cron_expression), ["30 22 * * 1-5", "30 23 * * 1-5"], "benchmark signals need DST-safe post-close projection slots");
-assert.ok(signalConfig.automations.every((item) => item.function_args?.market_code === US_BENCHMARKS_MARKET_CODE && item.is_active), "every benchmark signal automation must remain market-scoped and active");
-assert.match(signals, /already_projected/, "the DST-safe duplicate slot must be idempotently skipped");
+assert.equal(signalConfig.automations, undefined, "the Workflows-enabled app must not contain rejected legacy function automations");
+assert.match(signals, /already_projected/, "repeated projection for the same market session must be idempotently skipped");
 
 const saudiSignals = await source("base44/functions/marketSignalRefresh/source.ts");
 assert.doesNotMatch(saudiSignals, /deleteMany|functions\.invoke\("marketSignalRefresh"/, "Saudi projection must stay in-process and must never delete another market");
@@ -71,5 +70,8 @@ for (const file of ["UsBenchmarksQuarterCycles", "UsBenchmarksDailyRefresh", "Us
   assert.equal(workflow.trigger.config.timezone, "America/New_York");
   assert.match(JSON.stringify(workflow), /US_BENCHMARKS/);
 }
+const signalWorkflow = JSON.parse(await source("base44/workflows/UsBenchmarksSignalsDaily.jsonc"));
+assert.equal(signalWorkflow.trigger.config.cron_expression, "15 18 * * 1-5", "benchmark signals must run after the New York session through Base44 Workflows");
+assert.equal(Object.values(signalWorkflow.definition.do[0])[0].with.function_name, "usBenchmarksSignalRefresh");
 
 console.log(JSON.stringify({ status: "verified", market: US_BENCHMARKS_MARKET_CODE, instruments: 33, isolation: true, complete_15m_only: true, stored_history: true, signals: ["1d", "1wk", "1mo"] }, null, 2));
