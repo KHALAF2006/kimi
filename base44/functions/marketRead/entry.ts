@@ -5379,11 +5379,32 @@ function availableIntervals(storedIntervals) {
   if (stored.has("1d")) ["1d", "1wk", "1mo"].forEach((interval) => available.add(interval));
   return [...available];
 }
+function normalizedMarketCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+function candleChunkBelongsToMarket(chunk, marketCode) {
+  const requestedMarket = normalizedMarketCode(marketCode);
+  const storedMarket = normalizedMarketCode(chunk?.market_code);
+  if (requestedMarket === "SA_MAIN") return !storedMarket || storedMarket === requestedMarket;
+  return storedMarket === requestedMarket;
+}
+function candleChunkQuery(filter, marketCode) {
+  const requestedMarket = normalizedMarketCode(marketCode);
+  return requestedMarket === "SA_MAIN" ? filter : { ...filter, market_code: requestedMarket };
+}
+async function readStoredCandleChunks(base44, filter, marketCode, sort, limit) {
+  const chunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter(
+    candleChunkQuery(filter, marketCode),
+    sort,
+    limit
+  )));
+  return chunks.filter((chunk) => candleChunkBelongsToMarket(chunk, marketCode));
+}
 async function storedCandlesForInterval(base44, instrumentId, interval, marketCode) {
   const series = [];
   const allChunks = [];
   for (const storedInterval of fallbackIntervals(interval)) {
-    const chunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: marketCode, instrument_id: instrumentId, interval: storedInterval }, "-end_time", 500)))
+    const chunks = (await readStoredCandleChunks(base44, { instrument_id: instrumentId, interval: storedInterval }, marketCode, "-end_time", 500))
       .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars))
       .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime());
     if (!chunks.length) continue;
@@ -5409,7 +5430,7 @@ async function storedCandlesForInstruments(base44, instrumentIds, interval, mark
   const requestedIds = new Set(instrumentIds);
   const chunksByInstrument = new Map(instrumentIds.map((id) => [id, []]));
   for (const storedInterval of fallbackIntervals(interval)) {
-    const chunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: marketCode, instrument_id: { $in: instrumentIds }, interval: storedInterval }, "-end_time", 5e3)))
+    const chunks = (await readStoredCandleChunks(base44, { instrument_id: { $in: instrumentIds }, interval: storedInterval }, marketCode, "-end_time", 5e3))
       .filter((chunk) => requestedIds.has(chunk.instrument_id) && chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
     for (const chunk of chunks) chunksByInstrument.get(chunk.instrument_id)?.push(chunk);
   }
@@ -5602,7 +5623,7 @@ function sectorWeights(instruments, quoteByInstrument) {
 async function sectorSummaries(base44, instruments, quoteByInstrument, marketCode) {
   const equities = instruments.filter((instrument) => instrument.status !== "delisted");
   const equityIds = new Set(equities.map((instrument) => instrument.id));
-  const recentDailyChunks = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: marketCode, instrument_id: { $in: equities.map((instrument) => instrument.id) }, interval: "1d" }, "-end_time", 1e3)))
+  const recentDailyChunks = (await readStoredCandleChunks(base44, { instrument_id: { $in: equities.map((instrument) => instrument.id) }, interval: "1d" }, marketCode, "-end_time", 1e3))
     .filter((chunk) => equityIds.has(chunk.instrument_id) && chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
   const chunksByInstrument = new Map();
   for (const chunk of recentDailyChunks) {
