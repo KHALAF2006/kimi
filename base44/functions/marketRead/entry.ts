@@ -5400,6 +5400,19 @@ async function readStoredCandleChunks(base44, filter, marketCode, sort, limit) {
   )));
   return chunks.filter((chunk) => storedMarketRecordBelongsToMarket(chunk, marketCode));
 }
+async function readIndicatorSnapshots(base44, filter, marketCode, sort, limit) {
+  const { market_code: _marketCode, ...identityFilter } = filter;
+  const requestedMarket = normalizedMarketCode(marketCode);
+  const query = requestedMarket === "SA_MAIN"
+    ? identityFilter
+    : { ...identityFilter, market_code: requestedMarket };
+  const rows = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.IndicatorSnapshot.filter(
+    query,
+    sort,
+    limit
+  )));
+  return rows.filter((row) => storedMarketRecordBelongsToMarket(row, marketCode));
+}
 function candleIdentityFilter(instruments, interval, marketCode) {
   if (normalizedMarketCode(marketCode) === "SA_MAIN") {
     const symbols = instruments.map((instrument) => String(instrument.symbol || "").trim().toUpperCase()).filter(Boolean);
@@ -5970,7 +5983,7 @@ Deno.serve(async (req) => {
       const instrument = await instrumentFor(base44, body);
       const [quotes2, indicators2, financials, actions, announcements, shareholders, losses2] = await Promise.all([
         base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: instrument.id, market_code: body.market_code }),
-        optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company indicators"),
+        optionalRows(() => readIndicatorSnapshots(base44, { instrument_id: instrument.id, market_code: body.market_code }, body.market_code), "company indicators"),
         optionalRows(() => base44.asServiceRole.entities.CompanyFinancial.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company financials"),
         optionalRows(() => base44.asServiceRole.entities.CorporateAction.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company actions"),
         optionalRows(() => base44.asServiceRole.entities.CompanyAnnouncement.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company announcements"),
@@ -5979,7 +5992,7 @@ Deno.serve(async (req) => {
       ]);
       let quote = quotes2.filter(usableQuote).sort((a, b) => new Date(b.quote_time).getTime() - new Date(a.quote_time).getTime())[0] || null;
       if (!quote && instrument.instrument_type === "market_index") {
-        const stored = await storedCandlesForInterval(base44, instrument.id, "1d", body.market_code);
+        const stored = await storedCandlesForInterval(base44, instrument, "1d", body.market_code);
         const current = stored.bars.at(-1) || null;
         const previous = stored.bars.at(-2) || null;
         if (current && previous && Number(previous.close) > 0) {
@@ -6041,12 +6054,12 @@ Deno.serve(async (req) => {
     const [quotes, indicators, losses] = await Promise.all([
       entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ market_code: requestedMarket, instrument_id: { $in: instrumentIds } }, "-quote_time", 1000)),
       body.mode === "screener"
-        ? optionalRows(() => base44.asServiceRole.entities.IndicatorSnapshot.filter({
+        ? optionalRows(() => readIndicatorSnapshots(base44, {
           market_code: requestedMarket,
           instrument_id: { $in: instrumentIds },
           indicator_key: "technical_signals",
           timeframe: screenerTimeframe,
-        }, "-source_as_of", 1000), "indicator-snapshot")
+        }, requestedMarket, "-source_as_of", 1000), "indicator-snapshot")
         : Promise.resolve([]),
       optionalRows(() => base44.asServiceRole.entities.LossClassification.filter({ instrument_id: { $in: instrumentIds } }, "-as_of", 500), "loss-classification")
     ]);

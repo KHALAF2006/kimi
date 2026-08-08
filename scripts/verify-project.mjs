@@ -355,6 +355,10 @@ assert.match(marketReadFunction, /return storedMarket === requestedMarket/, "non
 assert.equal((marketReadFunction.match(/readStoredCandleChunks\(base44,/g) || []).length, 4, "all company, multi-instrument, and sector-summary candle reads must share the compatibility guard");
 assert.match(marketReadFunction, /return \{ symbol: symbols\.length === 1 \? symbols\[0\] : \{ \$in: symbols \}, interval \}/, "Saudi candle reads must resolve legacy archives by stable exchange symbol rather than a regenerated entity id");
 assert.match(marketReadFunction, /readHistoricalSyncs\(base44, instrument, body\.market_code\)/, "historical completeness metadata must use the same legacy-compatible Saudi identity");
+assert.match(marketReadFunction, /async function readIndicatorSnapshots/, "Saudi indicator reads must share a legacy-compatible market guard");
+assert.match(marketReadFunction, /requestedMarket === "SA_MAIN"[\s\S]*?identityFilter[\s\S]*?market_code: requestedMarket/, "legacy Saudi indicator snapshots must be read without weakening explicit market isolation elsewhere");
+assert.match(marketReadFunction, /readIndicatorSnapshots\(base44, \{ instrument_id: instrument\.id, market_code: body\.market_code \}, body\.market_code\)/, "company investor zones must recover legacy Saudi snapshots");
+assert.match(marketReadFunction, /readIndicatorSnapshots\(base44, \{[\s\S]*?indicator_key: "technical_signals"[\s\S]*?\}, requestedMarket, "-source_as_of", 1000\)/, "the Saudi screener must recover legacy technical signals through the same market guard");
 assert.match(marketReadFunction, /storedCandlesForInstruments\(base44, instruments, interval, requestedMarket\)/, "sector charts must resolve legacy chunks back to current instruments by symbol");
 assert.match(marketReadFunction, /technical_signals/, "market reads must expose persisted technical signals to the screener");
 assert.match(marketReadFunction, /bullish_zone_pin_bar/, "the protected screener must filter bullish pin bars inside investor zones");
@@ -396,6 +400,7 @@ assert.match(marketReadFunction, /calculateMomentumZones\(/, "chart reads must c
 assert.match(marketReadFunction, /lookback_days/, "backend chart calculations must honor the bounded peak lookback setting");
 assert.match(companyChart, /data\.momentum_indicator/, "the chart must consume the backend lifecycle result instead of becoming a second calculation authority");
 assert.match(companyChart, /replayActive\s*\?\s*calculateMomentumSnapshot\(visibleOrderedCandles/, "historical replay must recompute zones only from candles already revealed to the user");
+assert.match(companyChart, /backendMomentum \|\| fallbackMomentum \|\| calculatedMomentum/, "the chart must preserve investor zones by calculating from loaded verified candles when a persisted snapshot is delayed");
 assert.match(companyChart, /replayActive\s*\?\s*replayMomentum\s*:\s*backendMomentum/, "the live customer chart must retain the protected backend investor-zone snapshot");
 assert.match(companyChart, /zone\.stopVisible !== false/, "a reversed resistance must not retain the obsolete stop line");
 assert.match(companyChart, /zone\.displayNameAr/, "chart labels must follow the current support or resistance role");

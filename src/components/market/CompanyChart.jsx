@@ -312,8 +312,12 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   sma20DataRef.current = sma20Data;
   sma50DataRef.current = sma50Data;
   const fallbackMomentum = useMemo(() => normalizeMomentum(rawMomentum, theme), [rawMomentum, theme]);
+  const calculatedMomentum = useMemo(
+    () => calculateMomentumSnapshot(orderedCandles, requestedPeakLookbackDays, Number.POSITIVE_INFINITY, theme),
+    [orderedCandles, requestedPeakLookbackDays, theme],
+  );
   const replayMomentum = useMemo(() => replayActive ? calculateMomentumSnapshot(visibleOrderedCandles, momentumSettings.peakLookbackDays, Number.POSITIVE_INFINITY, theme) : null, [replayActive, visibleOrderedCandles, momentumSettings.peakLookbackDays, theme]);
-  const momentum = replayActive ? replayMomentum : backendMomentum || fallbackMomentum;
+  const momentum = replayActive ? replayMomentum : backendMomentum || fallbackMomentum || calculatedMomentum;
   const volumePaneTarget = fullscreen ? 76 : 92;
   const rsiPaneTarget = fullscreen ? 104 : 124;
   const auxiliaryPaneHeight = (showVolume ? volumePaneTarget : 0) + (showRsi ? rsiPaneTarget : 0);
