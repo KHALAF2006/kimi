@@ -3,7 +3,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { CandlestickSeries, ColorType, createChart, createTextWatermark, HistogramSeries, LineSeries, LineStyle } from "lightweight-charts";
 import { BarChart3, ChartCandlestick, ChevronLeft, ChevronRight, Eye, EyeOff, Flame, History, Layers3, Maximize2, Minimize2, Minus, Pause, Play, Plus, RotateCcw, Settings2, SkipBack, SkipForward, SlidersHorizontal, TrendingUp, Waves, X } from "lucide-react";
 import { invokeAppFunction, readMarketChart } from "@/services/marketService";
-import { calculateMomentumSnapshot, calculateRsiSeries, formatNumber, MOMENTUM_ZONE_DEFINITIONS, normalizeMomentum } from "@/lib/market";
+import { calculateMomentumSnapshot, calculateRsiSeries, formatNumber, momentumZoneDefinitions, MOMENTUM_ZONE_DEFINITIONS, normalizeMomentum } from "@/lib/market";
 import { calculateSmaSeries, reversalPatternMap } from "@/lib/technical-signals";
 import { buildDisplayCandles, chartPreferencePayload, chartVisualDefaults, resolvedChartColors, sanitizeChartPreferences } from "@/lib/chart-visuals";
 import { usePreferences } from "@/lib/preferences";
@@ -287,11 +287,12 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   sma50DataRef.current = sma50Data;
   const fallbackMomentum = useMemo(() => normalizeMomentum(rawMomentum, theme), [rawMomentum, theme]);
   const calculatedMomentum = useMemo(
-    () => calculateMomentumSnapshot(orderedCandles, requestedPeakLookbackDays, Number.POSITIVE_INFINITY, theme),
-    [orderedCandles, requestedPeakLookbackDays, theme],
+    () => calculateMomentumSnapshot(orderedCandles, requestedPeakLookbackDays, Number.POSITIVE_INFINITY, theme, interval),
+    [orderedCandles, requestedPeakLookbackDays, theme, interval],
   );
-  const replayMomentum = useMemo(() => replayActive ? calculateMomentumSnapshot(visibleOrderedCandles, momentumSettings.peakLookbackDays, Number.POSITIVE_INFINITY, theme) : null, [replayActive, visibleOrderedCandles, momentumSettings.peakLookbackDays, theme]);
+  const replayMomentum = useMemo(() => replayActive ? calculateMomentumSnapshot(visibleOrderedCandles, momentumSettings.peakLookbackDays, Number.POSITIVE_INFINITY, theme, interval) : null, [replayActive, visibleOrderedCandles, momentumSettings.peakLookbackDays, theme, interval]);
   const momentum = replayActive ? replayMomentum : backendMomentum || fallbackMomentum || calculatedMomentum;
+  const intervalMomentumDefinitions = useMemo(() => momentumZoneDefinitions(interval), [interval]);
   const volumePaneTarget = fullscreen ? 76 : 92;
   const rsiPaneTarget = fullscreen ? 104 : 124;
   const auxiliaryPaneHeight = (showVolume ? volumePaneTarget : 0) + (showRsi ? rsiPaneTarget : 0);
@@ -1217,7 +1218,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     </section>}
 
     {chartControls.panel === "momentum" && <section className="indicator-settings-panel" aria-label={isArabic ? `إعدادات ${investorZoneLabel}` : `${investorZoneLabel} settings`}>
-      <div className="indicator-settings-title"><Layers3 size={17} /><div><b>{isArabic ? `إعدادات ${investorZoneLabel}` : `${investorZoneLabel} settings`}</b><p>{isArabic ? "حساب المناطق من شموع الفاصل المعروض وفق صيغة ثابتة الإصدار." : "Zones calculated from the selected interval using a versioned formula."}</p></div><div className="indicator-settings-actions"><button type="button" onClick={() => setMomentumSettings(momentumDefaults)}>{isArabic ? "الافتراضي" : "Defaults"}</button><button type="button" onClick={() => dispatchChartControl({ type: "close-panel" })} aria-label={isArabic ? "إغلاق إعدادات المناطق" : "Close zone settings"}><X size={15} /></button></div></div>
+      <div className="indicator-settings-title"><Layers3 size={17} /><div><b>{isArabic ? `إعدادات ${investorZoneLabel}` : `${investorZoneLabel} settings`}</b><p>{isArabic ? "القاع الرقمي أخضر، ويصبح قمة رقمية حمراء بعد كسر إغلاق مؤكد، مع بقاء اللونين قابلين للتغيير." : "A digital bottom is green and becomes a red digital top after a confirmed closing break; both colors remain configurable."}</p></div><div className="indicator-settings-actions"><button type="button" onClick={() => setMomentumSettings(momentumDefaults)}>{isArabic ? "الافتراضي" : "Defaults"}</button><button type="button" onClick={() => dispatchChartControl({ type: "close-panel" })} aria-label={isArabic ? "إغلاق إعدادات المناطق" : "Close zone settings"}><X size={15} /></button></div></div>
       <div className="settings-grid">
         <label><span>{isArabic ? "أيام البحث عن القمة" : "Peak lookback days"}</span><input type="number" min="6" max="30" value={momentumSettings.peakLookbackDays} onChange={(event) => setMomentumSettings((value) => ({ ...value, peakLookbackDays: Math.min(30, Math.max(6, Number(event.target.value) || 20)) }))} /></label>
         <label><span>{isArabic ? "شفافية المناطق" : "Zone opacity"}</span><input type="range" min="0" max="95" value={momentumSettings.zoneOpacity} onChange={(event) => setMomentumSettings((value) => ({ ...value, zoneOpacity: Number(event.target.value) }))} /></label>
@@ -1227,13 +1228,13 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         <label className="settings-check"><input type="checkbox" checked={momentumSettings.showStopLines} onChange={(event) => setMomentumSettings((value) => ({ ...value, showStopLines: event.target.checked }))} /><span>{isArabic ? "إظهار خطوط الوقف" : "Show stop lines"}</span></label>
         <label className="settings-check"><input type="checkbox" checked={showMomentumCard} onChange={(event) => setShowMomentumCard(event.target.checked)} /><span>{isArabic ? "إظهار بطاقة أسعار المناطق" : "Show zone price card"}</span></label>
       </div>
-      <div className="momentum-zone-settings">{MOMENTUM_ZONE_DEFINITIONS.map((zone) => {
+      <div className="momentum-zone-settings">{intervalMomentumDefinitions.map((zone) => {
         const setting = momentumSettings.zones[zone.key];
         return <div key={zone.key} className="momentum-zone-setting">
           <b>{isArabic ? zone.nameAr : zone.nameEn}</b>
-          <label className="settings-check"><input type="checkbox" checked={setting.visible} onChange={(event) => updateZoneSetting(zone.key, { visible: event.target.checked })} /><span>{isArabic ? "المنطقة" : "Zone"}</span></label>
-          <input type="color" value={setting.color} onChange={(event) => updateZoneSetting(zone.key, { color: event.target.value })} title={isArabic ? "لون المنطقة" : "Zone color"} />
-          <input type="color" value={setting.resistanceColor} onChange={(event) => updateZoneSetting(zone.key, { resistanceColor: event.target.value })} title={isArabic ? "لون المقاومة بعد الكسر" : "Resistance color after break"} />
+          <label className="settings-check"><input type="checkbox" checked={setting.visible} onChange={(event) => updateZoneSetting(zone.key, { visible: event.target.checked })} /><span>{isArabic ? "القاع / القمة" : "Bottom / top"}</span></label>
+          <input type="color" value={setting.color} onChange={(event) => updateZoneSetting(zone.key, { color: event.target.value })} title={isArabic ? "لون القاع الرقمي" : "Digital-bottom color"} />
+          <input type="color" value={setting.resistanceColor} onChange={(event) => updateZoneSetting(zone.key, { resistanceColor: event.target.value })} title={isArabic ? "لون القمة الرقمية بعد الكسر" : "Digital-top color after break"} />
           <label className="settings-check"><input type="checkbox" checked={setting.stopVisible} onChange={(event) => updateZoneSetting(zone.key, { stopVisible: event.target.checked })} /><span>{isArabic ? "الوقف" : "Stop"}</span></label>
           <input type="color" value={setting.stopColor} onChange={(event) => updateZoneSetting(zone.key, { stopColor: event.target.value })} title={isArabic ? "لون الوقف" : "Stop color"} />
         </div>;

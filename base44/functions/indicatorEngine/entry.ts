@@ -9,7 +9,7 @@ Deno.serve(async (req) => {
     if (!Array.isArray(body.bars) || body.bars.length < 2) {
       return Response.json({ status: "insufficient_history", required: 2 }, { status: 422 });
     }
-    const result = calculateMomentumZones(body.bars, Number(body.lookback_days || 20));
+    const result = calculateMomentumZones(body.bars, Number(body.lookback_days || 20), Number.POSITIVE_INFINITY, String(body.timeframe || "1d"));
     if (!result) return Response.json({ status: "insufficient_history", formula_version: MOMENTUM_FORMULA_VERSION }, { status: 422 });
     return Response.json({ status: "success", ...result, formula_version: MOMENTUM_FORMULA_VERSION });
   } catch (error) {

@@ -267,7 +267,7 @@ async function projectInstrumentBatch(
         : timeframe === "1wk"
           ? isThursday(sessionDate)
           : isLastSaudiTradingWeekdayOfMonth(sessionDate);
-      const values = calculateTechnicalSignals(signalBars, TECHNICAL_SIGNAL_WINDOW_SIZE);
+      const values = calculateTechnicalSignals(signalBars, TECHNICAL_SIGNAL_WINDOW_SIZE, timeframe);
       values.signal_window = (values.signal_window || []).map((item, index) => ({
         ...item,
         is_final: index === 0 ? currentPeriodIsFinal : true,
@@ -288,7 +288,7 @@ async function projectInstrumentBatch(
         ...bar,
         is_final: index < signalBars.length - 1 || currentPeriodIsFinal,
       }));
-      const momentumValues = calculateMomentumZones(momentumBars, 20, Number.POSITIVE_INFINITY);
+      const momentumValues = calculateMomentumZones(momentumBars, 20, Number.POSITIVE_INFINITY, timeframe);
       if (momentumValues) {
         indicatorRows.push({
           instrument_id: instrument.id,

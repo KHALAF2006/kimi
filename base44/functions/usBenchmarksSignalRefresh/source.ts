@@ -1,7 +1,7 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 import { readJsonBody, replyError, requirePermission, requireTrustedOwner } from "../../shared/security.ts";
 import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from "../../shared/momentum.ts";
-import { aggregateTechnicalBars, calculateTechnicalSignals, normalizeTechnicalBars, TECHNICAL_SIGNAL_FORMULA_VERSION } from "../../shared/technical-signals.ts";
+import { aggregateTechnicalBars, calculateTechnicalSignals, normalizeTechnicalBars, TECHNICAL_SIGNAL_FORMULA_VERSION, TECHNICAL_SIGNAL_WINDOW_SIZE } from "../../shared/technical-signals.ts";
 import { US_BENCHMARKS_CATALOG, US_BENCHMARKS_MARKET_CODE, US_BENCHMARKS_SYMBOLS } from "../../shared/us-benchmarks-catalog.ts";
 
 const MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
@@ -85,9 +85,9 @@ async function projectBatch(base44, instruments, sessionDate, sourceId, runId) {
     const timeframes = { "1d": canonicalDaily, "1wk": aggregateTechnicalBars(canonicalDaily, "1wk", MARKET_OPTIONS), "1mo": aggregateTechnicalBars(canonicalDaily, "1mo", MARKET_OPTIONS) };
     for (const [timeframe, bars] of Object.entries(timeframes)) {
       if (!bars.length) continue;
-      const technical = calculateTechnicalSignals(bars);
+      const technical = calculateTechnicalSignals(bars, TECHNICAL_SIGNAL_WINDOW_SIZE, timeframe);
       snapshots.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, indicator_key: "technical_signals", timeframe, values: { ...technical, is_final: timeframe === "1d" }, source_as_of: bars.at(-1).time, calculated_at: new Date().toISOString(), formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION });
-      const momentum = calculateMomentumZones(bars, 20, Number.POSITIVE_INFINITY);
+      const momentum = calculateMomentumZones(bars, 20, Number.POSITIVE_INFINITY, timeframe);
       if (momentum) snapshots.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, indicator_key: "momentum_zones", timeframe, values: { ...momentum, is_final: timeframe === "1d" }, source_as_of: bars.at(-1).time, calculated_at: new Date().toISOString(), formula_version: MOMENTUM_FORMULA_VERSION });
       if (timeframe !== "1d") projectedCandles.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, interval: timeframe, chunk_key: `${US_BENCHMARKS_MARKET_CODE}:${instrument.symbol}:${timeframe}:canonical`, start_time: bars[0].time, end_time: bars.at(-1).time, bars, bar_count: bars.length, checksum: await digest(bars), source_id: sourceId, run_id: runId, snapshot_version: `${US_BENCHMARKS_MARKET_CODE}:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`, provider_as_of: bars.at(-1).time, received_time: new Date().toISOString(), quality_status: "verified", canonical_version: "us-benchmarks-candle-projection-v1", is_final: false, bucket_count: bars.length, completeness_status: "complete", is_historical_archive: false, adjustment_mode: "none" });
     }

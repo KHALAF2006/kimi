@@ -1,7 +1,7 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 import { audit, readJsonBody, replyError, requirePermission, requireTrustedOwner } from "../../shared/security.ts";
 import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from "../../shared/momentum.ts";
-import { aggregateTechnicalBars, calculateTechnicalSignals, normalizeTechnicalBars, TECHNICAL_SIGNAL_FORMULA_VERSION } from "../../shared/technical-signals.ts";
+import { aggregateTechnicalBars, calculateTechnicalSignals, normalizeTechnicalBars, TECHNICAL_SIGNAL_FORMULA_VERSION, TECHNICAL_SIGNAL_WINDOW_SIZE } from "../../shared/technical-signals.ts";
 import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE, US_OPTIONS_SYMBOLS } from "../../shared/us-options-catalog.ts";
 
 const MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
@@ -128,13 +128,13 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate, source
     };
     for (const [timeframe, signalBars] of Object.entries(timeframeBars)) {
       if (!signalBars.length) continue;
-      const values = calculateTechnicalSignals(signalBars);
+      const values = calculateTechnicalSignals(signalBars, TECHNICAL_SIGNAL_WINDOW_SIZE, timeframe);
       snapshots.push({
         instrument_id: instrument.id, market_code: US_OPTIONS_MARKET_CODE, symbol: instrument.symbol,
         indicator_key: "technical_signals", timeframe, values: { ...values, is_final: true },
         source_as_of: signalBars.at(-1).time, calculated_at: new Date().toISOString(), formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION,
       });
-      const momentum = calculateMomentumZones(signalBars, 20, Number.POSITIVE_INFINITY);
+      const momentum = calculateMomentumZones(signalBars, 20, Number.POSITIVE_INFINITY, timeframe);
       if (momentum) snapshots.push({
         instrument_id: instrument.id, market_code: US_OPTIONS_MARKET_CODE, symbol: instrument.symbol,
         indicator_key: "momentum_zones", timeframe, values: { ...momentum, is_final: true },

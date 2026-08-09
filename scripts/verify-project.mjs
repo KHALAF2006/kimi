@@ -709,15 +709,16 @@ const risingRsi = calculateRsiSeries(risingBars, 14, "close");
 assert.equal(risingRsi.length, 26, "RSI should start after the configured Wilder seed period");
 assert.ok(risingRsi.every((point) => point.value === 100), "strictly rising verified bars should produce RSI 100");
 const momentumSnapshot = calculateMomentumSnapshot(risingBars, 20, 500, "dark");
-assert.ok(momentumSnapshot?.zones?.length === 7, "momentum port must return the five established zones plus the sequential three-year and five-year recurrence zones");
+assert.ok(momentumSnapshot?.zones?.length === 8, "momentum port must return the complete daily-to-ten-year digital ladder");
 assert.ok(momentumSnapshot.zones.every((zone) => zone.top > zone.bottom && zone.bottom > zone.stop), "momentum zone price ordering must remain strict");
-assert.deepEqual(momentumSnapshot.zones.slice(5).map((zone) => zone.displayNameAr), ["قاع ثلاث سنوات", "منطقة خمس سنوات"], "deep recurrence zones must keep their approved Arabic identities");
-assert.notEqual(momentumSnapshot.zones[5].color, momentumSnapshot.zones[6].color, "deep recurrence zones must use distinct colors");
+assert.deepEqual(momentumSnapshot.zones.map((zone) => zone.displayNameAr), ["قاع رقمي يومي", "قاع رقمي أسبوعي", "قاع رقمي شهري", "قاع رقمي ربع سنوي", "قاع رقمي سنوي", "قاع رقمي لثلاث سنوات", "قاع رقمي لخمس سنوات", "قاع رقمي لعشر سنوات"], "frontend labels must mirror the backend digital ladder");
+assert.ok(momentumSnapshot.zones.every((zone) => zone.color === "#22c55e"), "unbroken digital bottoms must default to green in the dark theme");
 const upgradedLegacyMomentum = normalizeMomentum({
   zones: momentumSnapshot.zones.slice(0, 5),
 }, "light");
-assert.equal(upgradedLegacyMomentum.zones.length, 7, "legacy five-zone snapshots must be upgraded for every chart and zone card");
-assert.deepEqual(upgradedLegacyMomentum.zones.slice(5).map((zone) => zone.active), [false, false], "new deep zones must remain waiting until their sequential activation conditions are proven");
+assert.equal(upgradedLegacyMomentum.zones.length, 8, "legacy five-zone snapshots must be upgraded for every chart and zone card");
+assert.deepEqual(upgradedLegacyMomentum.zones.slice(5).map((zone) => zone.active), [false, false, false], "new deep zones must remain waiting until their sequential activation conditions are proven");
+assert.deepEqual(upgradedLegacyMomentum.zones.slice(0, 2).map((zone) => zone.displayNameAr), ["قاع رقمي يومي", "قاع رقمي أسبوعي"], "legacy snapshot labels must migrate to the digital naming model at read time");
 const hiddenWatermark = chartPreferencePayload({ ...sanitizeChartPreferences({}), watermarkVisible: false });
 assert.equal(hiddenWatermark.watermarkVisible, false, "watermark opt-out must survive the exact persisted chart-preference payload");
 assert.deepEqual(CHART_REPLAY_SPEEDS.map((speed) => speed.value), [10, 3000, 5000, 10000], "bar replay must implement the approved milliseconds-per-candle presets exactly");

@@ -689,8 +689,15 @@ const longHistory = Array.from({ length: 650 }, (_, index) => ({
 }));
 const longHistoryMomentum = calculateMomentumZones(longHistory, 20);
 assert.equal(longHistoryMomentum?.historyBars, 650, "reference-peak calculations must consume the complete stored history instead of truncating at 500 candles");
-assert.equal(longHistoryMomentum?.zones?.length, 7, "the backend must publish all established and deep recurrence zones from the same authoritative formula");
-assert.deepEqual(longHistoryMomentum.zones.slice(5).map((zone) => zone.nameAr), ["قاع ثلاث سنوات", "منطقة خمس سنوات"], "the deep recurrence zones must keep stable Arabic identities");
+assert.equal(longHistoryMomentum?.zones?.length, 8, "the daily digital ladder must publish daily through ten-year zones from one authoritative formula");
+assert.deepEqual(longHistoryMomentum.zones.map((zone) => zone.nameAr), ["قاع رقمي يومي", "قاع رقمي أسبوعي", "قاع رقمي شهري", "قاع رقمي ربع سنوي", "قاع رقمي سنوي", "قاع رقمي لثلاث سنوات", "قاع رقمي لخمس سنوات", "قاع رقمي لعشر سنوات"], "the daily digital ladder must keep its ordered Arabic identities");
+assert.ok(longHistoryMomentum.zones.every((zone) => zone.light === "#16a34a" && zone.dark === "#22c55e"), "every unbroken digital bottom must default to green");
+const weeklyMomentum = calculateMomentumZones(longHistory, 20, Number.POSITIVE_INFINITY, "1wk");
+assert.equal(weeklyMomentum.zones.length, 7, "the weekly ladder must start weekly and end at ten years");
+assert.deepEqual([weeklyMomentum.zones[0].nameAr, weeklyMomentum.zones.at(-1).nameAr], ["قاع رقمي أسبوعي", "قاع رقمي لعشر سنوات"]);
+const monthlyMomentum = calculateMomentumZones(longHistory, 20, Number.POSITIVE_INFINITY, "1mo");
+assert.equal(monthlyMomentum.zones.length, 6, "the monthly ladder must start monthly and end at ten years");
+assert.deepEqual([monthlyMomentum.zones[0].nameAr, monthlyMomentum.zones.at(-1).nameAr], ["قاع رقمي شهري", "قاع رقمي لعشر سنوات"]);
 
 const deepCycleSeed = Array.from({ length: 7 }, (_, index) => ({
   time: new Date(Date.UTC(2026, 2, index + 1)).toISOString(),
@@ -705,11 +712,14 @@ const deepCycleMomentum = calculateMomentumZones([
   { time: "2026-03-09T00:00:00.000Z", open: 61, high: 62, low: 44, close: 45 },
   { time: "2026-03-10T00:00:00.000Z", open: 45, high: 46, low: 32, close: 33 },
   { time: "2026-03-11T00:00:00.000Z", open: 33, high: 34, low: 18, close: 19 },
+  { time: "2026-03-12T00:00:00.000Z", open: 19, high: 20, low: 7, close: 8 },
 ], 6);
 assert.equal(deepCycleMomentum.zone6Active, true, "breaking the annual-zone stop must activate the three-year recurrence zone");
 assert.equal(deepCycleMomentum.zone7Active, true, "breaking the three-year-zone stop must activate the five-year recurrence zone");
 assert.equal(deepCycleMomentum.zones[5].role, "resistance", "a confirmed break of the three-year zone must reverse it into three-year resistance");
 assert.equal(deepCycleMomentum.zones[6].active, true, "the five-year zone must be visible only after the sequential deep-cycle break");
+assert.equal(deepCycleMomentum.zone8Active, true, "breaking the five-year digital bottom must activate the ten-year digital bottom");
+assert.equal(deepCycleMomentum.zones[7].active, true, "the ten-year digital bottom must be visible only after the sequential five-year break");
 
 const lifecycleBars = Array.from({ length: 7 }, (_, index) => ({
   time: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
@@ -726,7 +736,7 @@ const brokenMomentum = calculateMomentumZones(brokenBars, 6);
 assert.equal(brokenMomentum.zones[0].role, "resistance", "a confirmed close below the stop must reverse support into resistance");
 assert.equal(brokenMomentum.zones[0].lifecycleStatus, "resistance_candidate");
 assert.equal(brokenMomentum.zones[0].displayStop, null, "the obsolete support stop must disappear from the active display after reversal");
-assert.equal(brokenMomentum.zones[0].displayNameAr, "مقاومة الارتداد", "the displayed Arabic name must reflect the new resistance role");
+assert.equal(brokenMomentum.zones[0].displayNameAr, "قمة رقمية يومية", "the displayed Arabic name must reflect the new digital-top role");
 const duplicateBreakMomentum = calculateMomentumZones([...brokenBars, brokenBars.at(-1)], 6);
 assert.equal(duplicateBreakMomentum.historyBars, brokenBars.length, "duplicate candle timestamps must be coalesced before lifecycle evaluation");
 assert.equal(duplicateBreakMomentum.zoneEvents.filter((event) => event.type === "stop_broken" && event.zoneKey === "zone1").length, 1, "a duplicate candle must not create a duplicate lifecycle event");
@@ -746,6 +756,7 @@ const reclaimedBars = [
 const reclaimedMomentum = calculateMomentumZones(reclaimedBars, 6);
 assert.equal(reclaimedMomentum.zones[0].role, "support", "two closes above the zone must restore the support role");
 assert.equal(reclaimedMomentum.zones[0].lifecycleStatus, "support_reclaimed");
+assert.equal(reclaimedMomentum.zones[0].displayNameAr, "قاع رقمي يومي مستعاد", "a reclaimed digital top must recover its original time identity as a digital bottom");
 assert.ok(Number.isFinite(reclaimedMomentum.zones[0].displayStop), "reclaimed support must receive a new visible stop");
 assert.equal(new Set(reclaimedMomentum.zoneEvents.map((event) => event.id)).size, reclaimedMomentum.zoneEvents.length, "lifecycle event IDs must be deterministic and unique");
 

@@ -206,7 +206,7 @@ function latestValueByTime(values: Array<{ time: string; value: number }>) {
   return new Map(values.map((item) => [item.time, item.value]));
 }
 
-function calculateTechnicalSnapshot(bars: CandleBar[]) {
+function calculateTechnicalSnapshot(bars: CandleBar[], timeframe = "1d") {
   const sma20 = calculateSmaSeries(bars, 20);
   const sma50 = calculateSmaSeries(bars, 50);
   const last = bars.at(-1) || null;
@@ -219,7 +219,7 @@ function calculateTechnicalSnapshot(bars: CandleBar[]) {
   const previousSma50 = previous ? sma50ByTime.get(previous.time) ?? null : null;
   const pinBar = detectPinBar(last);
   const engulfing = detectEngulfingPattern(previous, last);
-  const momentum = calculateMomentumZones(bars);
+  const momentum = calculateMomentumZones(bars, 20, Number.POSITIVE_INFINITY, timeframe);
   const matchingZone = pinBar.matches && last && momentum?.zones
     ? momentum.zones.find((zone) => zone.active && zone.role === "support" && last.low <= zone.top && last.high >= zone.bottom && last.close >= zone.bottom) || null
     : null;
@@ -269,10 +269,11 @@ function calculateTechnicalSnapshot(bars: CandleBar[]) {
 export function calculateTechnicalSignals(
   inputBars: Array<Record<string, unknown>>,
   windowSize = TECHNICAL_SIGNAL_WINDOW_SIZE,
+  timeframe = "1d",
 ) {
   const bars = normalizeTechnicalBars(inputBars);
   if (!bars.length) return {
-    ...calculateTechnicalSnapshot([]),
+    ...calculateTechnicalSnapshot([], timeframe),
     signal_window_size: 0,
     signal_window: [],
   };
@@ -282,7 +283,7 @@ export function calculateTechnicalSignals(
     const end = bars.length - offset;
     signalWindow.push({
       offset,
-      ...calculateTechnicalSnapshot(bars.slice(0, end)),
+      ...calculateTechnicalSnapshot(bars.slice(0, end), timeframe),
     });
   }
   return {

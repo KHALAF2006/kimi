@@ -5584,6 +5584,7 @@ async function chartResponse(base44, body, sources) {
     momentumBars,
     Math.min(30, Math.max(6, Math.round(Number(body.lookback_days) || 20))),
     Number.POSITIVE_INFINITY,
+    interval,
   );
   return {
     candles,
@@ -5890,6 +5891,7 @@ async function sectorChartResponse(base44, body) {
     candles,
     Math.min(30, Math.max(6, Math.round(Number(body.lookback_days) || 20))),
     Number.POSITIVE_INFINITY,
+    interval,
   );
   return {
     sector,
