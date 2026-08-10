@@ -10,6 +10,7 @@ const checkOnly = process.argv.includes("--check");
 
 const generatedFunctions = [
   "historicalCandleBackfill",
+  "marketSignalProjectionWorker",
   "marketSignalRefresh",
   "usOptionsCompanyIntelligence",
   "usOptionsHistoricalBackfill",
