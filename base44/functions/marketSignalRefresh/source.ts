@@ -560,6 +560,18 @@ Deno.serve(async (req) => {
       });
     }
 
+    // The legacy visual workflow remains in Base44 for compatibility, but the
+    // authoritative schedule is deployed atomically with this function. Never
+    // fall back to the old monolithic whole-market projection.
+    if (!body.mode) {
+      return Response.json({
+        status: "skipped",
+        reason: "bounded_projection_automations_are_authoritative",
+        session_date: sessionDate,
+        batch_count: PROJECTION_BATCH_COUNT,
+      });
+    }
+
     const existingRuns = entityRows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
     const completedRun = existingRuns
       .filter((item) => ["success", "partial"].includes(item.status))

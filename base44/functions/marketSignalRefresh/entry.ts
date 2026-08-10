@@ -1405,6 +1405,14 @@ Deno.serve(async (req) => {
         canonical_version: CANONICAL_VERSION
       });
     }
+    if (!body.mode) {
+      return Response.json({
+        status: "skipped",
+        reason: "bounded_projection_automations_are_authoritative",
+        session_date: sessionDate,
+        batch_count: PROJECTION_BATCH_COUNT
+      });
+    }
     const existingRuns = entityRows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
     const completedRun = existingRuns.filter((item) => ["success", "partial"].includes(item.status)).sort((left, right) => Date.parse(right.finished_at || right.updated_date || 0) - Date.parse(left.finished_at || left.updated_date || 0))[0];
     if (completedRun && body.force !== true) {

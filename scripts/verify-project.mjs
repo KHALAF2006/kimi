@@ -130,12 +130,23 @@ for (const [batchIndex, step] of marketTechnicalSignalsDaily.definition.do.slice
 }
 assert.equal(Object.values(marketTechnicalSignalsDaily.definition.do.at(-1))[0].with.args.mode, "projection_finalize");
 const marketSignalRefreshSource = await readFile(new URL("../base44/functions/marketSignalRefresh/source.ts", import.meta.url), "utf8");
+const marketSignalRefreshConfig = JSON.parse(await readFile(new URL("../base44/functions/marketSignalRefresh/function.jsonc", import.meta.url), "utf8"));
+assert.equal(marketSignalRefreshConfig.automations.length, 7, "Saudi projection schedule must be deployed atomically with the function");
+for (const [batchIndex, automation] of marketSignalRefreshConfig.automations.slice(0, 6).entries()) {
+  assert.equal(automation.function_args.mode, "projection_batch");
+  assert.equal(automation.function_args.batch_index, batchIndex);
+  assert.equal(automation.function_args.batch_count, 6);
+  assert.equal(automation.is_active, true);
+}
+assert.equal(marketSignalRefreshConfig.automations.at(-1).function_args.mode, "projection_finalize");
+assert.equal(marketSignalRefreshConfig.automations.at(-1).cron_expression, "52 12 * * 0-4");
 assert.match(marketSignalRefreshSource, /session_date:\s*sessionDate/, "signal projection must read only the current 15-minute session for daily finalization");
 assert.match(marketSignalRefreshSource, /interval:\s*["']1d["']/, "signal projection must reuse the stored canonical daily archive");
 assert.doesNotMatch(marketSignalRefreshSource, /intradayHistory = barsByInstrument/, "scheduled projection must not rebuild all historical daily candles from intraday data");
 assert.doesNotMatch(marketSignalRefreshSource, /dailyFromStoredIntraday/, "scheduled projection must remain incremental and bounded");
 assert.match(marketSignalRefreshSource, /run_type:\s*["']technical_projection_batch["']/, "each bounded Saudi projection batch must be observable");
 assert.match(marketSignalRefreshSource, /body\.mode === ["']projection_finalize["']/, "the workflow must finalize batch coverage explicitly");
+assert.match(marketSignalRefreshSource, /bounded_projection_automations_are_authoritative/, "legacy visual workflow must not trigger the monolithic projection");
 assert.match(marketSignalRefreshSource, /indicator_key:\s*["']momentum_zones["']/, "the projection job must persist the authoritative investor-zone lifecycle snapshot");
 assert.match(marketSignalRefreshSource, /MOMENTUM_FORMULA_VERSION/, "persisted investor zones must carry their versioned role-reversal formula");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
