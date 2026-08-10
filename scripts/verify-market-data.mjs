@@ -134,6 +134,10 @@ const sundayQuarterHour = new Date("2026-07-26T07:15:00.000Z");
 const quarterSlot = slotDecision({ now: sundayQuarterHour, source: "scheduled_licensed_t15", slotKind: "quarter_hour" });
 assert.equal(quarterSlot.run, true);
 assert.equal(quarterSlot.phase, "continuous");
+const finalHourlySlot = slotDecision({ now: new Date("2026-07-26T12:18:00.000Z"), source: "scheduled_licensed_t15", slotKind: "quarter_hour" });
+assert.equal(finalHourlySlot.run, true, "the 15:18 Riyadh hourly workflow must not be rejected by the scheduled-slot guard");
+const afterFinalHourlyWindow = slotDecision({ now: new Date("2026-07-26T12:21:00.000Z"), source: "scheduled_licensed_t15", slotKind: "quarter_hour" });
+assert.equal(afterFinalHourlyWindow.run, false, "quarter-hour ingestion must close after the final hourly safety window");
 
 const sundayClose = slotDecision({ now: new Date("2026-07-26T12:26:00.000Z"), source: "scheduled_licensed_close", slotKind: "close_price" });
 assert.equal(sundayClose.run, true);

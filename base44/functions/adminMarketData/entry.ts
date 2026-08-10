@@ -5,9 +5,9 @@ import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE } from "../../shared/us-opti
 import { US_BENCHMARKS_CATALOG, US_BENCHMARKS_MARKET_CODE, US_BENCHMARKS_PROVIDER_CODE } from "../../shared/us-benchmarks-catalog.ts";
 
 const MARKET_CONFIG = {
-  SA_MAIN: { expected: EXPECTED_INSTRUMENT_COUNT, delay: SAUDI_DELAY_SECONDS, runsPerDay: 24, monthlyRuns: 528 },
-  [US_OPTIONS_MARKET_CODE]: { expected: US_OPTIONS_CATALOG.companies.length, delay: 900, runsPerDay: 59, monthlyRuns: 1314 },
-  [US_BENCHMARKS_MARKET_CODE]: { expected: US_BENCHMARKS_CATALOG.instruments.length, delay: 900, runsPerDay: 31, monthlyRuns: 686 },
+  SA_MAIN: { expected: EXPECTED_INSTRUMENT_COUNT, delay: SAUDI_DELAY_SECONDS, runsPerDay: 9, monthlyRuns: 198 },
+  [US_OPTIONS_MARKET_CODE]: { expected: US_OPTIONS_CATALOG.companies.length, delay: 900, runsPerDay: 17, monthlyRuns: 390 },
+  [US_BENCHMARKS_MARKET_CODE]: { expected: US_BENCHMARKS_CATALOG.instruments.length, delay: 900, runsPerDay: 10, monthlyRuns: 224 },
 };
 const PRICE_SLOT_KINDS = new Set(["quarter_hour", "close_price", "session_final", "manual"]);
 
@@ -138,10 +138,10 @@ async function health(base44, requestedMarket) {
       runs_per_trading_day: config.runsPerDay,
       estimated_monthly_runs: config.monthlyRuns,
       note: MARKET_CODE === US_OPTIONS_MARKET_CODE
-        ? "Steady estimate: 704 quarter-hour runs + 22 signal runs + 30 company-information runs. Historical bootstrap is temporary and separate. Provider API usage is separate."
+        ? "Steady estimate: 308 hourly price-batch runs + 22 signal runs + 30 company-information runs + 30 bounded history checks. Provider API usage is separate."
         : MARKET_CODE === US_BENCHMARKS_MARKET_CODE
-          ? "Steady estimate: 616 quarter-hour runs + 22 signal runs. Historical bootstrap skips completed instruments; provider API usage is separate."
-        : "One Base44 integration credit per automation invocation; provider API usage is separate.",
+          ? "Steady estimate: 154 hourly price runs + 22 refresh runs + 22 signal runs + 22 intraday-history runs + 4 bounded history checks. Provider API usage is separate."
+        : "Steady estimate: 132 hourly price runs + 22 close runs + 22 finalization runs + 22 signal runs. Provider API usage is separate.",
     },
   };
 }

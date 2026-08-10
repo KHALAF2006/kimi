@@ -99,8 +99,13 @@ const marketWorkflows = await Promise.all(
 );
 assert.deepEqual(
   marketWorkflows.map((workflow) => workflow.trigger.config.cron_expression),
-  ["18,33,48 10-14 * * 0-4", "3 11-15 * * 0-4", "18 15 * * 0-4", "26 15 * * 0-4", "36 15 * * 0-4"],
-  "market workflows must cover the exact Riyadh T+15 and closing cycles",
+  ["18 11-14 * * 0-4", "18 10 * * 0-4", "18 15 * * 0-4", "26 15 * * 0-4", "36 15 * * 0-4"],
+  "market workflows must cover the exact hourly Riyadh ingestion and closing cycles",
+);
+assert.deepEqual(
+  [marketWorkflows[1], marketWorkflows[0], marketWorkflows[2]].map((workflow) => workflow.trigger.config.cron_expression),
+  ["18 10 * * 0-4", "18 11-14 * * 0-4", "18 15 * * 0-4"],
+  "Saudi ingestion must run once per hour from 10:18 through 15:18 without duplicate cycles",
 );
 for (const workflow of marketWorkflows) {
   assert.equal(workflow.trigger.config.trigger_type, "scheduled");

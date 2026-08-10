@@ -122,7 +122,7 @@ function slotDecision({ now = /* @__PURE__ */ new Date(), slotKind = "quarter_ho
   if (!scheduled) return { run: true, clock, phase: marketPhase(clock, slotKind) };
   if (!TRADING_WEEKDAYS.has(clock.weekday)) return { run: false, reason: "non_trading_weekday", clock, phase: "closed" };
   const minuteOfDay = clock.hour * 60 + clock.minute;
-  const allowed = slotKind === "close_price" ? minuteOfDay >= 15 * 60 + 24 : slotKind === "session_final" ? minuteOfDay >= 15 * 60 + 34 : minuteOfDay >= 10 * 60 + 14 && minuteOfDay <= 15 * 60 + 16;
+  const allowed = slotKind === "close_price" ? minuteOfDay >= 15 * 60 + 24 : slotKind === "session_final" ? minuteOfDay >= 15 * 60 + 34 : minuteOfDay >= 10 * 60 + 14 && minuteOfDay <= 15 * 60 + 20;
   return allowed ? { run: true, clock, phase: marketPhase(clock, slotKind) } : { run: false, reason: "outside_scheduled_slot", clock, phase: marketPhase(clock, slotKind) };
 }
 function expectedProviderAsOf(now = /* @__PURE__ */ new Date()) {
