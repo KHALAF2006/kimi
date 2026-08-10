@@ -130,6 +130,9 @@ assert.doesNotMatch(marketSignalRefreshSource, /dailyFromStoredIntraday/, "sched
 assert.match(marketSignalRefreshSource, /run_type:\s*["']technical_projection_batch["']/, "each bounded Saudi projection batch must be observable");
 assert.match(marketSignalRefreshSource, /body\.mode === ["']projection_finalize["']/, "the workflow must finalize batch coverage explicitly");
 assert.match(marketSignalRefreshSource, /functions\.invoke\(["']marketSignalProjectionWorker["']/, "the visual workflow must fan out through a bounded worker function");
+assert.match(marketSignalRefreshSource, /\["verified", "stale"\]\.includes\(quote\.quality_status\)/, "a final close may age to stale without becoming invalid for daily projection");
+assert.match(marketSignalRefreshSource, /remaining_batches:/, "each scheduled workflow step must report resumable batch progress");
+assert.doesNotMatch(marketSignalRefreshSource, /const batchResults = await Promise\.all/, "Saudi projection batches must never run concurrently");
 assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_SIZE = 24/, "Saudi projection batches must stay below the Base44 CPU ceiling");
 assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_COUNT = 12/, "Saudi projection capacity must cover the entire catalog in bounded batches");
 assert.match(marketSignalRefreshSource, /indicator_key:\s*["']momentum_zones["']/, "the projection job must persist the authoritative investor-zone lifecycle snapshot");

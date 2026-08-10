@@ -971,7 +971,7 @@ async function upsertRows(base44, entity, rows, existing, keyFields) {
 }
 function quoteIsFinalForSession(quote, sessionDate) {
   return Boolean(
-    quote && quote.session_date === sessionDate && quote.quality_status === "verified" && quote.is_final === true
+    quote && quote.session_date === sessionDate && ["verified", "stale"].includes(quote.quality_status) && quote.is_final === true
   );
 }
 function isThursday(sessionDate) {
@@ -1406,34 +1406,64 @@ Deno.serve(async (req) => {
       });
     }
     if (!body.mode) {
-      const batchResults2 = await Promise.all(
-        Array.from(
-          { length: PROJECTION_BATCH_COUNT },
-          (_, batchIndex) => base44.functions.invoke("marketSignalProjectionWorker", {
-            session_id: body.session_id,
-            source: body.source || "daily_session_projection",
-            reason: body.reason,
-            force: body.force === true,
-            mode: "projection_batch",
+      const existingRuns2 = entityRows(await base44.asServiceRole.entities.IngestionRun.filter({
+        market_code: MARKET_CODE
+      }, "-created_date", 500));
+      let nextBatchIndex = -1;
+      for (let batchIndex = 0; batchIndex < PROJECTION_BATCH_COUNT; batchIndex += 1) {
+        const batchSlotKey = projectionBatchSlotKey(sessionDate, batchIndex);
+        const latest = existingRuns2.filter((item) => item.slot_key === batchSlotKey).sort((left, right) => Date.parse(right.finished_at || right.updated_date || right.started_at || 0) - Date.parse(left.finished_at || left.updated_date || left.started_at || 0))[0];
+        if (latest?.status === "running" && Date.parse(latest.lease_expires_at || 0) > Date.now()) {
+          return Response.json({
+            status: "running",
+            stage: "projection_batch",
+            session_date: sessionDate,
             batch_index: batchIndex,
             batch_count: PROJECTION_BATCH_COUNT,
-            session_date: sessionDate
-          })
-        )
-      );
+            run_id: latest.id
+          });
+        }
+        if (!["success", "partial"].includes(latest?.status)) {
+          nextBatchIndex = batchIndex;
+          break;
+        }
+      }
+      if (nextBatchIndex >= 0) {
+        const batchResponse = await base44.functions.invoke("marketSignalProjectionWorker", {
+          session_id: body.session_id,
+          source: body.source || "daily_session_projection",
+          reason: body.reason,
+          force: false,
+          mode: "projection_batch",
+          batch_index: nextBatchIndex,
+          batch_count: PROJECTION_BATCH_COUNT,
+          session_date: sessionDate
+        });
+        const batch = batchResponse?.data || batchResponse;
+        return Response.json({
+          status: batch?.status || "success",
+          stage: "projection_batch",
+          session_date: sessionDate,
+          batch_index: nextBatchIndex,
+          batch_count: PROJECTION_BATCH_COUNT,
+          completed_batches: nextBatchIndex + 1,
+          remaining_batches: Math.max(0, PROJECTION_BATCH_COUNT - nextBatchIndex - 1),
+          batch
+        });
+      }
       const finalResponse = await base44.functions.invoke("marketSignalProjectionWorker", {
         session_id: body.session_id,
         source: body.source || "daily_session_projection",
         reason: body.reason,
-        force: body.force === true,
+        force: false,
         mode: "projection_finalize",
         batch_count: PROJECTION_BATCH_COUNT,
         session_date: sessionDate
       });
       return Response.json({
         status: finalResponse?.data?.status || finalResponse?.status || "success",
+        stage: "projection_finalize",
         session_date: sessionDate,
-        batches: batchResults2.map((item) => item?.data || item),
         final: finalResponse?.data || finalResponse
       });
     }
