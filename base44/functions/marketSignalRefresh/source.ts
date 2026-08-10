@@ -13,8 +13,11 @@ import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from "../../shared/m
 const CANONICAL_VERSION = "candle-projection-v1";
 const MARKET_CODE = "SA_MAIN";
 const BATCH_SIZE = 500;
-const PROJECTION_BATCH_SIZE = 24;
-const PROJECTION_BATCH_COUNT = 12;
+// A single instrument currently writes up to three candle chunks and six
+// indicator snapshots. Eight instruments keep each Workflow action below the
+// observed Base44 entity write-traffic ceiling with headroom for run metadata.
+const PROJECTION_BATCH_SIZE = 8;
+const PROJECTION_BATCH_COUNT = 34;
 
 function entityRows(value: unknown): Array<Record<string, any>> {
   if (Array.isArray(value)) return value;

@@ -928,8 +928,8 @@ function calculateTechnicalSignals(inputBars, windowSize = TECHNICAL_SIGNAL_WIND
 var CANONICAL_VERSION = "candle-projection-v1";
 var MARKET_CODE = "SA_MAIN";
 var BATCH_SIZE = 500;
-var PROJECTION_BATCH_SIZE = 24;
-var PROJECTION_BATCH_COUNT = 12;
+var PROJECTION_BATCH_SIZE = 8;
+var PROJECTION_BATCH_COUNT = 34;
 function entityRows(value) {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.data)) return value.data;

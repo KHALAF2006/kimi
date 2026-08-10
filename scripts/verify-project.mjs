@@ -133,8 +133,8 @@ assert.match(marketSignalRefreshSource, /functions\.invoke\(["']marketSignalProj
 assert.match(marketSignalRefreshSource, /\["verified", "stale"\]\.includes\(quote\.quality_status\)/, "a final close may age to stale without becoming invalid for daily projection");
 assert.match(marketSignalRefreshSource, /remaining_batches:/, "each scheduled workflow step must report resumable batch progress");
 assert.doesNotMatch(marketSignalRefreshSource, /const batchResults = await Promise\.all/, "Saudi projection batches must never run concurrently");
-assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_SIZE = 24/, "Saudi projection batches must stay below the Base44 CPU ceiling");
-assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_COUNT = 12/, "Saudi projection capacity must cover the entire catalog in bounded batches");
+assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_SIZE = 8/, "Saudi projection batches must stay below the observed Base44 entity write-traffic ceiling");
+assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_COUNT = 34/, "Saudi projection capacity must cover the entire catalog in bounded batches");
 assert.match(marketSignalRefreshSource, /indicator_key:\s*["']momentum_zones["']/, "the projection job must persist the authoritative investor-zone lifecycle snapshot");
 assert.match(marketSignalRefreshSource, /MOMENTUM_FORMULA_VERSION/, "persisted investor zones must carry their versioned role-reversal formula");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
