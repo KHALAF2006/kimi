@@ -9,6 +9,7 @@ const MARKET_CONFIG = {
   [US_OPTIONS_MARKET_CODE]: { expected: US_OPTIONS_CATALOG.companies.length, delay: 900, runsPerDay: 59, monthlyRuns: 1314 },
   [US_BENCHMARKS_MARKET_CODE]: { expected: US_BENCHMARKS_CATALOG.instruments.length, delay: 900, runsPerDay: 31, monthlyRuns: 686 },
 };
+const PRICE_SLOT_KINDS = new Set(["quarter_hour", "close_price", "session_final", "manual"]);
 
 function marketConfig(value) {
   const marketCode = String(value || "SA_MAIN").trim().toUpperCase();
@@ -41,7 +42,7 @@ async function health(base44, requestedMarket) {
     base44.asServiceRole.entities.ProviderInstrumentMap.filter({ market_code: MARKET_CODE }),
     base44.asServiceRole.entities.QuoteLatest.filter({ market_code: MARKET_CODE }),
     base44.asServiceRole.entities.DataQualityIssue.filter({ status: "open" }),
-    base44.asServiceRole.entities.IngestionRun.list("-started_at", 100),
+    base44.asServiceRole.entities.IngestionRun.filter({ market_code: MARKET_CODE }, "-started_at", 500),
     base44.asServiceRole.entities.HistoricalCandleSync.filter({ market_code: MARKET_CODE, interval: "1d" }),
     base44.asServiceRole.entities.Instrument.filter({ market_code: MARKET_CODE }),
   ]);
@@ -51,8 +52,9 @@ async function health(base44, requestedMarket) {
     && (!expectedSourceCode || source.code === expectedSourceCode))
     || sources.find((source) => source.market_code === MARKET_CODE && source.source_type !== "official")
     || null;
-  const latestRun = latestByDate(runs.filter((run) => !run.market_code || run.market_code === MARKET_CODE), "started_at");
-  const latestSuccessfulRun = latestByDate(runs.filter((run) => (!run.market_code || run.market_code === MARKET_CODE) && run.status === "success"), "finished_at");
+  const priceRuns = runs.filter((run) => PRICE_SLOT_KINDS.has(run.slot_kind));
+  const latestRun = latestByDate(priceRuns, "started_at");
+  const latestSuccessfulRun = latestByDate(priceRuns.filter((run) => run.status === "success"), "finished_at");
   const latestVersion = latestByDate(quotes.filter((quote) => quote.snapshot_version), "received_time")?.snapshot_version || null;
   const currentQuotes = latestVersion ? quotes.filter((quote) => quote.snapshot_version === latestVersion) : [];
   const staleQuotes = quotes.filter((quote) => quote.freshness_status === "stale").length;
@@ -145,8 +147,12 @@ Deno.serve(async (req) => {
 
     if (action === "health") return Response.json(await health(base44, MARKET_CODE));
     if (action === "runs") {
-      const runs = await base44.asServiceRole.entities.IngestionRun.list("-started_at", Math.min(Math.max(Number(body.limit) || 100, 1), 500));
-      return Response.json({ runs: runs.filter((item) => (item.market_code || "SA_MAIN") === MARKET_CODE), market_code: MARKET_CODE });
+      const runs = await base44.asServiceRole.entities.IngestionRun.filter(
+        { market_code: MARKET_CODE },
+        "-started_at",
+        Math.min(Math.max(Number(body.limit) || 100, 1), 500),
+      );
+      return Response.json({ runs, market_code: MARKET_CODE });
     }
     if (action === "issues") {
       const issues = body.status

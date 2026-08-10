@@ -183,14 +183,17 @@ async function projectInstrumentBatch(
   const [instrumentsRaw, quotesRaw, chunksRaw, snapshotsRaw] = await Promise.all([
     base44.asServiceRole.entities.Instrument.filter({ id: idQuery }, "symbol", PROJECTION_BATCH_SIZE),
     base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-updated_date", PROJECTION_BATCH_SIZE * 3),
-    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-end_time", 1200),
+    // Saudi candle rows created before market scoping do not have market_code.
+    // The instrument-id boundary keeps the fallback isolated to this batch while
+    // new ingestion runs progressively stamp SA_MAIN on every updated row.
+    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery }, "-end_time", 1200),
     base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-source_as_of", PROJECTION_BATCH_SIZE * 12),
   ]);
   const instruments = entityRows(instrumentsRaw)
     .filter((item) => item.market_code === MARKET_CODE && item.status !== "delisted")
     .sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
   const quotes = entityRows(quotesRaw);
-  const chunks = entityRows(chunksRaw);
+  const chunks = entityRows(chunksRaw).filter((chunk) => !chunk.market_code || chunk.market_code === MARKET_CODE);
   const snapshots = entityRows(snapshotsRaw);
   const quoteByInstrument = firstByInstrument(quotes);
   const latestSourceByInstrument = new Map();

@@ -852,7 +852,14 @@ export async function fetchPublicDelayedCharts({
   };
 }
 
-export function normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate) {
+export function normalizeProviderCandles(
+  payload,
+  mappings,
+  instruments,
+  sourceId,
+  sessionDate,
+  marketCode = SAUDI_MAIN_MARKET,
+) {
   const root = payload?.data && typeof payload.data === "object" ? payload.data : payload;
   const rows = Array.isArray(root?.candles) ? root.candles : [];
   const mappingBySymbol = new Map(mappings.map((mapping) => [String(mapping.provider_symbol), mapping]));
@@ -884,6 +891,7 @@ export function normalizeProviderCandles(payload, mappings, instruments, sourceI
       const storedBars = ordered.map(({ session_date: _sessionDate, ...bar }) => bar);
       chunks.push({
         instrument_id: instrument.id,
+        market_code: marketCode,
         symbol: instrument.symbol,
         interval: "15m",
         session_date: barSessionDate,
