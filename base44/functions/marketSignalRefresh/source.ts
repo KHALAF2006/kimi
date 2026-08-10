@@ -560,15 +560,37 @@ Deno.serve(async (req) => {
       });
     }
 
-    // The legacy visual workflow remains in Base44 for compatibility, but the
-    // authoritative schedule is deployed atomically with this function. Never
-    // fall back to the old monolithic whole-market projection.
     if (!body.mode) {
-      return Response.json({
-        status: "skipped",
-        reason: "bounded_projection_automations_are_authoritative",
-        session_date: sessionDate,
+      const batchResults = [];
+      for (let offset = 0; offset < PROJECTION_BATCH_COUNT; offset += 2) {
+        const group = await Promise.all([offset, offset + 1].map((batchIndex) =>
+          base44.functions.invoke("marketSignalProjectionWorker", {
+            session_id: body.session_id,
+            source: body.source || "daily_session_projection",
+            reason: body.reason,
+            force: body.force === true,
+            mode: "projection_batch",
+            batch_index: batchIndex,
+            batch_count: PROJECTION_BATCH_COUNT,
+            session_date: sessionDate,
+          })
+        ));
+        batchResults.push(...group.map((item) => item?.data || item));
+      }
+      const finalResponse = await base44.functions.invoke("marketSignalProjectionWorker", {
+        session_id: body.session_id,
+        source: body.source || "daily_session_projection",
+        reason: body.reason,
+        force: body.force === true,
+        mode: "projection_finalize",
         batch_count: PROJECTION_BATCH_COUNT,
+        session_date: sessionDate,
+      });
+      return Response.json({
+        status: finalResponse?.data?.status || finalResponse?.status || "success",
+        session_date: sessionDate,
+        batches: batchResults,
+        final: finalResponse?.data || finalResponse,
       });
     }
 

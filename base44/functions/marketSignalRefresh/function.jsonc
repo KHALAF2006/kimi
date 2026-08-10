@@ -1,41 +1,4 @@
 {
   "name": "marketSignalRefresh",
-  "entry": "entry.ts",
-  "automations": [
-    {
-      "type": "scheduled", "name": "saudi_projection_batch_1", "description": "Saudi daily candles and signals batch 1 of 6",
-      "function_args": { "source": "daily_session_projection", "mode": "projection_batch", "batch_index": 0, "batch_count": 6 }, "is_active": true,
-      "schedule_mode": "recurring", "schedule_type": "cron", "cron_expression": "45 12 * * 0-4"
-    },
-    {
-      "type": "scheduled", "name": "saudi_projection_batch_2", "description": "Saudi daily candles and signals batch 2 of 6",
-      "function_args": { "source": "daily_session_projection", "mode": "projection_batch", "batch_index": 1, "batch_count": 6 }, "is_active": true,
-      "schedule_mode": "recurring", "schedule_type": "cron", "cron_expression": "46 12 * * 0-4"
-    },
-    {
-      "type": "scheduled", "name": "saudi_projection_batch_3", "description": "Saudi daily candles and signals batch 3 of 6",
-      "function_args": { "source": "daily_session_projection", "mode": "projection_batch", "batch_index": 2, "batch_count": 6 }, "is_active": true,
-      "schedule_mode": "recurring", "schedule_type": "cron", "cron_expression": "47 12 * * 0-4"
-    },
-    {
-      "type": "scheduled", "name": "saudi_projection_batch_4", "description": "Saudi daily candles and signals batch 4 of 6",
-      "function_args": { "source": "daily_session_projection", "mode": "projection_batch", "batch_index": 3, "batch_count": 6 }, "is_active": true,
-      "schedule_mode": "recurring", "schedule_type": "cron", "cron_expression": "48 12 * * 0-4"
-    },
-    {
-      "type": "scheduled", "name": "saudi_projection_batch_5", "description": "Saudi daily candles and signals batch 5 of 6",
-      "function_args": { "source": "daily_session_projection", "mode": "projection_batch", "batch_index": 4, "batch_count": 6 }, "is_active": true,
-      "schedule_mode": "recurring", "schedule_type": "cron", "cron_expression": "49 12 * * 0-4"
-    },
-    {
-      "type": "scheduled", "name": "saudi_projection_batch_6", "description": "Saudi daily candles and signals batch 6 of 6",
-      "function_args": { "source": "daily_session_projection", "mode": "projection_batch", "batch_index": 5, "batch_count": 6 }, "is_active": true,
-      "schedule_mode": "recurring", "schedule_type": "cron", "cron_expression": "50 12 * * 0-4"
-    },
-    {
-      "type": "scheduled", "name": "saudi_projection_finalize", "description": "Verify and publish aggregate Saudi daily candle and signal coverage",
-      "function_args": { "source": "daily_session_projection", "mode": "projection_finalize", "batch_count": 6 }, "is_active": true,
-      "schedule_mode": "recurring", "schedule_type": "cron", "cron_expression": "52 12 * * 0-4"
-    }
-  ]
+  "entry": "entry.ts"
 }

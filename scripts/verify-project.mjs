@@ -118,35 +118,18 @@ assert.deepEqual(
 assert.equal(Object.values(marketWorkflows[3].definition.do[0])[0].with.args.slot_kind, "close_price");
 assert.equal(Object.values(marketWorkflows[4].definition.do[0])[0].with.args.slot_kind, "session_final");
 const marketTechnicalSignalsDaily = JSON.parse(await readFile(new URL("../base44/workflows/MarketTechnicalSignalsDaily.jsonc", import.meta.url), "utf8"));
-assert.equal(marketTechnicalSignalsDaily.trigger.config.cron_expression, "52 15 * * 0-4");
+assert.equal(marketTechnicalSignalsDaily.trigger.config.cron_expression, "45 15 * * 0-4");
 assert.equal(marketTechnicalSignalsDaily.trigger.config.timezone, "Asia/Riyadh");
 assert.equal(Object.values(marketTechnicalSignalsDaily.definition.do[0])[0].with.function_name, "marketSignalRefresh");
-assert.equal(marketTechnicalSignalsDaily.definition.do.length, 7, "Saudi signal projection must use six bounded batches and one finalizer");
-for (const [batchIndex, step] of marketTechnicalSignalsDaily.definition.do.slice(0, 6).entries()) {
-  const action = Object.values(step)[0];
-  assert.equal(action.with.args.mode, "projection_batch");
-  assert.equal(action.with.args.batch_index, batchIndex);
-  assert.equal(action.with.args.batch_count, 6);
-}
-assert.equal(Object.values(marketTechnicalSignalsDaily.definition.do.at(-1))[0].with.args.mode, "projection_finalize");
+assert.equal(marketTechnicalSignalsDaily.definition.do.length, 1, "the visual workflow must call the bounded orchestrator once");
 const marketSignalRefreshSource = await readFile(new URL("../base44/functions/marketSignalRefresh/source.ts", import.meta.url), "utf8");
-const marketSignalRefreshConfig = JSON.parse(await readFile(new URL("../base44/functions/marketSignalRefresh/function.jsonc", import.meta.url), "utf8"));
-assert.equal(marketSignalRefreshConfig.automations.length, 7, "Saudi projection schedule must be deployed atomically with the function");
-for (const [batchIndex, automation] of marketSignalRefreshConfig.automations.slice(0, 6).entries()) {
-  assert.equal(automation.function_args.mode, "projection_batch");
-  assert.equal(automation.function_args.batch_index, batchIndex);
-  assert.equal(automation.function_args.batch_count, 6);
-  assert.equal(automation.is_active, true);
-}
-assert.equal(marketSignalRefreshConfig.automations.at(-1).function_args.mode, "projection_finalize");
-assert.equal(marketSignalRefreshConfig.automations.at(-1).cron_expression, "52 12 * * 0-4");
 assert.match(marketSignalRefreshSource, /session_date:\s*sessionDate/, "signal projection must read only the current 15-minute session for daily finalization");
 assert.match(marketSignalRefreshSource, /interval:\s*["']1d["']/, "signal projection must reuse the stored canonical daily archive");
 assert.doesNotMatch(marketSignalRefreshSource, /intradayHistory = barsByInstrument/, "scheduled projection must not rebuild all historical daily candles from intraday data");
 assert.doesNotMatch(marketSignalRefreshSource, /dailyFromStoredIntraday/, "scheduled projection must remain incremental and bounded");
 assert.match(marketSignalRefreshSource, /run_type:\s*["']technical_projection_batch["']/, "each bounded Saudi projection batch must be observable");
 assert.match(marketSignalRefreshSource, /body\.mode === ["']projection_finalize["']/, "the workflow must finalize batch coverage explicitly");
-assert.match(marketSignalRefreshSource, /bounded_projection_automations_are_authoritative/, "legacy visual workflow must not trigger the monolithic projection");
+assert.match(marketSignalRefreshSource, /functions\.invoke\(["']marketSignalProjectionWorker["']/, "the visual workflow must fan out through a bounded worker function");
 assert.match(marketSignalRefreshSource, /indicator_key:\s*["']momentum_zones["']/, "the projection job must persist the authoritative investor-zone lifecycle snapshot");
 assert.match(marketSignalRefreshSource, /MOMENTUM_FORMULA_VERSION/, "persisted investor zones must carry their versioned role-reversal formula");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
@@ -183,7 +166,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 28, "all 28 backend functions must be present");
+assert.equal(functionNames.length, 29, "all 29 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -694,7 +677,7 @@ const boundedBodyFunctions = [
   "adminCustomers", "adminMarketData", "adminRoles", "adminSubscriptions", "alertEvaluation",
   "authLogin", "authRegistration", "chartDrawings", "companyIntelligence", "customerSelfService",
   "historicalCandleBackfill", "identityContext", "indicatorEngine", "legacySchemaBridge", "marketIngestion",
-  "marketRead", "marketSignalRefresh", "operationsQuality", "screeningWatchlists", "telegramDelivery", "usBenchmarksMarketIngestion", "usBenchmarksSignalRefresh", "usOptionsCompanyIntelligence", "whatsappDelivery",
+  "marketRead", "marketSignalRefresh", "marketSignalProjectionWorker", "operationsQuality", "screeningWatchlists", "telegramDelivery", "usBenchmarksMarketIngestion", "usBenchmarksSignalRefresh", "usOptionsCompanyIntelligence", "whatsappDelivery",
 ];
 for (const functionName of boundedBodyFunctions) {
   const functionSource = await readFile(new URL(`../base44/functions/${functionName}/entry.ts`, import.meta.url), "utf8");

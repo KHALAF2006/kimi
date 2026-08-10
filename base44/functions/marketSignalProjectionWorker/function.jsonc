@@ -1,0 +1,4 @@
+{
+  "name": "marketSignalProjectionWorker",
+  "entry": "entry.ts"
+}

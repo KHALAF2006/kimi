@@ -1406,11 +1406,36 @@ Deno.serve(async (req) => {
       });
     }
     if (!body.mode) {
+      const batchResults2 = [];
+      for (let offset = 0; offset < PROJECTION_BATCH_COUNT; offset += 2) {
+        const group = await Promise.all([offset, offset + 1].map(
+          (batchIndex) => base44.functions.invoke("marketSignalProjectionWorker", {
+            session_id: body.session_id,
+            source: body.source || "daily_session_projection",
+            reason: body.reason,
+            force: body.force === true,
+            mode: "projection_batch",
+            batch_index: batchIndex,
+            batch_count: PROJECTION_BATCH_COUNT,
+            session_date: sessionDate
+          })
+        ));
+        batchResults2.push(...group.map((item) => item?.data || item));
+      }
+      const finalResponse = await base44.functions.invoke("marketSignalProjectionWorker", {
+        session_id: body.session_id,
+        source: body.source || "daily_session_projection",
+        reason: body.reason,
+        force: body.force === true,
+        mode: "projection_finalize",
+        batch_count: PROJECTION_BATCH_COUNT,
+        session_date: sessionDate
+      });
       return Response.json({
-        status: "skipped",
-        reason: "bounded_projection_automations_are_authoritative",
+        status: finalResponse?.data?.status || finalResponse?.status || "success",
         session_date: sessionDate,
-        batch_count: PROJECTION_BATCH_COUNT
+        batches: batchResults2,
+        final: finalResponse?.data || finalResponse
       });
     }
     const existingRuns = entityRows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
