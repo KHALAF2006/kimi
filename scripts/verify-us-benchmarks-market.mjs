@@ -63,13 +63,15 @@ assert.ok(dashboard.indexOf('instrument.instrument_type === "sector_index"') < d
 
 const admin = await source("base44/functions/adminMarketData/entry.ts");
 for (const token of ["usBenchmarksMarketIngestion", "usBenchmarksSignalRefresh", "US_BENCHMARKS_PROVIDER_CODE"]) assert.match(admin, new RegExp(token));
-assert.match(admin, /runsPerDay: 31, monthlyRuns: 686/, "the owner dashboard must show the actual benchmark automation-credit budget");
+assert.match(admin, /runsPerDay: 10, monthlyRuns: 224/, "the owner dashboard must show the actual benchmark automation-credit budget");
 
 for (const file of ["UsBenchmarksQuarterCycles", "UsBenchmarksDailyRefresh", "UsBenchmarksSignalsDaily", "UsBenchmarksIntradayHistory", "UsBenchmarksHistoricalBootstrap"]) {
   const workflow = JSON.parse(await source(`base44/workflows/${file}.jsonc`));
   assert.equal(workflow.trigger.config.timezone, "America/New_York");
   assert.match(JSON.stringify(workflow), /US_BENCHMARKS/);
 }
+const hourlyWorkflow = JSON.parse(await source("base44/workflows/UsBenchmarksQuarterCycles.jsonc"));
+assert.equal(hourlyWorkflow.trigger.config.cron_expression, "20 10-16 * * 1-5", "benchmark ingestion must fetch incrementally once per hour");
 const signalWorkflow = JSON.parse(await source("base44/workflows/UsBenchmarksSignalsDaily.jsonc"));
 assert.equal(signalWorkflow.trigger.config.cron_expression, "15 18 * * 1-5", "benchmark signals must run after the New York session through Base44 Workflows");
 assert.equal(Object.values(signalWorkflow.definition.do[0])[0].with.function_name, "usBenchmarksSignalRefresh");

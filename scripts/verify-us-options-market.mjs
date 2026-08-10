@@ -217,7 +217,7 @@ assert.match(companyIntelligence, /const complete = failures\.length === 0/);
 const adminMarketData = await source("base44/functions/adminMarketData/entry.ts");
 assert.match(adminMarketData, /REFERENCE_YAHOO_US_OPTIONS_T15/);
 assert.match(adminMarketData, /refresh_company_intelligence/);
-assert.match(adminMarketData, /runsPerDay: 59, monthlyRuns: 1314/);
+assert.match(adminMarketData, /runsPerDay: 17, monthlyRuns: 390/);
 
 const signals = await source("base44/functions/usOptionsSignalRefresh/source.ts");
 assert.match(signals, /dedupeDailyBars/);
@@ -281,8 +281,8 @@ const ingestionBatch2Workflow = JSON.parse(await source("base44/workflows/UsOpti
 const signalWorkflow = JSON.parse(await source("base44/workflows/UsOptionsSignalsDaily.jsonc"));
 const historyWorkflow = JSON.parse(await source("base44/workflows/UsOptionsHistoricalBootstrap.jsonc"));
 const companyWorkflow = JSON.parse(await source("base44/workflows/UsOptionsCompanyIntelligenceDaily.jsonc"));
-assert.equal(ingestionWorkflow.trigger.config.cron_expression, "5,20,35,50 10-16 * * 1-5");
-assert.equal(ingestionBatch2Workflow.trigger.config.cron_expression, "7,22,37,52 10-16 * * 1-5");
+assert.equal(ingestionWorkflow.trigger.config.cron_expression, "20 10-16 * * 1-5", "the first options batch must fetch incrementally once per hour");
+assert.equal(ingestionBatch2Workflow.trigger.config.cron_expression, "22 10-16 * * 1-5", "the second options batch must remain staggered by two minutes");
 assert.equal(Object.values(ingestionWorkflow.definition.do[0])[0].with.args.batch_index, 0);
 assert.equal(Object.values(ingestionBatch2Workflow.definition.do[0])[0].with.args.batch_index, 1);
 assert.equal(signalWorkflow.trigger.config.cron_expression, "0 18 * * 1-5");
@@ -311,7 +311,6 @@ for (const workflow of [ingestionWorkflow, ingestionBatch2Workflow, signalWorkfl
   assert.equal(workflow.trigger.config.timezone, "America/New_York");
   assert.equal(Object.values(workflow.definition.do[0])[0].with.args.market_code, "US_OPTIONS");
 }
-
 const functionBuilder = await source("scripts/build-app-editor-functions.mjs");
 for (const functionName of ["usOptionsCompanyIntelligence", "usOptionsHistoricalBackfill", "usOptionsMarketIngestion", "usOptionsSignalRefresh"]) assert.match(functionBuilder, new RegExp(`"${functionName}"`));
 

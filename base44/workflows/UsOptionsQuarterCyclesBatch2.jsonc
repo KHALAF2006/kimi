@@ -1,13 +1,13 @@
 {
-  "name": "\u0633\u0648\u0642 \u0627\u0644\u062e\u064a\u0627\u0631\u0627\u062a \u2014 \u0631\u0628\u0639 \u0627\u0644\u0633\u0627\u0639\u0629 \u2014 \u0627\u0644\u062f\u0641\u0639\u0629 2",
-  "description": "\u0627\u0644\u062f\u0641\u0639\u0629 \u0627\u0644\u062b\u0627\u0646\u064a\u0629 \u0627\u0644\u0645\u0643\u0645\u0644\u0629 \u0644\u062a\u062d\u062f\u064a\u062b \u0641\u0627\u0635\u0644 15 \u062f\u0642\u064a\u0642\u0629\u060c \u062a\u0628\u062f\u0623 \u0628\u0639\u062f \u0627\u0644\u062f\u0641\u0639\u0629 \u0627\u0644\u0623\u0648\u0644\u0649 \u0628\u062f\u0642\u064a\u0642\u062a\u064a\u0646.",
+  "name": "سوق الخيارات — التحديث الساعي — الدفعة 2",
+  "description": "تكمل الدفعة الثانية التحديث الساعي بعد الدفعة الأولى بدقيقتين، وتحفظ شموع 15 دقيقة المكتملة فقط.",
   "trigger": {
     "condition": null,
     "config": {
       "trigger_type": "scheduled",
       "events": [],
       "schedule_mode": "recurring",
-      "cron_expression": "7,22,37,52 10-16 * * 1-5",
+      "cron_expression": "22 10-16 * * 1-5",
       "one_time_date": null,
       "timezone": "America/New_York",
       "interval_value": null,

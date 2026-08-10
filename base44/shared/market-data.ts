@@ -415,7 +415,7 @@ export function slotDecision({ now = new Date(), slotKind = "quarter_hour", sour
     ? minuteOfDay >= 15 * 60 + 24
     : slotKind === "session_final"
       ? minuteOfDay >= 15 * 60 + 34
-      : minuteOfDay >= 10 * 60 + 14 && minuteOfDay <= 15 * 60 + 16;
+      : minuteOfDay >= 10 * 60 + 14 && minuteOfDay <= 15 * 60 + 20;
   return allowed
     ? { run: true, clock, phase: marketPhase(clock, slotKind) }
     : { run: false, reason: "outside_scheduled_slot", clock, phase: marketPhase(clock, slotKind) };
