@@ -5,8 +5,8 @@ import { aggregateTechnicalBars, calculateTechnicalSignals, normalizeTechnicalBa
 import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE, US_OPTIONS_SYMBOLS } from "../../shared/us-options-catalog.ts";
 
 const MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
-const PROJECTION_BATCH_SIZE = 2;
-const PROJECTION_CONCURRENCY = 2;
+const PROJECTION_BATCH_SIZE = 8;
+const PROJECTION_BATCH_COUNT = Math.ceil(US_OPTIONS_CATALOG.companies.length / PROJECTION_BATCH_SIZE);
 
 function rows(value) {
   if (Array.isArray(value)) return value;
@@ -34,10 +34,18 @@ function dedupeDailyBars(input) {
   return [...bySession.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time));
 }
 
-function batches(input, size) {
-  const output = [];
-  for (let index = 0; index < input.length; index += size) output.push(input.slice(index, index + size));
-  return output;
+function projectionSlotKey(sessionDate) {
+  return `${US_OPTIONS_MARKET_CODE}:technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
+}
+
+function projectionBatchSlotKey(sessionDate, batchIndex) {
+  return `${projectionSlotKey(sessionDate)}:batch-${batchIndex + 1}-of-${PROJECTION_BATCH_COUNT}`;
+}
+
+function parseRunNotes(value) {
+  if (!value) return {};
+  if (typeof value === "object") return value;
+  try { return JSON.parse(value); } catch { return {}; }
 }
 
 function aggregateSession(intraday) {
@@ -92,7 +100,7 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate, source
   const higherChunks = [];
   const snapshots = [];
   const skipped = [];
-  const slotKey = `${US_OPTIONS_MARKET_CODE}:technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
+  const slotKey = projectionSlotKey(sessionDate);
 
   for (const instrument of instruments) {
     const instrumentChunks = usableChunks.filter((chunk) => chunk.instrument_id === instrument.id);
@@ -178,13 +186,28 @@ Deno.serve(async (req) => {
         .sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
       if (allInstruments.length !== US_OPTIONS_CATALOG.companies.length) throw Object.assign(new Error(`U.S. options catalog is incomplete: ${allInstruments.length}/${US_OPTIONS_CATALOG.companies.length}`), { status: 503, code: "US_OPTIONS_CATALOG_INCOMPLETE" });
       const batchCount = Math.ceil(allInstruments.length / PROJECTION_BATCH_SIZE);
+      if (batchCount !== PROJECTION_BATCH_COUNT) throw Object.assign(new Error(`U.S. options projection capacity changed: ${allInstruments.length}`), { status: 503, code: "PROJECTION_CAPACITY_CHANGED" });
       const batchIndex = Number(body.batch_index);
       if (!Number.isInteger(batchIndex) || batchIndex < 0 || batchIndex >= batchCount) throw Object.assign(new Error("Valid batch_index is required"), { status: 400, code: "INVALID_BATCH_INDEX" });
       const selected = allInstruments.slice(batchIndex * PROJECTION_BATCH_SIZE, (batchIndex + 1) * PROJECTION_BATCH_SIZE);
+      const batchSlotKey = projectionBatchSlotKey(sessionDate, batchIndex);
+      const existingBatchRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: batchSlotKey }));
+      const completedBatch = existingBatchRuns
+        .filter((item) => ["success", "partial"].includes(item.status))
+        .sort((left, right) => Date.parse(right.finished_at || right.updated_date || 0) - Date.parse(left.finished_at || left.updated_date || 0))[0];
+      if (completedBatch && body.force !== true) return Response.json({ status: "skipped", reason: "batch_already_projected", session_date: sessionDate, batch_index: batchIndex, batch_count: batchCount, run_id: completedBatch.id });
+      const activeBatch = existingBatchRuns.find((item) => item.status === "running" && Date.parse(item.lease_expires_at || 0) > Date.now());
+      if (activeBatch && body.force !== true) return Response.json({ status: "running", reason: "batch_projection_in_progress", session_date: sessionDate, batch_index: batchIndex, batch_count: batchCount, run_id: activeBatch.id });
+      for (const staleBatch of existingBatchRuns.filter((item) => item.status === "running")) {
+        await base44.asServiceRole.entities.IngestionRun.update(staleBatch.id, {
+          status: "failed", finished_at: new Date().toISOString(), failure_code: "SUPERSEDED_STALE_BATCH",
+          notes: "A stale U.S. options projection batch was superseded by a bounded retry",
+        });
+      }
       const source = await ensureProjectionSource(base44);
       run = await base44.asServiceRole.entities.IngestionRun.create({
         run_type: "technical_projection_batch", market_code: US_OPTIONS_MARKET_CODE,
-        slot_key: `${US_OPTIONS_MARKET_CODE}:technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}:batch-${batchIndex + 1}-of-${batchCount}:${Date.now()}`,
+        slot_key: batchSlotKey,
         slot_kind: "technical_projection", scheduled_for: new Date().toISOString(),
         lease_expires_at: new Date(Date.now() + 3 * 60e3).toISOString(), started_at: new Date().toISOString(),
         total_records: selected.length, success_count: 0, failed_count: 0, status: "running", source_id: source.id,
@@ -212,7 +235,82 @@ Deno.serve(async (req) => {
       return Response.json({ ...result, status, market_code: US_OPTIONS_MARKET_CODE, session_date: sessionDate, run_id: run.id, batch_index: batchIndex, batch_count: batchCount });
     }
 
-    const slotKey = `${US_OPTIONS_MARKET_CODE}:technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
+    const slotKey = projectionSlotKey(sessionDate);
+
+    if (body.mode === "projection_finalize") {
+      const existingRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ market_code: US_OPTIONS_MARKET_CODE }, "-created_date", 500));
+      const completedRun = existingRuns
+        .filter((item) => item.slot_key === slotKey && ["success", "partial"].includes(item.status))
+        .sort((left, right) => Date.parse(right.finished_at || right.updated_date || 0) - Date.parse(left.finished_at || left.updated_date || 0))[0];
+      if (completedRun && body.force !== true) return Response.json({ status: "skipped", reason: "already_projected", session_date: sessionDate, run_id: completedRun.id });
+      const batchRuns = [];
+      for (let batchIndex = 0; batchIndex < PROJECTION_BATCH_COUNT; batchIndex += 1) {
+        const batchSlotKey = projectionBatchSlotKey(sessionDate, batchIndex);
+        const latest = existingRuns
+          .filter((item) => item.slot_key === batchSlotKey && ["success", "partial", "failed"].includes(item.status))
+          .sort((left, right) => Date.parse(right.finished_at || right.updated_date || 0) - Date.parse(left.finished_at || left.updated_date || 0))[0];
+        if (!latest || latest.status === "failed") throw Object.assign(new Error(`U.S. options projection batch ${batchIndex + 1}/${PROJECTION_BATCH_COUNT} is incomplete`), { status: 503, code: "PROJECTION_BATCHES_INCOMPLETE" });
+        batchRuns.push(latest);
+      }
+      for (const staleRun of existingRuns.filter((item) => item.slot_key === slotKey && item.status === "running")) {
+        await base44.asServiceRole.entities.IngestionRun.update(staleRun.id, {
+          status: "failed", finished_at: new Date().toISOString(), failure_code: "SUPERSEDED_BY_BATCHED_RUN",
+          notes: "Interrupted monolithic projection was replaced by bounded workflow batches",
+        });
+      }
+      const totalRecords = batchRuns.reduce((total, item) => total + Number(item.total_records || 0), 0);
+      const successCount = batchRuns.reduce((total, item) => total + Number(item.success_count || 0), 0);
+      const failedCount = Math.max(0, totalRecords - successCount);
+      const candleResult = batchRuns.reduce((total, item) => {
+        const notes = parseRunNotes(item.notes);
+        total.created += Number(notes.candles?.created || 0);
+        total.updated += Number(notes.candles?.updated || 0);
+        return total;
+      }, { created: 0, updated: 0 });
+      const signalResult = batchRuns.reduce((total, item) => {
+        const notes = parseRunNotes(item.notes);
+        total.created += Number(notes.signals?.created || 0);
+        total.updated += Number(notes.signals?.updated || 0);
+        return total;
+      }, { created: 0, updated: 0 });
+      const status = failedCount === 0 ? "success" : failedCount < totalRecords ? "partial" : "failed";
+      const source = await ensureProjectionSource(base44);
+      run = await base44.asServiceRole.entities.IngestionRun.create({
+        run_type: "technical_projection", market_code: US_OPTIONS_MARKET_CODE, slot_key: slotKey, slot_kind: "technical_projection",
+        scheduled_for: new Date().toISOString(), lease_expires_at: new Date(Date.now() + 60e3).toISOString(),
+        started_at: new Date().toISOString(), finished_at: new Date().toISOString(), total_records: totalRecords,
+        success_count: successCount, failed_count: failedCount, status, source_id: source.id,
+        coverage_percent: totalRecords ? successCount / totalRecords * 100 : 0, snapshot_version: slotKey,
+        notes: JSON.stringify({ candles: candleResult, signals: signalResult, batch_count: PROJECTION_BATCH_COUNT, batch_run_ids: batchRuns.map((item) => item.id) }),
+      });
+      return Response.json({ status, market_code: US_OPTIONS_MARKET_CODE, session_date: sessionDate, instruments: totalRecords, success_count: successCount, failed_count: failedCount, candles: candleResult, signals: signalResult, run_id: run.id });
+    }
+
+    if (!body.mode) {
+      const existingRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ market_code: US_OPTIONS_MARKET_CODE }, "-created_date", 500));
+      let nextBatchIndex = -1;
+      for (let batchIndex = 0; batchIndex < PROJECTION_BATCH_COUNT; batchIndex += 1) {
+        const latest = existingRuns
+          .filter((item) => item.slot_key === projectionBatchSlotKey(sessionDate, batchIndex))
+          .sort((left, right) => Date.parse(right.finished_at || right.updated_date || right.started_at || 0) - Date.parse(left.finished_at || left.updated_date || left.started_at || 0))[0];
+        if (latest?.status === "running" && Date.parse(latest.lease_expires_at || 0) > Date.now()) return Response.json({ status: "running", stage: "projection_batch", session_date: sessionDate, batch_index: batchIndex, batch_count: PROJECTION_BATCH_COUNT, run_id: latest.id });
+        if (!["success", "partial"].includes(latest?.status)) { nextBatchIndex = batchIndex; break; }
+      }
+      if (nextBatchIndex >= 0) {
+        const response = await base44.functions.invoke("usOptionsSignalProjectionWorker", {
+          session_id: body.session_id, source: body.source || "daily_session_projection", reason: body.reason,
+          force: false, mode: "projection_batch", batch_index: nextBatchIndex, batch_count: PROJECTION_BATCH_COUNT, session_date: sessionDate,
+        });
+        const batch = response?.data || response;
+        return Response.json({ status: batch?.status || "success", stage: "projection_batch", market_code: US_OPTIONS_MARKET_CODE, session_date: sessionDate, batch_index: nextBatchIndex, batch_count: PROJECTION_BATCH_COUNT, completed_batches: nextBatchIndex + 1, remaining_batches: Math.max(0, PROJECTION_BATCH_COUNT - nextBatchIndex - 1), batch });
+      }
+      const response = await base44.functions.invoke("usOptionsSignalProjectionWorker", {
+        session_id: body.session_id, source: body.source || "daily_session_projection", reason: body.reason,
+        force: false, mode: "projection_finalize", batch_count: PROJECTION_BATCH_COUNT, session_date: sessionDate,
+      });
+      return Response.json({ status: response?.data?.status || response?.status || "success", stage: "projection_finalize", market_code: US_OPTIONS_MARKET_CODE, session_date: sessionDate, final: response?.data || response });
+    }
+
     const oldRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
     const completedRun = oldRuns.find((item) => ["success", "partial"].includes(item.status));
     if (completedRun && body.force !== true) return Response.json({ status: "skipped", reason: "already_projected", session_date: sessionDate, run_id: completedRun.id });
@@ -225,54 +323,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const source = await ensureProjectionSource(base44);
-    const instruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_OPTIONS_MARKET_CODE }, "symbol", 500))
-      .filter((item) => US_OPTIONS_SYMBOLS.has(item.symbol) && item.status !== "delisted")
-      .sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
-    if (instruments.length !== US_OPTIONS_CATALOG.companies.length) throw Object.assign(new Error(`U.S. options catalog is incomplete: ${instruments.length}/${US_OPTIONS_CATALOG.companies.length}`), { status: 503, code: "US_OPTIONS_CATALOG_INCOMPLETE" });
-    run = await base44.asServiceRole.entities.IngestionRun.create({
-      run_type: "technical_projection", market_code: US_OPTIONS_MARKET_CODE, slot_key: slotKey, slot_kind: "technical_projection",
-      scheduled_for: new Date().toISOString(), lease_expires_at: new Date(Date.now() + 5 * 60e3).toISOString(),
-      started_at: new Date().toISOString(), total_records: instruments.length, success_count: 0, failed_count: 0,
-      status: "running", source_id: source.id, notes: "Batched U.S. optionable daily, weekly, monthly and technical signal projection",
-    });
-
-    const instrumentBatches = batches(instruments.map((item) => item.id), PROJECTION_BATCH_SIZE);
-    const batchResults = [];
-    const failedBatches = [];
-    for (let offset = 0; offset < instrumentBatches.length; offset += PROJECTION_CONCURRENCY) {
-      const group = instrumentBatches.slice(offset, offset + PROJECTION_CONCURRENCY);
-      const settled = await Promise.allSettled(group.map((instrumentIds) =>
-        projectInstrumentBatch(base44, instrumentIds, sessionDate, source.id, run.id)
-      ));
-      settled.forEach((result, groupIndex) => {
-        const batchIndex = offset + groupIndex;
-        if (result.status === "fulfilled") batchResults.push(result.value || {});
-        else failedBatches.push({
-          batch_index: batchIndex,
-          instrument_ids: instrumentBatches[batchIndex],
-          error: result.reason?.response?.data?.error || result.reason?.message || "projection_batch_failed",
-        });
-      });
-    }
-
-    const skipped = batchResults.flatMap((item) => Array.isArray(item.skipped) ? item.skipped : []);
-    const skippedIds = new Set(skipped.map((item) => item.instrument_id));
-    const failedInstrumentCount = failedBatches.reduce((total, item) => total + item.instrument_ids.length, 0);
-    const failureCount = Math.min(instruments.length, skippedIds.size + failedInstrumentCount);
-    const status = failureCount === 0 ? "success" : failureCount < instruments.length ? "partial" : "failed";
-    const candleResult = batchResults.reduce((total, item) => ({
-      created: total.created + Number(item.candles?.created || 0), updated: total.updated + Number(item.candles?.updated || 0),
-    }), { created: 0, updated: 0 });
-    const signalResult = batchResults.reduce((total, item) => ({
-      created: total.created + Number(item.signals?.created || 0), updated: total.updated + Number(item.signals?.updated || 0),
-    }), { created: 0, updated: 0 });
-    await base44.asServiceRole.entities.IngestionRun.update(run.id, {
-      status, finished_at: new Date().toISOString(), success_count: instruments.length - failureCount,
-      failed_count: failureCount, coverage_percent: (instruments.length - failureCount) / instruments.length * 100,
-      snapshot_version: slotKey, notes: JSON.stringify({ candles: candleResult, signals: signalResult, batch_count: instrumentBatches.length, failed_batches: failedBatches, skipped_count: skippedIds.size }),
-    });
-    return Response.json({ status, market_code: US_OPTIONS_MARKET_CODE, session_date: sessionDate, run_id: run.id, candles: candleResult, signals: signalResult, skipped, failed_batches: failedBatches });
+    throw Object.assign(new Error("A bounded projection mode is required"), { status: 400, code: "BOUNDED_PROJECTION_REQUIRED" });
   } catch (error) {
     if (base44 && run?.id) {
       try { await base44.asServiceRole.entities.IngestionRun.update(run.id, { status: "failed", finished_at: new Date().toISOString(), failure_code: error?.code || "US_OPTIONS_SIGNAL_FAILED", notes: error?.message || "failed" }); } catch {}
