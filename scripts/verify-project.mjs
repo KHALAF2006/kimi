@@ -538,6 +538,7 @@ assert.match(chartTimeframes, /max:\s*\{\s*ar:\s*"تاريخي"/, "the shared ch
 assert.match(historicalCompanyChart, /rangeOptions\.filter\(\(item\) => item\.intervals\.includes\(interval\)\)/, "the chart must show only ranges compatible with the selected interval");
 assert.doesNotMatch(historicalCompanyChart, /if \(!option\.intervals\.includes\(interval\)\) setInterval\("1d"\)/, "range selection must not silently replace the user's chosen interval");
 assert.match(historicalCompanyChart, /history_complete/, "the chart must disclose an incomplete historical archive");
+assert.doesNotMatch(historicalCompanyChart, /التغطية الفعلية|Actual coverage/, "operational candle coverage metadata must not be exposed in the customer chart UI");
 assert.match(historicalCompanyChart, /className="chart-type-popover chart-control-popover"/, "the candle-type chooser must use the shared collision-aware chart control layer");
 assert.match(historicalCompanyChart, /chart-shell-fullscreen/, "fullscreen mode must target the chart shell instead of the entire company page");
 assert.match(historicalCompanyChart, /createTextWatermark/, "the chart must render the instrument identity with the chart engine watermark primitive");
@@ -546,6 +547,10 @@ assert.match(historicalCompanyChart, /beginReplaySelection/, "bar replay must ex
 
 const companyIntelligence = await readFile(new URL("../base44/functions/companyIntelligence/entry.ts", import.meta.url), "utf8");
 assert.match(companyIntelligence, /SAUDI_EXCHANGE_COMPANY_FEED_URL/, "company intelligence must require a configured official feed");
+assert.match(companyIntelligence, /status:\s*"skipped"/, "an unconfigured company feed must produce an explicit skipped run instead of failing the workflow");
+assert.match(companyIntelligence, /preserved_existing_data:\s*true/, "an unconfigured company feed must preserve the last stored company data");
+assert.match(companyIntelligence, /failure_code:\s*"OFFICIAL_COMPANY_FEED_NOT_CONFIGURED"/, "the skipped company refresh must retain a protected operational reason");
+assert.doesNotMatch(companyIntelligence, /last_verified_at:\s*new Date\(\)\.toISOString\(\)/, "an unavailable company feed must not be marked as verified");
 assert.match(companyIntelligence, /OFFICIAL_HOST/, "company intelligence must restrict provenance to the official host");
 assert.match(companyIntelligence, /companies_received/, "company intelligence must use one batch payload");
 assert.match(companyIntelligence, /CompanyAnnouncement/, "company intelligence must persist announcements");

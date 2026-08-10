@@ -46,24 +46,61 @@ async function authorize(base44, mode) {
   return { actor: user.id, mode };
 }
 
-async function sourceRecord(base44) {
+async function sourceRecord(base44, verifiedAt) {
   const existing = await base44.asServiceRole.entities.DataSource.filter({ code: "SAUDI_EXCHANGE_COMPANY_INTELLIGENCE" });
   const value = {
     name: "Saudi Exchange company intelligence",
     source_type: "official",
     license_status: "restricted",
     base_url: "https://www.saudiexchange.sa/",
-    last_verified_at: new Date().toISOString(),
+    ...(verifiedAt ? { last_verified_at: verifiedAt } : {}),
   };
   return existing[0]
     ? await base44.asServiceRole.entities.DataSource.update(existing[0].id, value)
     : await base44.asServiceRole.entities.DataSource.create({ code: "SAUDI_EXCHANGE_COMPANY_INTELLIGENCE", ...value });
 }
 
-async function fetchBatch(symbols, mode) {
+function feedConfiguration() {
   const feedUrl = Deno.env.get("SAUDI_EXCHANGE_COMPANY_FEED_URL");
   const token = Deno.env.get("SAUDI_EXCHANGE_COMPANY_FEED_TOKEN");
-  if (!feedUrl || !token) fail("Saudi Exchange company feed is not configured", 503, "OFFICIAL_COMPANY_FEED_NOT_CONFIGURED");
+  return feedUrl && token ? { feedUrl, token } : null;
+}
+
+async function recordSkippedRun(base44, { source, mode, actor, startedAt }) {
+  const finishedAt = new Date().toISOString();
+  const run = await base44.asServiceRole.entities.IngestionRun.create({
+    run_type: `scheduled_company_intelligence_${mode}`,
+    market_code: "SA_MAIN",
+    slot_kind: "company_intelligence",
+    started_at: startedAt,
+    finished_at: finishedAt,
+    total_records: 0,
+    success_count: 0,
+    failed_count: 0,
+    status: "skipped",
+    failure_code: "OFFICIAL_COMPANY_FEED_NOT_CONFIGURED",
+    source_id: source.id,
+    notes: JSON.stringify({
+      mode,
+      actor,
+      reason: "official_company_feed_not_configured",
+      preserved_existing_data: true,
+    }),
+  });
+  console.warn("Company intelligence refresh skipped: official feed is not configured", { mode, run_id: run.id });
+  return Response.json({
+    status: "skipped",
+    code: "OFFICIAL_COMPANY_FEED_NOT_CONFIGURED",
+    mode,
+    run_id: run.id,
+    records: 0,
+    preserved_existing_data: true,
+    checked_at: finishedAt,
+  });
+}
+
+async function fetchBatch(configuration, symbols, mode) {
+  const { feedUrl, token } = configuration;
   const response = await fetch(feedUrl, {
     method: "POST",
     headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "Accept": "application/json" },
@@ -106,9 +143,14 @@ Deno.serve(async (req) => {
     const instruments = rows(await base44.asServiceRole.entities.Instrument.list("symbol", 500));
     if (instruments.length < 270) fail(`Main-market catalog is incomplete: ${instruments.length}/270`, 503, "CATALOG_INCOMPLETE");
     const bySymbol = new Map(instruments.map((item) => [item.symbol, item]));
-    const source = await sourceRecord(base44);
-    const companies = await fetchBatch(instruments.map((item) => item.symbol), mode);
+    let source = await sourceRecord(base44);
+    const configuration = feedConfiguration();
+    if (!configuration) {
+      return await recordSkippedRun(base44, { source, mode, actor: authorization.actor, startedAt });
+    }
+    const companies = await fetchBatch(configuration, instruments.map((item) => item.symbol), mode);
     const now = new Date().toISOString();
+    source = await sourceRecord(base44, now);
     const announcements = [];
     const shareholders = [];
     const financials = [];

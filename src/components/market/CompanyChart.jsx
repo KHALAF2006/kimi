@@ -1258,10 +1258,6 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     </div>}
     {!loading && !error && !candles.length && <div className="chart-message">{isArabic ? "لا توجد بيانات لهذا النطاق حالياً." : "No data is available for this range right now."}</div>}
     {!loading && !error && range === "max" && historyMeta?.history_complete === false && <div className="chart-history-status" role="status">{isArabic ? "السجل التاريخي لهذا السهم غير مكتمل بعد؛ المعروض هو الجزء المحفوظ فقط." : "This instrument's historical archive is not complete yet; only stored candles are shown."}</div>}
-    {!loading && !error && historyMeta?.available_from && historyMeta?.available_to && <div className="chart-history-status" role="status">
-      {isArabic ? "التغطية الفعلية" : "Actual coverage"}: <b dir="ltr">{formatChartDate(historyMeta.available_from, "en-GB", intradayIntervals.has(interval))}</b> – <b dir="ltr">{formatChartDate(historyMeta.available_to, "en-GB", intradayIntervals.has(interval))}</b> · <b dir="ltr">{Number(historyMeta.returned_bar_count || candles.length)}</b> {isArabic ? "شمعة" : "bars"}
-    </div>}
-
     <div ref={canvasWrapRef} className="chart-canvas-wrap">
       <div ref={containerRef} className="absolute inset-0" />
       {Number.isFinite(Number(replayLineX)) && <div className="chart-replay-start-line" style={{ left: Number(replayLineX), height: mainPaneHeight }} aria-hidden="true"><span>{isArabic ? "البداية" : "Start"}</span></div>}
