@@ -286,6 +286,22 @@ assert.equal(ingestionBatch2Workflow.trigger.config.cron_expression, "7,22,37,52
 assert.equal(Object.values(ingestionWorkflow.definition.do[0])[0].with.args.batch_index, 0);
 assert.equal(Object.values(ingestionBatch2Workflow.definition.do[0])[0].with.args.batch_index, 1);
 assert.equal(signalWorkflow.trigger.config.cron_expression, "0 18 * * 1-5");
+const usSignalSteps = signalWorkflow.definition.do.map((entry) => {
+  const [key, step] = Object.entries(entry)[0];
+  return { key, step };
+});
+const usSignalCalls = usSignalSteps.filter(({ step }) => step.call === "invoke_backend_function");
+const usSignalWaits = usSignalSteps.filter(({ step }) => step.wait === "PT5M");
+assert.equal(usSignalCalls.length, 15, "the U.S. options workflow must resume 14 bounded batches and then finalize");
+assert.equal(usSignalWaits.length, 14, "the U.S. options workflow must separate every projection call by five minutes");
+assert.equal(usSignalSteps.length, 29, "the U.S. options workflow must remain a strictly sequential action/wait chain");
+for (const { step } of usSignalCalls) {
+  assert.equal(step.with.function_name, "usOptionsSignalRefresh");
+  assert.deepEqual(step.with.args, { market_code: "US_OPTIONS", source: "daily_session_projection" });
+}
+for (let index = 0; index < usSignalSteps.length; index += 1) {
+  assert.equal(usSignalSteps[index].step.then, usSignalSteps[index + 1]?.key || "end", "U.S. projection steps must never branch or run concurrently");
+}
 assert.equal(historyWorkflow.trigger.config.ends_type, "never");
 assert.equal(historyWorkflow.trigger.config.ends_after_count, null);
 assert.equal(Object.values(companyWorkflow.definition.do[0])[0].with.args.batch_size, 10);

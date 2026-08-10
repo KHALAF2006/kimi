@@ -120,8 +120,22 @@ assert.equal(Object.values(marketWorkflows[4].definition.do[0])[0].with.args.slo
 const marketTechnicalSignalsDaily = JSON.parse(await readFile(new URL("../base44/workflows/MarketTechnicalSignalsDaily.jsonc", import.meta.url), "utf8"));
 assert.equal(marketTechnicalSignalsDaily.trigger.config.cron_expression, "45 15 * * 0-4");
 assert.equal(marketTechnicalSignalsDaily.trigger.config.timezone, "Asia/Riyadh");
-assert.equal(Object.values(marketTechnicalSignalsDaily.definition.do[0])[0].with.function_name, "marketSignalRefresh");
-assert.equal(marketTechnicalSignalsDaily.definition.do.length, 1, "the visual workflow must call the bounded orchestrator once");
+const saudiSignalSteps = marketTechnicalSignalsDaily.definition.do.map((entry) => {
+  const [key, step] = Object.entries(entry)[0];
+  return { key, step };
+});
+const saudiSignalCalls = saudiSignalSteps.filter(({ step }) => step.call === "invoke_backend_function");
+const saudiSignalWaits = saudiSignalSteps.filter(({ step }) => step.wait === "PT5M");
+assert.equal(saudiSignalCalls.length, 35, "the Saudi workflow must resume 34 bounded batches and then finalize");
+assert.equal(saudiSignalWaits.length, 34, "the Saudi workflow must separate every projection call by five minutes");
+assert.equal(saudiSignalSteps.length, 69, "the Saudi workflow must remain a strictly sequential action/wait chain");
+for (const { step } of saudiSignalCalls) {
+  assert.equal(step.with.function_name, "marketSignalRefresh");
+  assert.deepEqual(step.with.args, { market_code: "SA_MAIN", source: "daily_session_projection" });
+}
+for (let index = 0; index < saudiSignalSteps.length; index += 1) {
+  assert.equal(saudiSignalSteps[index].step.then, saudiSignalSteps[index + 1]?.key || "end", "Saudi projection steps must never branch or run concurrently");
+}
 const marketSignalRefreshSource = await readFile(new URL("../base44/functions/marketSignalRefresh/source.ts", import.meta.url), "utf8");
 assert.match(marketSignalRefreshSource, /session_date:\s*sessionDate/, "signal projection must read only the current 15-minute session for daily finalization");
 assert.match(marketSignalRefreshSource, /interval:\s*["']1d["']/, "signal projection must reuse the stored canonical daily archive");
