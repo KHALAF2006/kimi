@@ -118,14 +118,24 @@ assert.deepEqual(
 assert.equal(Object.values(marketWorkflows[3].definition.do[0])[0].with.args.slot_kind, "close_price");
 assert.equal(Object.values(marketWorkflows[4].definition.do[0])[0].with.args.slot_kind, "session_final");
 const marketTechnicalSignalsDaily = JSON.parse(await readFile(new URL("../base44/workflows/MarketTechnicalSignalsDaily.jsonc", import.meta.url), "utf8"));
-assert.equal(marketTechnicalSignalsDaily.trigger.config.cron_expression, "45 15 * * 0-4");
+assert.equal(marketTechnicalSignalsDaily.trigger.config.cron_expression, "52 15 * * 0-4");
 assert.equal(marketTechnicalSignalsDaily.trigger.config.timezone, "Asia/Riyadh");
 assert.equal(Object.values(marketTechnicalSignalsDaily.definition.do[0])[0].with.function_name, "marketSignalRefresh");
+assert.equal(marketTechnicalSignalsDaily.definition.do.length, 7, "Saudi signal projection must use six bounded batches and one finalizer");
+for (const [batchIndex, step] of marketTechnicalSignalsDaily.definition.do.slice(0, 6).entries()) {
+  const action = Object.values(step)[0];
+  assert.equal(action.with.args.mode, "projection_batch");
+  assert.equal(action.with.args.batch_index, batchIndex);
+  assert.equal(action.with.args.batch_count, 6);
+}
+assert.equal(Object.values(marketTechnicalSignalsDaily.definition.do.at(-1))[0].with.args.mode, "projection_finalize");
 const marketSignalRefreshSource = await readFile(new URL("../base44/functions/marketSignalRefresh/source.ts", import.meta.url), "utf8");
 assert.match(marketSignalRefreshSource, /session_date:\s*sessionDate/, "signal projection must read only the current 15-minute session for daily finalization");
 assert.match(marketSignalRefreshSource, /interval:\s*["']1d["']/, "signal projection must reuse the stored canonical daily archive");
 assert.doesNotMatch(marketSignalRefreshSource, /intradayHistory = barsByInstrument/, "scheduled projection must not rebuild all historical daily candles from intraday data");
 assert.doesNotMatch(marketSignalRefreshSource, /dailyFromStoredIntraday/, "scheduled projection must remain incremental and bounded");
+assert.match(marketSignalRefreshSource, /run_type:\s*["']technical_projection_batch["']/, "each bounded Saudi projection batch must be observable");
+assert.match(marketSignalRefreshSource, /body\.mode === ["']projection_finalize["']/, "the workflow must finalize batch coverage explicitly");
 assert.match(marketSignalRefreshSource, /indicator_key:\s*["']momentum_zones["']/, "the projection job must persist the authoritative investor-zone lifecycle snapshot");
 assert.match(marketSignalRefreshSource, /MOMENTUM_FORMULA_VERSION/, "persisted investor zones must carry their versioned role-reversal formula");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
@@ -519,6 +529,8 @@ assert.match(operationsAdminPage, /refresh_signals/, "the owner must be able to 
 assert.match(operationsAdminPage, /backfill_history/, "the owner must be able to resume the one-time historical archive import");
 const adminMarketDataFunction = await readFile(new URL("../base44/functions/adminMarketData/entry.ts", import.meta.url), "utf8");
 assert.match(adminMarketDataFunction, /marketSignalRefresh/, "manual signal refresh must invoke the protected projection backend");
+assert.match(adminMarketDataFunction, /refreshSaudiSignalProjection/, "manual Saudi signal refresh must use the bounded batch orchestrator");
+assert.match(adminMarketDataFunction, /mode:\s*["']projection_finalize["']/, "manual Saudi signal refresh must verify aggregate batch coverage");
 assert.match(adminMarketDataFunction, /historicalCandleBackfill/, "historical archive imports must run through the protected backend");
 const historicalBackfillFunction = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
 assert.match(historicalBackfillFunction, /YAHOO_PUBLIC_HISTORICAL_DAILY/, "historical import must have a no-secret daily archive source");

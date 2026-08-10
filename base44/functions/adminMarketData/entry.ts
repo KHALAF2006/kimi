@@ -34,6 +34,33 @@ function earliestByDate(rows, field) {
   return [...rows].sort((a, b) => new Date(a[field] || 0).getTime() - new Date(b[field] || 0).getTime())[0] || null;
 }
 
+async function refreshSaudiSignalProjection(base44, { sessionId, reason }) {
+  const batchResults = [];
+  for (let offset = 0; offset < 6; offset += 2) {
+    const group = await Promise.all([offset, offset + 1].map((batchIndex) =>
+      base44.functions.invoke("marketSignalRefresh", {
+        session_id: sessionId,
+        market_code: "SA_MAIN",
+        force: true,
+        reason,
+        mode: "projection_batch",
+        batch_index: batchIndex,
+        batch_count: 6,
+      })
+    ));
+    batchResults.push(...group.map((item) => item?.data || item));
+  }
+  const finalResponse = await base44.functions.invoke("marketSignalRefresh", {
+    session_id: sessionId,
+    market_code: "SA_MAIN",
+    force: true,
+    reason,
+    mode: "projection_finalize",
+    batch_count: 6,
+  });
+  return { batches: batchResults, final: finalResponse?.data || finalResponse };
+}
+
 async function health(base44, requestedMarket) {
   const config = marketConfig(requestedMarket);
   const MARKET_CODE = config.marketCode;
@@ -195,14 +222,16 @@ Deno.serve(async (req) => {
         batch_size: MARKET_CODE === US_OPTIONS_MARKET_CODE ? 15 : MARKET_CODE === US_BENCHMARKS_MARKET_CODE ? 6 : undefined,
       })
       : action === "refresh_signals"
-      ? await base44.functions.invoke(signalFunction, {
+      ? MARKET_CODE === "SA_MAIN"
+        ? await refreshSaudiSignalProjection(base44, { sessionId: body.session_id, reason })
+        : await base44.functions.invoke(signalFunction, {
         session_id: body.session_id,
         market_code: MARKET_CODE,
         force: true,
         reason,
         mode: MARKET_CODE === US_OPTIONS_MARKET_CODE ? "projection_batch" : undefined,
         batch_index: MARKET_CODE === US_OPTIONS_MARKET_CODE ? Number(body.batch_index) : undefined,
-      })
+        })
       : await base44.functions.invoke(ingestionFunction, {
         source: action === "reconcile_close" ? "manual_close_reconciliation" : "manual_retry",
         session_id: body.session_id,
