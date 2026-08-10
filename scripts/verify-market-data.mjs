@@ -421,6 +421,7 @@ assert.equal(mergedIncrementalChunks[0].bars.length, 3, "incremental persistence
 assert.equal(mergedIncrementalChunks[0].bars[1].close, 196, "the refreshed overlap candle must replace its stored version");
 assert.equal(mergedIncrementalChunks[0].bars[2].close, 197);
 assert.equal(mergedIncrementalChunks[0].session_date, "2026-07-29");
+assert.equal(mergedIncrementalChunks[0].market_code, "SA_MAIN", "Saudi intraday chunks must carry their market identity for downstream signal reads");
 assert.equal("session_date" in mergedIncrementalChunks[0].bars[0], false, "internal session keys must not leak into the stored candle schema");
 
 const canonicalQuarterBars = canonicalizeQuarterHourBars([

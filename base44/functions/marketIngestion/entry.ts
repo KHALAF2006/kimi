@@ -521,7 +521,7 @@ async function fetchPublicDelayedCharts({
     requestModes
   };
 }
-function normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate) {
+function normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate, marketCode = SAUDI_MAIN_MARKET) {
   const root = payload?.data && typeof payload.data === "object" ? payload.data : payload;
   const rows = Array.isArray(root?.candles) ? root.candles : [];
   const mappingBySymbol = new Map(mappings.map((mapping) => [String(mapping.provider_symbol), mapping]));
@@ -551,6 +551,7 @@ function normalizeProviderCandles(payload, mappings, instruments, sourceId, sess
       const storedBars = ordered.map(({ session_date: _sessionDate, ...bar }) => bar);
       chunks.push({
         instrument_id: instrument.id,
+        market_code: marketCode,
         symbol: instrument.symbol,
         interval: "15m",
         session_date: barSessionDate,
@@ -6057,16 +6058,22 @@ async function markMissingQuotesStale(base44, instrumentIds, acceptedQuotes) {
   }));
   await bulkUpdateUnique(base44.asServiceRole.entities.QuoteLatest, updates);
 }
-async function loadCurrentCandleState(base44, sessionDate, instrumentCount) {
+async function loadCurrentCandleState(base44, sessionDate, instrumentIds, marketCode) {
+  const expectedInstrumentIds = new Set(instrumentIds);
+  const belongsToRequestedMarket = (chunk) => expectedInstrumentIds.has(chunk.instrument_id)
+    && (!chunk.market_code || chunk.market_code === marketCode);
   const [quotes, exactChunks] = await Promise.all([
     base44.asServiceRole.entities.QuoteLatest.list("-updated_date", 500),
     base44.asServiceRole.entities.CandleChunk.filter({ interval: "15m", session_date: sessionDate })
   ]);
-  const chunksByKey = new Map((Array.isArray(exactChunks) ? exactChunks : []).map((chunk) => [chunk.chunk_key, chunk]));
-  if (chunksByKey.size < Math.floor(instrumentCount * 0.95)) {
+  const chunksByKey = new Map((Array.isArray(exactChunks) ? exactChunks : [])
+    .filter(belongsToRequestedMarket)
+    .map((chunk) => [chunk.chunk_key, chunk]));
+  if (chunksByKey.size < Math.floor(instrumentIds.length * 0.95)) {
     const recent = await base44.asServiceRole.entities.CandleChunk.list("-end_time", 1e3);
     for (const chunk of Array.isArray(recent) ? recent : []) {
       if (chunk.interval !== "15m") continue;
+      if (!belongsToRequestedMarket(chunk)) continue;
       if (chunk.session_date !== sessionDate && !String(chunk.chunk_key || "").endsWith(`-${sessionDate}`)) continue;
       if (!chunksByKey.has(chunk.chunk_key)) chunksByKey.set(chunk.chunk_key, chunk);
     }
@@ -6096,7 +6103,7 @@ async function persistIncrementalCandleChunks(base44, rows, existingChunks) {
 }
 async function providerCandleChunks(payload, mappings, instruments, sourceId, sessionDate, provenance, existingChunks = []) {
   const chunks = mergeIncrementalCandleChunks(
-    normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate),
+    normalizeProviderCandles(payload, mappings, instruments, sourceId, sessionDate, provenance.marketCode),
     existingChunks
   );
   return await Promise.all(chunks.map(async (chunk) => ({
@@ -6105,7 +6112,13 @@ async function providerCandleChunks(payload, mappings, instruments, sourceId, se
     run_id: provenance.runId,
     snapshot_version: provenance.snapshotVersion,
     provider_as_of: provenance.providerAsOf,
-    received_time: provenance.receivedTime
+    received_time: provenance.receivedTime,
+    canonical_version: "sa-main-intraday-v2",
+    is_final: provenance.isFinal === true,
+    bucket_count: chunk.bar_count,
+    completeness_status: provenance.isFinal === true && chunk.bar_count >= 21
+      ? "complete"
+      : chunk.bar_count >= 4 ? "degraded" : "incomplete"
   })));
 }
 function ingestionFailure(message, code = "MARKET_INGESTION_FAILED", status = 503) {
@@ -6261,7 +6274,12 @@ Deno.serve(async (req) => {
       throw ingestionFailure("Provider instrument mapping is incomplete", "PROVIDER_MAPPING_INCOMPLETE");
     }
     stage = "candle_cursor_load";
-    const candleState = await loadCurrentCandleState(base44, schedule.clock.date, instruments.length);
+    const candleState = await loadCurrentCandleState(
+      base44,
+      schedule.clock.date,
+      instruments.map((instrument) => instrument.id),
+      marketCode
+    );
     const candleContexts = buildPublicCandleContexts({
       instruments,
       quotes: candleState.quotes,
@@ -6343,7 +6361,9 @@ Deno.serve(async (req) => {
       runId: run.id,
       snapshotVersion,
       providerAsOf: normalized.providerAsOf,
-      receivedTime: receivedAt
+      receivedTime: receivedAt,
+      marketCode,
+      isFinal: normalized.isFinal
     }, candleState.chunks);
     const candlePersistence = await persistIncrementalCandleChunks(base44, candleChunks, candleState.chunks);
     stage = "drawing_alert_evaluation";

@@ -221,15 +221,19 @@ assert.match(adminMarketData, /runsPerDay: 59, monthlyRuns: 1314/);
 
 const signals = await source("base44/functions/usOptionsSignalRefresh/source.ts");
 assert.match(signals, /dedupeDailyBars/);
-assert.match(signals, /const PROJECTION_BATCH_SIZE = 2/);
+assert.match(signals, /const PROJECTION_BATCH_SIZE = 8/);
+assert.match(signals, /PROJECTION_BATCH_COUNT = Math\.ceil/);
 assert.match(signals, /body\.mode === "projection_batch"/);
+assert.match(signals, /body\.mode === "projection_finalize"/);
 assert.match(signals, /run_type: "technical_projection_batch"/);
 assert.match(signals, /market_data\.refresh_signals_batch/);
 assert.match(signals, /instrument_id: idQuery, market_code: US_OPTIONS_MARKET_CODE, interval: "1d"/);
 assert.match(signals, /higherTimeframeRows/, "signal projection must load existing weekly and monthly rows before upserting them");
 assert.match(signals, /interval: \{ \$in: \["1wk", "1mo"\] \}/, "weekly and monthly projections must be idempotent instead of creating duplicate canonical chunks");
-assert.match(signals, /Promise\.allSettled\(group\.map/);
-assert.match(signals, /projectInstrumentBatch\(base44, instrumentIds, sessionDate, source\.id, run\.id\)/);
+assert.match(signals, /functions\.invoke\("usOptionsSignalProjectionWorker"/);
+assert.match(signals, /remaining_batches:/);
+assert.doesNotMatch(signals, /Promise\.allSettled\(group\.map/);
+assert.match(signals, /projectInstrumentBatch\(base44, selected\.map/);
 assert.doesNotMatch(signals, /fetch\(/, "signal projection must read the stored candle archive instead of downloading history again");
 assert.match(signals, /aggregateTechnicalBars\(daily, "1wk", MARKET_OPTIONS\)/);
 assert.match(signals, /aggregateTechnicalBars\(daily, "1mo", MARKET_OPTIONS\)/);
@@ -269,7 +273,9 @@ const ingestionConfig = JSON.parse(await source("base44/functions/usOptionsMarke
 const signalConfig = JSON.parse(await source("base44/functions/usOptionsSignalRefresh/function.jsonc"));
 const historyConfig = JSON.parse(await source("base44/functions/usOptionsHistoricalBackfill/function.jsonc"));
 const companyConfig = JSON.parse(await source("base44/functions/usOptionsCompanyIntelligence/function.jsonc"));
-assert.ok([ingestionConfig, signalConfig, historyConfig, companyConfig].every((config) => config.automations === undefined), "the editor app uses Workflows and rejects function-level legacy automations");
+const signalWorkerConfig = JSON.parse(await source("base44/functions/usOptionsSignalProjectionWorker/function.jsonc"));
+assert.equal(signalWorkerConfig.name, "usOptionsSignalProjectionWorker");
+assert.ok([ingestionConfig, signalConfig, historyConfig, companyConfig, signalWorkerConfig].every((config) => config.automations === undefined), "the editor app uses Workflows and rejects function-level legacy automations");
 const ingestionWorkflow = JSON.parse(await source("base44/workflows/UsOptionsQuarterCycles.jsonc"));
 const ingestionBatch2Workflow = JSON.parse(await source("base44/workflows/UsOptionsQuarterCyclesBatch2.jsonc"));
 const signalWorkflow = JSON.parse(await source("base44/workflows/UsOptionsSignalsDaily.jsonc"));
@@ -280,6 +286,22 @@ assert.equal(ingestionBatch2Workflow.trigger.config.cron_expression, "7,22,37,52
 assert.equal(Object.values(ingestionWorkflow.definition.do[0])[0].with.args.batch_index, 0);
 assert.equal(Object.values(ingestionBatch2Workflow.definition.do[0])[0].with.args.batch_index, 1);
 assert.equal(signalWorkflow.trigger.config.cron_expression, "0 18 * * 1-5");
+const usSignalSteps = signalWorkflow.definition.do.map((entry) => {
+  const [key, step] = Object.entries(entry)[0];
+  return { key, step };
+});
+const usSignalCalls = usSignalSteps.filter(({ step }) => step.call === "invoke_backend_function");
+const usSignalWaits = usSignalSteps.filter(({ step }) => step.wait === "PT5M");
+assert.equal(usSignalCalls.length, 15, "the U.S. options workflow must resume 14 bounded batches and then finalize");
+assert.equal(usSignalWaits.length, 14, "the U.S. options workflow must separate every projection call by five minutes");
+assert.equal(usSignalSteps.length, 29, "the U.S. options workflow must remain a strictly sequential action/wait chain");
+for (const { step } of usSignalCalls) {
+  assert.equal(step.with.function_name, "usOptionsSignalRefresh");
+  assert.deepEqual(step.with.args, { market_code: "US_OPTIONS", source: "daily_session_projection" });
+}
+for (let index = 0; index < usSignalSteps.length; index += 1) {
+  assert.equal(usSignalSteps[index].step.then, usSignalSteps[index + 1]?.key || "end", "U.S. projection steps must never branch or run concurrently");
+}
 assert.equal(historyWorkflow.trigger.config.ends_type, "never");
 assert.equal(historyWorkflow.trigger.config.ends_after_count, null);
 assert.equal(Object.values(companyWorkflow.definition.do[0])[0].with.args.batch_size, 10);

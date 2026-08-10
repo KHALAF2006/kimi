@@ -120,10 +120,35 @@ assert.equal(Object.values(marketWorkflows[4].definition.do[0])[0].with.args.slo
 const marketTechnicalSignalsDaily = JSON.parse(await readFile(new URL("../base44/workflows/MarketTechnicalSignalsDaily.jsonc", import.meta.url), "utf8"));
 assert.equal(marketTechnicalSignalsDaily.trigger.config.cron_expression, "45 15 * * 0-4");
 assert.equal(marketTechnicalSignalsDaily.trigger.config.timezone, "Asia/Riyadh");
-assert.equal(Object.values(marketTechnicalSignalsDaily.definition.do[0])[0].with.function_name, "marketSignalRefresh");
+const saudiSignalSteps = marketTechnicalSignalsDaily.definition.do.map((entry) => {
+  const [key, step] = Object.entries(entry)[0];
+  return { key, step };
+});
+const saudiSignalCalls = saudiSignalSteps.filter(({ step }) => step.call === "invoke_backend_function");
+const saudiSignalWaits = saudiSignalSteps.filter(({ step }) => step.wait === "PT5M");
+assert.equal(saudiSignalCalls.length, 35, "the Saudi workflow must resume 34 bounded batches and then finalize");
+assert.equal(saudiSignalWaits.length, 34, "the Saudi workflow must separate every projection call by five minutes");
+assert.equal(saudiSignalSteps.length, 69, "the Saudi workflow must remain a strictly sequential action/wait chain");
+for (const { step } of saudiSignalCalls) {
+  assert.equal(step.with.function_name, "marketSignalRefresh");
+  assert.deepEqual(step.with.args, { market_code: "SA_MAIN", source: "daily_session_projection" });
+}
+for (let index = 0; index < saudiSignalSteps.length; index += 1) {
+  assert.equal(saudiSignalSteps[index].step.then, saudiSignalSteps[index + 1]?.key || "end", "Saudi projection steps must never branch or run concurrently");
+}
 const marketSignalRefreshSource = await readFile(new URL("../base44/functions/marketSignalRefresh/source.ts", import.meta.url), "utf8");
-assert.match(marketSignalRefreshSource, /intradayHistory = barsByInstrument\(chunks, ["']15m["']\)/, "signal projection must include every stored intraday session, not only the latest date");
-assert.match(marketSignalRefreshSource, /dailyFromStoredIntraday/, "daily, weekly, and monthly signals must be derived from the stored 15-minute source of truth");
+assert.match(marketSignalRefreshSource, /session_date:\s*sessionDate/, "signal projection must read only the current 15-minute session for daily finalization");
+assert.match(marketSignalRefreshSource, /interval:\s*["']1d["']/, "signal projection must reuse the stored canonical daily archive");
+assert.doesNotMatch(marketSignalRefreshSource, /intradayHistory = barsByInstrument/, "scheduled projection must not rebuild all historical daily candles from intraday data");
+assert.doesNotMatch(marketSignalRefreshSource, /dailyFromStoredIntraday/, "scheduled projection must remain incremental and bounded");
+assert.match(marketSignalRefreshSource, /run_type:\s*["']technical_projection_batch["']/, "each bounded Saudi projection batch must be observable");
+assert.match(marketSignalRefreshSource, /body\.mode === ["']projection_finalize["']/, "the workflow must finalize batch coverage explicitly");
+assert.match(marketSignalRefreshSource, /functions\.invoke\(["']marketSignalProjectionWorker["']/, "the visual workflow must fan out through a bounded worker function");
+assert.match(marketSignalRefreshSource, /\["verified", "stale"\]\.includes\(quote\.quality_status\)/, "a final close may age to stale without becoming invalid for daily projection");
+assert.match(marketSignalRefreshSource, /remaining_batches:/, "each scheduled workflow step must report resumable batch progress");
+assert.doesNotMatch(marketSignalRefreshSource, /const batchResults = await Promise\.all/, "Saudi projection batches must never run concurrently");
+assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_SIZE = 8/, "Saudi projection batches must stay below the observed Base44 entity write-traffic ceiling");
+assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_COUNT = 34/, "Saudi projection capacity must cover the entire catalog in bounded batches");
 assert.match(marketSignalRefreshSource, /indicator_key:\s*["']momentum_zones["']/, "the projection job must persist the authoritative investor-zone lifecycle snapshot");
 assert.match(marketSignalRefreshSource, /MOMENTUM_FORMULA_VERSION/, "persisted investor zones must carry their versioned role-reversal formula");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
@@ -160,7 +185,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 28, "all 28 backend functions must be present");
+assert.equal(functionNames.length, 30, "all 30 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -517,6 +542,8 @@ assert.match(operationsAdminPage, /refresh_signals/, "the owner must be able to 
 assert.match(operationsAdminPage, /backfill_history/, "the owner must be able to resume the one-time historical archive import");
 const adminMarketDataFunction = await readFile(new URL("../base44/functions/adminMarketData/entry.ts", import.meta.url), "utf8");
 assert.match(adminMarketDataFunction, /marketSignalRefresh/, "manual signal refresh must invoke the protected projection backend");
+assert.match(adminMarketDataFunction, /refreshSaudiSignalProjection/, "manual Saudi signal refresh must use the bounded batch orchestrator");
+assert.doesNotMatch(adminMarketDataFunction, /batch_count:\s*6/, "manual Saudi signal refresh must not bypass the deployed bounded orchestrator");
 assert.match(adminMarketDataFunction, /historicalCandleBackfill/, "historical archive imports must run through the protected backend");
 const historicalBackfillFunction = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
 assert.match(historicalBackfillFunction, /YAHOO_PUBLIC_HISTORICAL_DAILY/, "historical import must have a no-secret daily archive source");
@@ -669,7 +696,7 @@ const boundedBodyFunctions = [
   "adminCustomers", "adminMarketData", "adminRoles", "adminSubscriptions", "alertEvaluation",
   "authLogin", "authRegistration", "chartDrawings", "companyIntelligence", "customerSelfService",
   "historicalCandleBackfill", "identityContext", "indicatorEngine", "legacySchemaBridge", "marketIngestion",
-  "marketRead", "marketSignalRefresh", "operationsQuality", "screeningWatchlists", "telegramDelivery", "usBenchmarksMarketIngestion", "usBenchmarksSignalRefresh", "usOptionsCompanyIntelligence", "whatsappDelivery",
+  "marketRead", "marketSignalRefresh", "marketSignalProjectionWorker", "operationsQuality", "screeningWatchlists", "telegramDelivery", "usBenchmarksMarketIngestion", "usBenchmarksSignalRefresh", "usOptionsCompanyIntelligence", "whatsappDelivery",
 ];
 for (const functionName of boundedBodyFunctions) {
   const functionSource = await readFile(new URL(`../base44/functions/${functionName}/entry.ts`, import.meta.url), "utf8");

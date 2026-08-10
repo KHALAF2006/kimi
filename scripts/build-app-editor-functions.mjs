@@ -10,10 +10,12 @@ const checkOnly = process.argv.includes("--check");
 
 const generatedFunctions = [
   "historicalCandleBackfill",
+  "marketSignalProjectionWorker",
   "marketSignalRefresh",
   "usOptionsCompanyIntelligence",
   "usOptionsHistoricalBackfill",
   "usOptionsMarketIngestion",
+  "usOptionsSignalProjectionWorker",
   "usOptionsSignalRefresh",
   "usBenchmarksSignalRefresh",
 ];
@@ -50,7 +52,7 @@ const sourceEntries = (await readdir(sourceRoot, { withFileTypes: true }))
   .map((item) => item.name)
   .sort();
 
-assert.equal(sourceEntries.length, 28, "expected 28 Base44 backend functions");
+assert.equal(sourceEntries.length, 30, "expected 30 Base44 backend functions");
 
 for (const functionName of sourceEntries) {
   const entryPoint = join(sourceRoot, functionName, "entry.ts");
