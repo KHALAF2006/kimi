@@ -35,30 +35,13 @@ function earliestByDate(rows, field) {
 }
 
 async function refreshSaudiSignalProjection(base44, { sessionId, reason }) {
-  const batchResults = [];
-  for (let offset = 0; offset < 6; offset += 2) {
-    const group = await Promise.all([offset, offset + 1].map((batchIndex) =>
-      base44.functions.invoke("marketSignalRefresh", {
-        session_id: sessionId,
-        market_code: "SA_MAIN",
-        force: true,
-        reason,
-        mode: "projection_batch",
-        batch_index: batchIndex,
-        batch_count: 6,
-      })
-    ));
-    batchResults.push(...group.map((item) => item?.data || item));
-  }
-  const finalResponse = await base44.functions.invoke("marketSignalRefresh", {
+  const response = await base44.functions.invoke("marketSignalRefresh", {
     session_id: sessionId,
     market_code: "SA_MAIN",
     force: true,
     reason,
-    mode: "projection_finalize",
-    batch_count: 6,
   });
-  return { batches: batchResults, final: finalResponse?.data || finalResponse };
+  return response?.data || response;
 }
 
 async function health(base44, requestedMarket) {

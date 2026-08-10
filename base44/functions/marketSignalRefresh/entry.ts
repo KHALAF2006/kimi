@@ -928,8 +928,8 @@ function calculateTechnicalSignals(inputBars, windowSize = TECHNICAL_SIGNAL_WIND
 var CANONICAL_VERSION = "candle-projection-v1";
 var MARKET_CODE = "SA_MAIN";
 var BATCH_SIZE = 500;
-var PROJECTION_BATCH_SIZE = 48;
-var PROJECTION_BATCH_COUNT = 6;
+var PROJECTION_BATCH_SIZE = 24;
+var PROJECTION_BATCH_COUNT = 12;
 function entityRows(value) {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.data)) return value.data;
@@ -1406,10 +1406,10 @@ Deno.serve(async (req) => {
       });
     }
     if (!body.mode) {
-      const batchResults2 = [];
-      for (let offset = 0; offset < PROJECTION_BATCH_COUNT; offset += 2) {
-        const group = await Promise.all([offset, offset + 1].map(
-          (batchIndex) => base44.functions.invoke("marketSignalProjectionWorker", {
+      const batchResults2 = await Promise.all(
+        Array.from(
+          { length: PROJECTION_BATCH_COUNT },
+          (_, batchIndex) => base44.functions.invoke("marketSignalProjectionWorker", {
             session_id: body.session_id,
             source: body.source || "daily_session_projection",
             reason: body.reason,
@@ -1419,9 +1419,8 @@ Deno.serve(async (req) => {
             batch_count: PROJECTION_BATCH_COUNT,
             session_date: sessionDate
           })
-        ));
-        batchResults2.push(...group.map((item) => item?.data || item));
-      }
+        )
+      );
       const finalResponse = await base44.functions.invoke("marketSignalProjectionWorker", {
         session_id: body.session_id,
         source: body.source || "daily_session_projection",
@@ -1434,7 +1433,7 @@ Deno.serve(async (req) => {
       return Response.json({
         status: finalResponse?.data?.status || finalResponse?.status || "success",
         session_date: sessionDate,
-        batches: batchResults2,
+        batches: batchResults2.map((item) => item?.data || item),
         final: finalResponse?.data || finalResponse
       });
     }

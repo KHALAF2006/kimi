@@ -130,6 +130,8 @@ assert.doesNotMatch(marketSignalRefreshSource, /dailyFromStoredIntraday/, "sched
 assert.match(marketSignalRefreshSource, /run_type:\s*["']technical_projection_batch["']/, "each bounded Saudi projection batch must be observable");
 assert.match(marketSignalRefreshSource, /body\.mode === ["']projection_finalize["']/, "the workflow must finalize batch coverage explicitly");
 assert.match(marketSignalRefreshSource, /functions\.invoke\(["']marketSignalProjectionWorker["']/, "the visual workflow must fan out through a bounded worker function");
+assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_SIZE = 24/, "Saudi projection batches must stay below the Base44 CPU ceiling");
+assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_COUNT = 12/, "Saudi projection capacity must cover the entire catalog in bounded batches");
 assert.match(marketSignalRefreshSource, /indicator_key:\s*["']momentum_zones["']/, "the projection job must persist the authoritative investor-zone lifecycle snapshot");
 assert.match(marketSignalRefreshSource, /MOMENTUM_FORMULA_VERSION/, "persisted investor zones must carry their versioned role-reversal formula");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
@@ -524,7 +526,7 @@ assert.match(operationsAdminPage, /backfill_history/, "the owner must be able to
 const adminMarketDataFunction = await readFile(new URL("../base44/functions/adminMarketData/entry.ts", import.meta.url), "utf8");
 assert.match(adminMarketDataFunction, /marketSignalRefresh/, "manual signal refresh must invoke the protected projection backend");
 assert.match(adminMarketDataFunction, /refreshSaudiSignalProjection/, "manual Saudi signal refresh must use the bounded batch orchestrator");
-assert.match(adminMarketDataFunction, /mode:\s*["']projection_finalize["']/, "manual Saudi signal refresh must verify aggregate batch coverage");
+assert.doesNotMatch(adminMarketDataFunction, /batch_count:\s*6/, "manual Saudi signal refresh must not bypass the deployed bounded orchestrator");
 assert.match(adminMarketDataFunction, /historicalCandleBackfill/, "historical archive imports must run through the protected backend");
 const historicalBackfillFunction = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
 assert.match(historicalBackfillFunction, /YAHOO_PUBLIC_HISTORICAL_DAILY/, "historical import must have a no-secret daily archive source");

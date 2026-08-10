@@ -13,8 +13,8 @@ import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from "../../shared/m
 const CANONICAL_VERSION = "candle-projection-v1";
 const MARKET_CODE = "SA_MAIN";
 const BATCH_SIZE = 500;
-const PROJECTION_BATCH_SIZE = 48;
-const PROJECTION_BATCH_COUNT = 6;
+const PROJECTION_BATCH_SIZE = 24;
+const PROJECTION_BATCH_COUNT = 12;
 
 function entityRows(value: unknown): Array<Record<string, any>> {
   if (Array.isArray(value)) return value;
@@ -561,9 +561,8 @@ Deno.serve(async (req) => {
     }
 
     if (!body.mode) {
-      const batchResults = [];
-      for (let offset = 0; offset < PROJECTION_BATCH_COUNT; offset += 2) {
-        const group = await Promise.all([offset, offset + 1].map((batchIndex) =>
+      const batchResults = await Promise.all(
+        Array.from({ length: PROJECTION_BATCH_COUNT }, (_, batchIndex) =>
           base44.functions.invoke("marketSignalProjectionWorker", {
             session_id: body.session_id,
             source: body.source || "daily_session_projection",
@@ -574,9 +573,8 @@ Deno.serve(async (req) => {
             batch_count: PROJECTION_BATCH_COUNT,
             session_date: sessionDate,
           })
-        ));
-        batchResults.push(...group.map((item) => item?.data || item));
-      }
+        )
+      );
       const finalResponse = await base44.functions.invoke("marketSignalProjectionWorker", {
         session_id: body.session_id,
         source: body.source || "daily_session_projection",
@@ -589,7 +587,7 @@ Deno.serve(async (req) => {
       return Response.json({
         status: finalResponse?.data?.status || finalResponse?.status || "success",
         session_date: sessionDate,
-        batches: batchResults,
+        batches: batchResults.map((item) => item?.data || item),
         final: finalResponse?.data || finalResponse,
       });
     }
