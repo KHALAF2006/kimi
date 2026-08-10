@@ -122,8 +122,10 @@ assert.equal(marketTechnicalSignalsDaily.trigger.config.cron_expression, "45 15 
 assert.equal(marketTechnicalSignalsDaily.trigger.config.timezone, "Asia/Riyadh");
 assert.equal(Object.values(marketTechnicalSignalsDaily.definition.do[0])[0].with.function_name, "marketSignalRefresh");
 const marketSignalRefreshSource = await readFile(new URL("../base44/functions/marketSignalRefresh/source.ts", import.meta.url), "utf8");
-assert.match(marketSignalRefreshSource, /intradayHistory = barsByInstrument\(chunks, ["']15m["']\)/, "signal projection must include every stored intraday session, not only the latest date");
-assert.match(marketSignalRefreshSource, /dailyFromStoredIntraday/, "daily, weekly, and monthly signals must be derived from the stored 15-minute source of truth");
+assert.match(marketSignalRefreshSource, /session_date:\s*sessionDate/, "signal projection must read only the current 15-minute session for daily finalization");
+assert.match(marketSignalRefreshSource, /interval:\s*["']1d["']/, "signal projection must reuse the stored canonical daily archive");
+assert.doesNotMatch(marketSignalRefreshSource, /intradayHistory = barsByInstrument/, "scheduled projection must not rebuild all historical daily candles from intraday data");
+assert.doesNotMatch(marketSignalRefreshSource, /dailyFromStoredIntraday/, "scheduled projection must remain incremental and bounded");
 assert.match(marketSignalRefreshSource, /indicator_key:\s*["']momentum_zones["']/, "the projection job must persist the authoritative investor-zone lifecycle snapshot");
 assert.match(marketSignalRefreshSource, /MOMENTUM_FORMULA_VERSION/, "persisted investor zones must carry their versioned role-reversal formula");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");

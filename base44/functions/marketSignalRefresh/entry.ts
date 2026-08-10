@@ -1057,29 +1057,41 @@ async function projectionChunk({
 }
 async function projectInstrumentBatch(base44, instrumentIds, sessionDate) {
   const idQuery = { $in: instrumentIds };
-  const [instrumentsRaw, quotesRaw, chunksRaw, snapshotsRaw] = await Promise.all([
+  const [instrumentsRaw, quotesRaw, currentIntradayRaw, dailyRaw, higherTimeframeRaw, snapshotsRaw] = await Promise.all([
     base44.asServiceRole.entities.Instrument.filter({ id: idQuery }, "symbol", PROJECTION_BATCH_SIZE),
     base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-updated_date", PROJECTION_BATCH_SIZE * 3),
-    // Saudi candle rows created before market scoping do not have market_code.
-    // The instrument-id boundary keeps the fallback isolated to this batch while
-    // new ingestion runs progressively stamp SA_MAIN on every updated row.
-    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery }, "-end_time", 1200),
+    // Only the current session is needed to finalize today's daily candle.
+    // Historical daily candles are already canonical and must not be rebuilt
+    // from every stored 15-minute candle on every scheduled run.
+    base44.asServiceRole.entities.CandleChunk.filter({
+      instrument_id: idQuery,
+      interval: "15m",
+      session_date: sessionDate
+    }, "-end_time", PROJECTION_BATCH_SIZE * 3),
+    base44.asServiceRole.entities.CandleChunk.filter({
+      instrument_id: idQuery,
+      interval: "1d"
+    }, "start_time", 1200),
+    base44.asServiceRole.entities.CandleChunk.filter({
+      instrument_id: idQuery,
+      interval: { $in: ["1wk", "1mo"] }
+    }, "-end_time", PROJECTION_BATCH_SIZE * 8),
     base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-source_as_of", PROJECTION_BATCH_SIZE * 12)
   ]);
   const instruments = entityRows(instrumentsRaw).filter((item) => item.market_code === MARKET_CODE && item.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
   const quotes = entityRows(quotesRaw);
-  const chunks = entityRows(chunksRaw).filter((chunk) => !chunk.market_code || chunk.market_code === MARKET_CODE);
+  const chunks = [
+    ...entityRows(currentIntradayRaw),
+    ...entityRows(dailyRaw),
+    ...entityRows(higherTimeframeRaw)
+  ].filter((chunk) => !chunk.market_code || chunk.market_code === MARKET_CODE);
   const snapshots = entityRows(snapshotsRaw);
   const quoteByInstrument = firstByInstrument(quotes);
   const latestSourceByInstrument = /* @__PURE__ */ new Map();
   for (const chunk of [...chunks].sort((left, right) => Date.parse(left.end_time || 0) - Date.parse(right.end_time || 0))) {
     if (chunk.quality_status !== "quarantined") latestSourceByInstrument.set(chunk.instrument_id, chunk);
   }
-  const quarterBars = barsByInstrument(
-    chunks.filter((chunk) => chunk.session_date === sessionDate || String(chunk.chunk_key || "").endsWith(`-${sessionDate}`)),
-    "15m"
-  );
-  const intradayHistory = barsByInstrument(chunks, "15m");
+  const quarterBars = barsByInstrument(chunks, "15m");
   const dailyHistory = barsByInstrument(chunks, "1d");
   const newDailyChunks = [];
   const higherTimeframeChunks = [];
@@ -1087,11 +1099,7 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate) {
   const skipped = [];
   for (const instrument of instruments) {
     const quote = quoteByInstrument.get(instrument.id) || null;
-    const dailyFromStoredIntraday = aggregateTechnicalBars(intradayHistory.get(instrument.id) || [], "1d");
-    const existingDaily = aggregateTechnicalBars([
-      ...dailyHistory.get(instrument.id) || [],
-      ...dailyFromStoredIntraday
-    ], "1d");
+    const existingDaily = aggregateTechnicalBars(dailyHistory.get(instrument.id) || [], "1d");
     let canonicalDaily = existingDaily;
     if (quoteIsFinalForSession(quote, sessionDate)) {
       const today = finalDailyBar(quarterBars.get(instrument.id) || [], quote);
