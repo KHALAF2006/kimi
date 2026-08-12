@@ -185,7 +185,10 @@ assert.match(ingestion, /nextTradingSessionDate/);
 assert.match(ingestion, /US_OPTIONS_CATALOG_INCOMPLETE/);
 assert.match(ingestion, /quality_status: freshnessStatus === "fresh" \? "verified" : "stale"/);
 assert.match(ingestion, /freshness_status: "stale"/);
-assert.match(ingestion, /await evaluateAlerts\(base44, acceptedQuotes, isFinal, nextTradingDate\)/);
+assert.match(ingestion, /const CONCURRENCY = 8/, "provider requests must remain bounded to reduce transient throttling failures");
+assert.match(ingestion, /const PROVIDER_MAX_ATTEMPTS = 4/, "transient provider failures must receive bounded retries");
+assert.match(ingestion, /if \(status !== "failed"\) await evaluateAlerts\(base44, acceptedQuotes, isFinal, nextTradingDate\)/, "a failed batch must not evaluate alerts from data that was not promoted");
+assert.match(ingestion, /status === "failed" \|\| !acceptedIds\.has\(quote\.instrument_id\)/, "all quotes in a rejected batch must be marked stale while preserving their last values");
 assert.match(ingestion, /async function ensureCatalog/);
 assert.match(ingestion, /batch_count/);
 assert.match(ingestion, /batch_index/);
@@ -197,6 +200,10 @@ assert.match(ingestion, /!forcedRecovery && \(minute < 600 \|\| minute > closeMi
 assert.match(ingestion, /body\.action === "data_status"/);
 assert.match(ingestion, /intraday_instrument_count: coveredIntraday\.size/);
 assert.match(ingestion, /daily_history_instrument_count: coveredDaily\.size/);
+assert.match(ingestion, /missing_symbols:/, "the data-status endpoint must report exact missing instruments");
+assert.match(ingestion, /latest_price_runs:/, "the data-status endpoint must expose recent ingestion diagnostics");
+assert.match(ingestion, /failed_symbols: failures\.map/, "failed runs must retain exact failed symbols");
+assert.match(ingestion, /terminal_error:/, "the terminal error must augment rather than overwrite run diagnostics");
 assert.ok(
   ingestion.indexOf("await ensureCatalog(base44, now)") < ingestion.indexOf("if (!session.tradingDay && !forcedRecovery)"),
   "the U.S. catalog must initialize before the market-session early return",
@@ -237,6 +244,9 @@ assert.match(signals, /projectInstrumentBatch\(base44, selected\.map/);
 assert.doesNotMatch(signals, /fetch\(/, "signal projection must read the stored candle archive instead of downloading history again");
 assert.match(signals, /aggregateTechnicalBars\(daily, "1wk", MARKET_OPTIONS\)/);
 assert.match(signals, /aggregateTechnicalBars\(daily, "1mo", MARKET_OPTIONS\)/);
+assert.match(signals, /chunk\.is_final === true/, "U.S. daily projection must use only a finalized intraday session");
+assert.match(signals, /chunk\.completeness_status === "complete"/, "U.S. daily projection must reject incomplete intraday sessions");
+assert.match(signals, /const currentPeriodIsFinal = timeframe === "1d" && Boolean\(dailyBar\)/, "weekly and monthly projections must stay provisional unless their close is explicitly proven");
 assert.match(signals, /indicator_key: "technical_signals"/);
 assert.match(signals, /indicator_key: "momentum_zones"/);
 

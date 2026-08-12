@@ -5,7 +5,9 @@ import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 
 // base44/shared/market-data.ts
 var SAUDI_DELAY_SECONDS = 15 * 60;
-var PROVIDER_FRESHNESS_GRACE_SECONDS = 5 * 60;
+var MARKET_REFRESH_CADENCE_SECONDS = 60 * 60;
+var INGESTION_PROCESSING_GRACE_SECONDS = 10 * 60;
+var PROVIDER_FRESHNESS_GRACE_SECONDS = MARKET_REFRESH_CADENCE_SECONDS + INGESTION_PROCESSING_GRACE_SECONDS;
 var EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
 var PUBLIC_CANDLE_OVERLAP_MILLISECONDS = 15 * 60 * 1e3;
 var PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS = 8 * 24 * 60 * 60 * 1e3;
@@ -1046,6 +1048,7 @@ async function projectionChunk({
   isFinal
 }) {
   const normalized = normalizeTechnicalBars(bars);
+  const completenessStatus = !normalized.length ? "incomplete" : interval === "1d" ? isFinal && normalized.length === 1 ? "complete" : "degraded" : "complete";
   return {
     instrument_id: instrument.id,
     market_code: MARKET_CODE,
@@ -1067,7 +1070,7 @@ async function projectionChunk({
     canonical_version: CANONICAL_VERSION,
     is_final: isFinal,
     bucket_count: normalized.length,
-    completeness_status: normalized.length >= 50 ? "complete" : "degraded"
+    completeness_status: completenessStatus
   };
 }
 async function projectInstrumentBatch(base44, instrumentIds, sessionDate) {
@@ -1106,7 +1109,10 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate) {
   for (const chunk of [...chunks].sort((left, right) => Date.parse(left.end_time || 0) - Date.parse(right.end_time || 0))) {
     if (chunk.quality_status !== "quarantined") latestSourceByInstrument.set(chunk.instrument_id, chunk);
   }
-  const quarterBars = barsByInstrument(chunks, "15m");
+  const finalizedQuarterBars = barsByInstrument(
+    chunks.filter((chunk) => chunk.interval !== "15m" || chunk.session_date === sessionDate && chunk.is_final === true && chunk.completeness_status === "complete"),
+    "15m"
+  );
   const dailyHistory = barsByInstrument(chunks, "1d");
   const newDailyChunks = [];
   const higherTimeframeChunks = [];
@@ -1117,7 +1123,7 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate) {
     const existingDaily = aggregateTechnicalBars(dailyHistory.get(instrument.id) || [], "1d");
     let canonicalDaily = existingDaily;
     if (quoteIsFinalForSession(quote, sessionDate)) {
-      const today = finalDailyBar(quarterBars.get(instrument.id) || [], quote);
+      const today = finalDailyBar(finalizedQuarterBars.get(instrument.id) || [], quote);
       if (today) {
         canonicalDaily = aggregateTechnicalBars([...existingDaily, today], "1d");
         newDailyChunks.push(await projectionChunk({
@@ -1146,6 +1152,7 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate) {
     };
     for (const [timeframe, frameBars] of Object.entries(frames)) {
       if (!frameBars.length) continue;
+      const currentPeriodIsFinal = timeframe === "1d" ? quoteIsFinalForSession(quote, sessionDate) : timeframe === "1wk" ? isThursday(sessionDate) : isLastSaudiTradingWeekdayOfMonth(sessionDate);
       if (timeframe !== "1d") {
         higherTimeframeChunks.push(await projectionChunk({
           instrument,
@@ -1153,12 +1160,11 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate) {
           chunkKey: `${instrument.symbol}-${timeframe}-canonical`,
           bars: frameBars,
           source: quote || latestSourceByInstrument.get(instrument.id) || null,
-          isFinal: false
+          isFinal: currentPeriodIsFinal
         }));
       }
       const signalBars = frameBars;
       if (!signalBars.length) continue;
-      const currentPeriodIsFinal = timeframe === "1d" ? quoteIsFinalForSession(quote, sessionDate) : timeframe === "1wk" ? isThursday(sessionDate) : isLastSaudiTradingWeekdayOfMonth(sessionDate);
       const values = calculateTechnicalSignals(signalBars, TECHNICAL_SIGNAL_WINDOW_SIZE, timeframe);
       values.signal_window = (values.signal_window || []).map((item, index) => ({
         ...item,

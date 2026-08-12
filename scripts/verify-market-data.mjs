@@ -156,7 +156,8 @@ assert.deepEqual(coverageStatus(270, 270), { coveragePercent: 100, status: "heal
 assert.equal(coverageStatus(267, 270).status, "degraded");
 assert.equal(coverageStatus(256, 270).status, "failed");
 assert.equal(freshnessStatus("2026-07-26T07:00:00.000Z", "2026-07-26T07:15:00.000Z"), "fresh");
-assert.equal(freshnessStatus("2026-07-26T06:54:00.000Z", "2026-07-26T07:15:00.000Z"), "stale");
+assert.equal(freshnessStatus("2026-07-26T05:50:00.000Z", "2026-07-26T07:15:00.000Z"), "fresh", "hourly ingestion remains healthy through the 15-minute provider delay plus one scheduled cycle and processing grace");
+assert.equal(freshnessStatus("2026-07-26T05:49:00.000Z", "2026-07-26T07:15:00.000Z"), "stale", "a quote becomes stale only after the next hourly cycle and processing grace are both missed");
 
 const groupedQualityIssues = groupRowsByKey([
   { symbol: "1010", issue_type: "public_chart_request_failed", message: "attempt 1" },

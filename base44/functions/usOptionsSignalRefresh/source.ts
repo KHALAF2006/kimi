@@ -105,7 +105,10 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate, source
   for (const instrument of instruments) {
     const instrumentChunks = usableChunks.filter((chunk) => chunk.instrument_id === instrument.id);
     const intraday = instrumentChunks
-      .filter((chunk) => chunk.interval === "15m" && (chunk.session_date === sessionDate || String(chunk.chunk_key).endsWith(sessionDate)))
+      .filter((chunk) => chunk.interval === "15m"
+        && (chunk.session_date === sessionDate || String(chunk.chunk_key).endsWith(sessionDate))
+        && chunk.is_final === true
+        && chunk.completeness_status === "complete")
       .flatMap((chunk) => chunk.bars || []);
     const dailyBar = aggregateSession(intraday);
     const projectedKey = `${US_OPTIONS_MARKET_CODE}:${instrument.symbol}:1d:projection:${sessionDate.slice(0, 4)}`;
@@ -137,15 +140,16 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate, source
     for (const [timeframe, signalBars] of Object.entries(timeframeBars)) {
       if (!signalBars.length) continue;
       const values = calculateTechnicalSignals(signalBars, TECHNICAL_SIGNAL_WINDOW_SIZE, timeframe);
+      const currentPeriodIsFinal = timeframe === "1d" && Boolean(dailyBar);
       snapshots.push({
         instrument_id: instrument.id, market_code: US_OPTIONS_MARKET_CODE, symbol: instrument.symbol,
-        indicator_key: "technical_signals", timeframe, values: { ...values, is_final: true },
+        indicator_key: "technical_signals", timeframe, values: { ...values, is_final: currentPeriodIsFinal },
         source_as_of: signalBars.at(-1).time, calculated_at: new Date().toISOString(), formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION,
       });
       const momentum = calculateMomentumZones(signalBars, 20, Number.POSITIVE_INFINITY, timeframe);
       if (momentum) snapshots.push({
         instrument_id: instrument.id, market_code: US_OPTIONS_MARKET_CODE, symbol: instrument.symbol,
-        indicator_key: "momentum_zones", timeframe, values: { ...momentum, is_final: true },
+        indicator_key: "momentum_zones", timeframe, values: { ...momentum, is_final: currentPeriodIsFinal },
         source_as_of: signalBars.at(-1).time, calculated_at: new Date().toISOString(), formula_version: MOMENTUM_FORMULA_VERSION,
       });
       if (timeframe !== "1d") higherChunks.push({
@@ -155,7 +159,7 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate, source
         bar_count: signalBars.length, checksum: await digest(signalBars), source_id: sourceId, run_id: runId,
         snapshot_version: `${slotKey}:${instrument.symbol}`, provider_as_of: signalBars.at(-1).time,
         received_time: new Date().toISOString(), quality_status: "verified", canonical_version: "us-options-candle-projection-v1",
-        is_final: true, bucket_count: signalBars.length, completeness_status: "complete", is_historical_archive: false, adjustment_mode: "none",
+        is_final: currentPeriodIsFinal, bucket_count: signalBars.length, completeness_status: "complete", is_historical_archive: false, adjustment_mode: "none",
       });
     }
   }

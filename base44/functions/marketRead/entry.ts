@@ -5246,7 +5246,9 @@ function stateFor(value, source, now = Date.now(), options = {}) {
     };
   }
   const expectedDelaySeconds = Math.max(0, Number(source?.delay_seconds || SAUDI_DELAY_SECONDS));
-  const stale = explicitlyStale || age > (expectedDelaySeconds + 5 * 60) * 1e3;
+  const refreshCadenceSeconds = Math.max(5 * 60, Number(source?.refresh_cadence_seconds || 60 * 60));
+  const processingGraceSeconds = 10 * 60;
+  const stale = explicitlyStale || age > (expectedDelaySeconds + refreshCadenceSeconds + processingGraceSeconds) * 1e3;
   return {
     label: stale ? "\u0645\u062A\u0642\u0627\u062F\u0645\u0629" : "\u0645\u062A\u0623\u062E\u0631\u0629 15 \u062F\u0642\u064A\u0642\u0629",
     stale,
@@ -5689,7 +5691,12 @@ function latestSnapshot(instruments, quoteByInstrument, sourceById, requestedMar
   const current = candidates.filter((quote) => quote.snapshot_version === snapshotVersion);
   const denominator = requestedMarket === "SA_MAIN" ? EXPECTED_INSTRUMENT_COUNT : Math.max(instruments.length, 1);
   const coveragePercent = Math.round(current.length / denominator * 10000) / 100;
-  const freshness = current.some((quote) => quote.freshness_status === "stale")
+  const freshness = current.some((quote) => stateFor(
+    quote.provider_as_of || quote.source_time || quote.quote_time,
+    sourceById.get(quote.source_id),
+    Date.now(),
+    { isFinal: quote.is_final, freshnessStatus: quote.freshness_status },
+  ).stale)
     ? "stale"
     : coveragePercent >= COVERAGE_HEALTHY_PERCENT
       ? "healthy"

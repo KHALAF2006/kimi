@@ -6,7 +6,7 @@ import { alertIntervalDue } from "../../shared/us-options-timing.ts";
 import { earliestRecentGapByInstrument, incrementalProviderWindow, indexCandleChunks, latestStoredCandleByInstrument, mergeCandleBars, summarizeProviderWindows } from "../../shared/incremental-candle-sync.ts";
 
 const DELAY_SECONDS = 900;
-const FRESHNESS_GRACE_SECONDS = 8 * 60;
+const FRESHNESS_GRACE_SECONDS = 60 * 60 + 10 * 60;
 const BASE_URL = "https://query1.finance.yahoo.com";
 const HOLIDAYS_2026 = new Set([
   "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25",

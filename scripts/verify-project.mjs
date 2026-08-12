@@ -143,6 +143,9 @@ for (let index = 0; index < saudiSignalSteps.length; index += 1) {
 }
 const marketSignalRefreshSource = await readFile(new URL("../base44/functions/marketSignalRefresh/source.ts", import.meta.url), "utf8");
 assert.match(marketSignalRefreshSource, /session_date:\s*sessionDate/, "signal projection must read only the current 15-minute session for daily finalization");
+assert.match(marketSignalRefreshSource, /chunk\.is_final === true/, "daily finalization must use only a finalized 15-minute session chunk");
+assert.match(marketSignalRefreshSource, /chunk\.completeness_status === ["']complete["']/, "daily finalization must reject incomplete intraday sessions");
+assert.match(marketSignalRefreshSource, /interval === ["']1d["']\s*\? isFinal && normalized\.length === 1 \? ["']complete["'] : ["']degraded["']/, "a finalized one-bar daily chunk must be stored as complete");
 assert.match(marketSignalRefreshSource, /interval:\s*["']1d["']/, "signal projection must reuse the stored canonical daily archive");
 assert.doesNotMatch(marketSignalRefreshSource, /intradayHistory = barsByInstrument/, "scheduled projection must not rebuild all historical daily candles from intraday data");
 assert.doesNotMatch(marketSignalRefreshSource, /dailyFromStoredIntraday/, "scheduled projection must remain incremental and bounded");
@@ -156,6 +159,8 @@ assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_SIZE = 8/, "Saud
 assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_COUNT = 34/, "Saudi projection capacity must cover the entire catalog in bounded batches");
 assert.match(marketSignalRefreshSource, /indicator_key:\s*["']momentum_zones["']/, "the projection job must persist the authoritative investor-zone lifecycle snapshot");
 assert.match(marketSignalRefreshSource, /MOMENTUM_FORMULA_VERSION/, "persisted investor zones must carry their versioned role-reversal formula");
+assert.match(marketSignalRefreshSource, /timeframe === ["']1wk["']\s*\? isThursday\(sessionDate\)/, "weekly projections must finalize only at the Saudi trading-week close");
+assert.match(marketSignalRefreshSource, /isLastSaudiTradingWeekdayOfMonth\(sessionDate\)/, "monthly projections must finalize only at the final Saudi trading weekday of the month");
 assert.equal(companyIntelligenceDaily.trigger.config.cron_expression, "10 16 * * 0-4");
 assert.equal(companyFinancialsTwiceWeekly.trigger.config.cron_expression, "0 16 * * 1,4");
 assert.equal(companyIntelligenceDaily.trigger.config.timezone, "Asia/Riyadh");

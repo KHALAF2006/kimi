@@ -3,7 +3,13 @@ export const SAUDI_DELAY_SECONDS = 15 * 60;
 export const EXPECTED_INSTRUMENT_COUNT = 270;
 export const COVERAGE_HEALTHY_PERCENT = 99;
 export const COVERAGE_FAILED_PERCENT = 95;
-export const PROVIDER_FRESHNESS_GRACE_SECONDS = 5 * 60;
+// The provider is delayed by 15 minutes, while ingestion is scheduled hourly.
+// Treat a snapshot as stale only after the next scheduled cycle plus bounded
+// processing headroom has been missed.
+export const MARKET_REFRESH_CADENCE_SECONDS = 60 * 60;
+export const INGESTION_PROCESSING_GRACE_SECONDS = 10 * 60;
+export const PROVIDER_FRESHNESS_GRACE_SECONDS = MARKET_REFRESH_CADENCE_SECONDS
+  + INGESTION_PROCESSING_GRACE_SECONDS;
 export const EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
 export const PUBLIC_CANDLE_OVERLAP_MILLISECONDS = 15 * 60 * 1000;
 export const PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS = 8 * 24 * 60 * 60 * 1000;

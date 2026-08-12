@@ -1948,9 +1948,12 @@ function summarizeProviderWindows(windows) {
 // base44/functions/usOptionsMarketIngestion/source.ts
 var PROVIDER_CODE = "REFERENCE_YAHOO_US_OPTIONS_T15";
 var DELAY_SECONDS = US_OPTIONS_DELAY_SECONDS;
-var FRESHNESS_GRACE_SECONDS = 7 * 60;
+var REFRESH_CADENCE_SECONDS = 60 * 60;
+var INGESTION_PROCESSING_GRACE_SECONDS = 10 * 60;
+var FRESHNESS_GRACE_SECONDS = REFRESH_CADENCE_SECONDS + INGESTION_PROCESSING_GRACE_SECONDS;
 var PROVIDER_BAR_INTERVAL_MS = 5 * 60 * 1e3;
-var CONCURRENCY = 22;
+var CONCURRENCY = 8;
+var PROVIDER_MAX_ATTEMPTS = 4;
 var HOLIDAYS_2026 = /* @__PURE__ */ new Map([
   ["2026-01-01", "New Year's Day"],
   ["2026-01-19", "Martin Luther King Jr. Day"],
@@ -2164,7 +2167,7 @@ async function fetchChart(symbol, now = /* @__PURE__ */ new Date(), window = { m
   url.searchParams.set("includePrePost", "false");
   url.searchParams.set("events", "div,splits");
   let lastError = null;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= PROVIDER_MAX_ATTEMPTS; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1e4);
     try {
@@ -2172,13 +2175,24 @@ async function fetchChart(symbol, now = /* @__PURE__ */ new Date(), window = { m
         headers: { Accept: "application/json", "User-Agent": "KMY-US-Options-Market/1.0" },
         signal: controller.signal
       });
-      if (!response.ok) throw new Error(`provider_http_${response.status}`);
+      if (!response.ok) {
+        throw Object.assign(new Error(`provider_http_${response.status}`), {
+          provider_status: response.status,
+          retry_after_seconds: Number(response.headers.get("retry-after") || 0)
+        });
+      }
       const result = (await response.json())?.chart?.result?.[0];
       if (!result) throw new Error("provider_empty_chart");
       return { ...normalizeChart(symbol, result, now), requestMode: window.mode || "bootstrap" };
     } catch (error) {
       lastError = error;
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+      const status = Number(error?.provider_status || 0);
+      const retryable = !status || status === 408 || status === 429 || status >= 500;
+      if (attempt < PROVIDER_MAX_ATTEMPTS && retryable) {
+        const retryAfterMs = Math.max(0, Number(error?.retry_after_seconds || 0) * 1e3);
+        const backoffMs = Math.max(retryAfterMs, 400 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 200);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      } else break;
     } finally {
       clearTimeout(timeout);
     }
@@ -2249,7 +2263,12 @@ async function fetchUniverse(now, symbols, windowsBySymbol) {
       try {
         output.push(await fetchChart(symbol, now, windowsBySymbol.get(symbol)));
       } catch (error) {
-        failures.push({ symbol, message: error?.message || "provider_failed" });
+        failures.push({
+          symbol,
+          message: error?.message || "provider_failed",
+          provider_status: Number(error?.provider_status || 0) || null,
+          stage: "provider_fetch_or_normalization"
+        });
       }
     }
   }
@@ -2298,6 +2317,7 @@ async function evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate) 
 Deno.serve(async (req) => {
   let base44;
   let run = null;
+  let runDiagnostics = null;
   try {
     base44 = createClientFromRequest(req);
     const requestBody = await readJsonBody(req);
@@ -2327,10 +2347,28 @@ Deno.serve(async (req) => {
       const intradayChunks = await readRowsWithRetry(() => base44.asServiceRole.entities.CandleChunk.filter({ market_code: US_OPTIONS_MARKET_CODE, interval: "15m" }, "-end_time", 2e3));
       const dailyHistory = await readRowsWithRetry(() => base44.asServiceRole.entities.HistoricalCandleSync.filter({ market_code: US_OPTIONS_MARKET_CODE, interval: "1d" }, "-completed_at", 500));
       const signals = await readRowsWithRetry(() => base44.asServiceRole.entities.IndicatorSnapshot.filter({ market_code: US_OPTIONS_MARKET_CODE, indicator_key: "technical_signals" }, "-source_as_of", 1e3));
+      const runs = await readRowsWithRetry(() => base44.asServiceRole.entities.IngestionRun.filter({ market_code: US_OPTIONS_MARKET_CODE }, "-started_at", 100));
       const coveredQuotes = new Set(quotes.filter((item) => instrumentIds.has(item.instrument_id) && Number(item.last_price) > 0 && item.quality_status !== "quarantined").map((item) => item.instrument_id));
       const coveredIntraday = new Set(intradayChunks.filter((item) => instrumentIds.has(item.instrument_id) && Array.isArray(item.bars) && item.bars.length > 0 && item.quality_status !== "quarantined").map((item) => item.instrument_id));
       const coveredDaily = new Set(dailyHistory.filter((item) => instrumentIds.has(item.instrument_id) && item.status === "complete" && item.coverage_verified === true && item.provider_partial !== true).map((item) => item.instrument_id));
       const signalCoverage = Object.fromEntries(["1d", "1wk", "1mo"].map((timeframe) => [timeframe, new Set(signals.filter((item) => instrumentIds.has(item.instrument_id) && item.timeframe === timeframe).map((item) => item.instrument_id)).size]));
+      const symbolsMissingFrom = (covered) => instruments.filter((instrument) => !covered.has(instrument.id)).map((instrument) => instrument.symbol);
+      const signalMissingSymbols = Object.fromEntries(["1d", "1wk", "1mo"].map((timeframe) => {
+        const covered = new Set(signals.filter((item) => instrumentIds.has(item.instrument_id) && item.timeframe === timeframe).map((item) => item.instrument_id));
+        return [timeframe, symbolsMissingFrom(covered)];
+      }));
+      const latestPriceRuns = runs.filter((item) => item.slot_kind === "quarter_hour").slice(0, 10).map((item) => ({
+        id: item.id,
+        started_at: item.started_at,
+        finished_at: item.finished_at,
+        status: item.status,
+        slot_key: item.slot_key,
+        success_count: item.success_count,
+        failed_count: item.failed_count,
+        coverage_percent: item.coverage_percent,
+        failure_code: item.failure_code || null,
+        notes: item.notes || null
+      }));
       return Response.json({
         status: coveredQuotes.size === instruments.length && coveredIntraday.size === instruments.length && coveredDaily.size === instruments.length ? "healthy" : "degraded",
         market_code: US_OPTIONS_MARKET_CODE,
@@ -2339,6 +2377,13 @@ Deno.serve(async (req) => {
         intraday_instrument_count: coveredIntraday.size,
         daily_history_instrument_count: coveredDaily.size,
         signal_instrument_count: signalCoverage,
+        missing_symbols: {
+          quotes: symbolsMissingFrom(coveredQuotes),
+          intraday: symbolsMissingFrom(coveredIntraday),
+          daily_history: symbolsMissingFrom(coveredDaily),
+          signals: signalMissingSymbols
+        },
+        latest_price_runs: latestPriceRuns,
         latest_quote_as_of: quotes.map((item) => item.provider_as_of || item.quote_time).filter(Boolean).sort().at(-1) || null,
         latest_intraday_as_of: intradayChunks.map((item) => item.provider_as_of || item.end_time).filter(Boolean).sort().at(-1) || null
       });
@@ -2477,12 +2522,20 @@ Deno.serve(async (req) => {
     if (observations.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(observations);
     const coverage = acceptedQuotes.length / batchInstruments.length * 100;
     const status = coverage >= 99 ? "success" : coverage >= 95 ? "partial" : "failed";
+    runDiagnostics = {
+      accepted_symbols: acceptedQuotes.map((quote) => quote.symbol),
+      failed_symbols: failures.map((failure) => failure.symbol),
+      failures,
+      provider_windows: providerWindowSummary,
+      batch_index: batchIndex,
+      batch_count: batchCount
+    };
     const quoteResult = status === "failed" ? { created: 0, updated: 0, preserved_last_good: true } : await upsertMany(base44, "QuoteLatest", acceptedQuotes, ["instrument_id"], { market_code: US_OPTIONS_MARKET_CODE });
     const candleResult = status === "failed" ? { created: 0, updated: 0, preserved_last_good: true } : await upsertMany(base44, "CandleChunk", chunks, ["instrument_id", "interval", "chunk_key"], { market_code: US_OPTIONS_MARKET_CODE, interval: "15m" });
     const acceptedIds = new Set(acceptedQuotes.map((quote) => quote.instrument_id));
-    const stale = rows(await base44.asServiceRole.entities.QuoteLatest.filter({ market_code: US_OPTIONS_MARKET_CODE })).filter((quote) => batchInstruments.some((instrument) => instrument.id === quote.instrument_id) && !acceptedIds.has(quote.instrument_id)).map((quote) => ({ id: quote.id, freshness_status: "stale", quality_status: "stale" }));
+    const stale = rows(await base44.asServiceRole.entities.QuoteLatest.filter({ market_code: US_OPTIONS_MARKET_CODE })).filter((quote) => batchInstruments.some((instrument) => instrument.id === quote.instrument_id) && (status === "failed" || !acceptedIds.has(quote.instrument_id))).map((quote) => ({ id: quote.id, freshness_status: "stale", quality_status: "stale" }));
     if (stale.length) await base44.asServiceRole.entities.QuoteLatest.bulkUpdate([...new Map(stale.map((row) => [row.id, row])).values()]);
-    await evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate);
+    if (status !== "failed") await evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate);
     await base44.asServiceRole.entities.IngestionRun.update(run.id, {
       status,
       finished_at: (/* @__PURE__ */ new Date()).toISOString(),
@@ -2491,7 +2544,7 @@ Deno.serve(async (req) => {
       coverage_percent: coverage,
       provider_as_of: acceptedQuotes.map((quote) => quote.provider_as_of).sort().at(-1) || null,
       snapshot_version: snapshotVersion,
-      notes: `quotes:${acceptedQuotes.length};failures:${failures.length};windows:${JSON.stringify(providerWindowSummary)}`
+      notes: JSON.stringify(runDiagnostics)
     });
     if (status === "failed") throw Object.assign(new Error(`U.S. options coverage failed: ${coverage.toFixed(2)}%`), { status: 503, code: "US_OPTIONS_COVERAGE_FAILED" });
     return Response.json({
@@ -2508,12 +2561,22 @@ Deno.serve(async (req) => {
       is_final: isFinal,
       batch_index: batchIndex,
       batch_count: batchCount,
-      provider_windows: providerWindowSummary
+      provider_windows: providerWindowSummary,
+      failed_symbols: failures.map((failure) => failure.symbol),
+      failures
     });
   } catch (error) {
     if (base44 && run?.id) {
       try {
-        await base44.asServiceRole.entities.IngestionRun.update(run.id, { status: "failed", finished_at: (/* @__PURE__ */ new Date()).toISOString(), failure_code: error?.code || "US_OPTIONS_INGESTION_FAILED", notes: error?.message || "failed" });
+        await base44.asServiceRole.entities.IngestionRun.update(run.id, {
+          status: "failed",
+          finished_at: (/* @__PURE__ */ new Date()).toISOString(),
+          failure_code: error?.code || "US_OPTIONS_INGESTION_FAILED",
+          notes: JSON.stringify({
+            ...runDiagnostics || {},
+            terminal_error: error?.message || "failed"
+          })
+        });
       } catch {
       }
     }
