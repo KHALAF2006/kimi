@@ -1,23 +1,79 @@
 {
   "definition": {
     "document": { "dsl": "1.0.0", "name": "us_benchmarks_signals_daily", "version": "1.0", "namespace": "base44" },
-    "do": [{
-      "refresh_us_benchmarks_signals": {
-        "call": "invoke_backend_function",
-        "with": { "function_name": "usBenchmarksSignalRefresh", "args": { "market_code": "US_BENCHMARKS", "source": "daily_session_projection" } },
-        "then": "end"
+    "do": [
+      {
+        "refresh_us_benchmarks_signals_01": {
+          "call": "invoke_backend_function",
+          "with": { "function_name": "usBenchmarksSignalRefresh", "args": { "market_code": "US_BENCHMARKS", "source": "daily_session_projection" } },
+          "then": "wait_after_batch_01",
+          "x-base44": { "title": "استئناف الدفعة 1" }
+        }
+      },
+      {
+        "wait_after_batch_01": {
+          "wait": "PT5M",
+          "then": "refresh_us_benchmarks_signals_02",
+          "x-base44": { "title": "انتظار 5 دقائق" }
+        }
+      },
+      {
+        "refresh_us_benchmarks_signals_02": {
+          "call": "invoke_backend_function",
+          "with": { "function_name": "usBenchmarksSignalRefresh", "args": { "market_code": "US_BENCHMARKS", "source": "daily_session_projection" } },
+          "then": "wait_after_batch_02",
+          "x-base44": { "title": "استئناف الدفعة 2" }
+        }
+      },
+      {
+        "wait_after_batch_02": {
+          "wait": "PT5M",
+          "then": "refresh_us_benchmarks_signals_03",
+          "x-base44": { "title": "انتظار 5 دقائق" }
+        }
+      },
+      {
+        "refresh_us_benchmarks_signals_03": {
+          "call": "invoke_backend_function",
+          "with": { "function_name": "usBenchmarksSignalRefresh", "args": { "market_code": "US_BENCHMARKS", "source": "daily_session_projection" } },
+          "then": "wait_after_batch_03",
+          "x-base44": { "title": "استئناف الدفعة 3" }
+        }
+      },
+      {
+        "wait_after_batch_03": {
+          "wait": "PT5M",
+          "then": "refresh_us_benchmarks_signals_04",
+          "x-base44": { "title": "انتظار 5 دقائق" }
+        }
+      },
+      {
+        "refresh_us_benchmarks_signals_04": {
+          "call": "invoke_backend_function",
+          "with": { "function_name": "usBenchmarksSignalRefresh", "args": { "market_code": "US_BENCHMARKS", "source": "daily_session_projection" } },
+          "then": "end",
+          "x-base44": { "title": "إنهاء التغطية اليومية" }
+        }
       }
-    }]
+    ]
   },
-  "description": "يبني الشموع اليومية والأسبوعية والشهرية والإشارات من البيانات المحفوظة للمؤشرات والصناديق الأمريكية فقط.",
+  "description": "يبني الشموع اليومية والأسبوعية والشهرية والإشارات من البيانات المحفوظة للمؤشرات والصناديق الأمريكية عبر 3 دفعات محدودة ثم خطوة تحقق نهائية.",
   "name": "المؤشرات والصناديق الأمريكية — الشموع والإشارات اليومية",
   "trigger": {
     "condition": null,
     "config": {
-      "trigger_type": "scheduled", "events": [], "schedule_mode": "recurring",
-      "cron_expression": "15 18 * * 1-5", "one_time_date": null,
-      "timezone": "America/New_York", "interval_value": null, "interval_unit": null,
-      "interval_anchor": null, "ends_type": "never", "ends_on_date": null, "ends_after_count": null
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "15 18 * * 1-5",
+      "one_time_date": null,
+      "timezone": "America/New_York",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
     }
   }
 }

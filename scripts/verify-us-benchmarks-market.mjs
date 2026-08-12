@@ -46,6 +46,13 @@ assert.doesNotMatch(signals, /deleteMany|functions\.invoke\("usBenchmarksSignalR
 const signalConfig = JSON.parse(await source("base44/functions/usBenchmarksSignalRefresh/function.jsonc"));
 assert.equal(signalConfig.automations, undefined, "the Workflows-enabled app must not contain rejected legacy function automations");
 assert.match(signals, /already_projected/, "repeated projection for the same market session must be idempotently skipped");
+assert.match(signals, /const PROJECTION_BATCH_SIZE = 12/, "benchmark projection must stay below the observed Base44 execution ceiling");
+assert.match(signals, /const PROJECTION_BATCH_COUNT = Math\.ceil/, "benchmark projection capacity must follow the catalog size");
+assert.match(signals, /run_type: "technical_projection_batch"/, "each benchmark batch must be independently observable and resumable");
+assert.match(signals, /remaining_batches:/, "benchmark projection must expose bounded progress");
+assert.doesNotMatch(signals, /Promise\.allSettled/, "benchmark projection must not fan out all batches inside one backend call");
+assert.match(signals, /chunk\.is_final === true/, "benchmark daily projection must use only a finalized intraday session");
+assert.match(signals, /chunk\.completeness_status === "complete"/, "benchmark daily projection must reject an incomplete intraday session");
 
 const saudiSignals = await source("base44/functions/marketSignalRefresh/source.ts");
 assert.doesNotMatch(saudiSignals, /deleteMany|functions\.invoke\("marketSignalRefresh"/, "Saudi projection must stay in-process and must never delete another market");
@@ -74,6 +81,21 @@ const hourlyWorkflow = JSON.parse(await source("base44/workflows/UsBenchmarksQua
 assert.equal(hourlyWorkflow.trigger.config.cron_expression, "20 10-16 * * 1-5", "benchmark ingestion must fetch incrementally once per hour");
 const signalWorkflow = JSON.parse(await source("base44/workflows/UsBenchmarksSignalsDaily.jsonc"));
 assert.equal(signalWorkflow.trigger.config.cron_expression, "15 18 * * 1-5", "benchmark signals must run after the New York session through Base44 Workflows");
-assert.equal(Object.values(signalWorkflow.definition.do[0])[0].with.function_name, "usBenchmarksSignalRefresh");
+const benchmarkSignalSteps = signalWorkflow.definition.do.map((entry) => {
+  const [key, step] = Object.entries(entry)[0];
+  return { key, step };
+});
+const benchmarkSignalCalls = benchmarkSignalSteps.filter(({ step }) => step.call === "invoke_backend_function");
+const benchmarkSignalWaits = benchmarkSignalSteps.filter(({ step }) => step.wait === "PT5M");
+assert.equal(benchmarkSignalCalls.length, 4, "benchmark signals must run 3 bounded batches and then finalize");
+assert.equal(benchmarkSignalWaits.length, 3, "benchmark batches must be separated by five minutes");
+assert.equal(benchmarkSignalSteps.length, 7, "benchmark signal projection must stay strictly sequential");
+for (const { step } of benchmarkSignalCalls) {
+  assert.equal(step.with.function_name, "usBenchmarksSignalRefresh");
+  assert.deepEqual(step.with.args, { market_code: "US_BENCHMARKS", source: "daily_session_projection" });
+}
+for (let index = 0; index < benchmarkSignalSteps.length; index += 1) {
+  assert.equal(benchmarkSignalSteps[index].step.then, benchmarkSignalSteps[index + 1]?.key || "end", "benchmark projection steps must never branch or run concurrently");
+}
 
 console.log(JSON.stringify({ status: "verified", market: US_BENCHMARKS_MARKET_CODE, instruments: 33, isolation: true, complete_15m_only: true, stored_history: true, signals: ["1d", "1wk", "1mo"] }, null, 2));

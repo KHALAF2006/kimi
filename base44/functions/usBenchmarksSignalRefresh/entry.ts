@@ -892,8 +892,8 @@ var US_BENCHMARKS_SYMBOLS = new Set(US_BENCHMARKS_CATALOG.instruments.map((instr
 
 // base44/functions/usBenchmarksSignalRefresh/source.ts
 var MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
-var BATCH_SIZE = 6;
-var CONCURRENCY = 2;
+var PROJECTION_BATCH_SIZE = 12;
+var PROJECTION_BATCH_COUNT = Math.ceil(US_BENCHMARKS_CATALOG.instruments.length / PROJECTION_BATCH_SIZE);
 function rows(value) {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.data)) return value.data;
@@ -907,15 +907,25 @@ async function digest(value) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
   return [...new Uint8Array(bytes)].map((item2) => item2.toString(16).padStart(2, "0")).join("");
 }
-function batches(values, size) {
-  const result = [];
-  for (let index = 0; index < values.length; index += size) result.push(values.slice(index, index + size));
-  return result;
-}
 function dailyBars(values) {
   const byDate = /* @__PURE__ */ new Map();
   for (const bar of normalizeTechnicalBars(values)) byDate.set(nyDate(new Date(bar.time)), bar);
   return [...byDate.values()].sort((left, right) => Date.parse(left.time) - Date.parse(right.time));
+}
+function projectionSlotKey(sessionDate) {
+  return `${US_BENCHMARKS_MARKET_CODE}:technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
+}
+function projectionBatchSlotKey(sessionDate, batchIndex) {
+  return `${projectionSlotKey(sessionDate)}:batch-${batchIndex + 1}-of-${PROJECTION_BATCH_COUNT}`;
+}
+function parseRunNotes(value) {
+  if (!value) return {};
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
 }
 function aggregateSession(values) {
   const bars = normalizeTechnicalBars(values);
@@ -953,7 +963,7 @@ async function projectBatch(base44, instruments, sessionDate, sourceId, runId) {
   for (const instrument of instruments) {
     const instrumentChunks = chunks.filter((chunk) => chunk.instrument_id === instrument.id);
     const storedDaily = instrumentChunks.filter((chunk) => chunk.interval === "1d").flatMap((chunk) => chunk.bars || []);
-    const intraday = instrumentChunks.filter((chunk) => chunk.interval === "15m" && chunk.session_date === sessionDate).flatMap((chunk) => chunk.bars || []);
+    const intraday = instrumentChunks.filter((chunk) => chunk.interval === "15m" && chunk.session_date === sessionDate && chunk.is_final === true && chunk.completeness_status === "complete").flatMap((chunk) => chunk.bars || []);
     const currentDaily = aggregateSession(intraday);
     const canonicalDaily = dailyBars([...storedDaily, ...currentDaily ? [currentDaily] : []]);
     if (canonicalDaily.length < 2) {
@@ -964,10 +974,11 @@ async function projectBatch(base44, instruments, sessionDate, sourceId, runId) {
     for (const [timeframe, bars] of Object.entries(timeframes)) {
       if (!bars.length) continue;
       const technical = calculateTechnicalSignals(bars, TECHNICAL_SIGNAL_WINDOW_SIZE, timeframe);
-      snapshots.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, indicator_key: "technical_signals", timeframe, values: { ...technical, is_final: timeframe === "1d" }, source_as_of: bars.at(-1).time, calculated_at: (/* @__PURE__ */ new Date()).toISOString(), formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION });
+      const currentPeriodIsFinal = timeframe === "1d" && Boolean(currentDaily);
+      snapshots.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, indicator_key: "technical_signals", timeframe, values: { ...technical, is_final: currentPeriodIsFinal }, source_as_of: bars.at(-1).time, calculated_at: (/* @__PURE__ */ new Date()).toISOString(), formula_version: TECHNICAL_SIGNAL_FORMULA_VERSION });
       const momentum = calculateMomentumZones(bars, 20, Number.POSITIVE_INFINITY, timeframe);
-      if (momentum) snapshots.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, indicator_key: "momentum_zones", timeframe, values: { ...momentum, is_final: timeframe === "1d" }, source_as_of: bars.at(-1).time, calculated_at: (/* @__PURE__ */ new Date()).toISOString(), formula_version: MOMENTUM_FORMULA_VERSION });
-      if (timeframe !== "1d") projectedCandles.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, interval: timeframe, chunk_key: `${US_BENCHMARKS_MARKET_CODE}:${instrument.symbol}:${timeframe}:canonical`, start_time: bars[0].time, end_time: bars.at(-1).time, bars, bar_count: bars.length, checksum: await digest(bars), source_id: sourceId, run_id: runId, snapshot_version: `${US_BENCHMARKS_MARKET_CODE}:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`, provider_as_of: bars.at(-1).time, received_time: (/* @__PURE__ */ new Date()).toISOString(), quality_status: "verified", canonical_version: "us-benchmarks-candle-projection-v1", is_final: false, bucket_count: bars.length, completeness_status: "complete", is_historical_archive: false, adjustment_mode: "none" });
+      if (momentum) snapshots.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, indicator_key: "momentum_zones", timeframe, values: { ...momentum, is_final: currentPeriodIsFinal }, source_as_of: bars.at(-1).time, calculated_at: (/* @__PURE__ */ new Date()).toISOString(), formula_version: MOMENTUM_FORMULA_VERSION });
+      if (timeframe !== "1d") projectedCandles.push({ instrument_id: instrument.id, market_code: US_BENCHMARKS_MARKET_CODE, symbol: instrument.symbol, interval: timeframe, chunk_key: `${US_BENCHMARKS_MARKET_CODE}:${instrument.symbol}:${timeframe}:canonical`, start_time: bars[0].time, end_time: bars.at(-1).time, bars, bar_count: bars.length, checksum: await digest(bars), source_id: sourceId, run_id: runId, snapshot_version: `${US_BENCHMARKS_MARKET_CODE}:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`, provider_as_of: bars.at(-1).time, received_time: (/* @__PURE__ */ new Date()).toISOString(), quality_status: "verified", canonical_version: "us-benchmarks-candle-projection-v1", is_final: currentPeriodIsFinal, bucket_count: bars.length, completeness_status: "complete", is_historical_archive: false, adjustment_mode: "none" });
     }
   }
   return {
@@ -988,28 +999,98 @@ Deno.serve(async (req) => {
     else await requireTrustedOwner(base44);
     if (String(body.market_code || US_BENCHMARKS_MARKET_CODE) !== US_BENCHMARKS_MARKET_CODE) throw Object.assign(new Error("Wrong market"), { status: 400, code: "MARKET_MISMATCH" });
     const sessionDate = String(body.session_date || nyDate());
-    const slotKey = `${US_BENCHMARKS_MARKET_CODE}:technical-projection:${sessionDate}:${TECHNICAL_SIGNAL_FORMULA_VERSION}`;
-    const existingRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
-    if (existingRuns.some((item2) => ["success", "partial"].includes(item2.status)) && body.force !== true) return Response.json({ status: "skipped", reason: "already_projected", market_code: US_BENCHMARKS_MARKET_CODE, session_date: sessionDate });
-    for (const stale of existingRuns.filter((item2) => item2.status === "running" && Date.parse(item2.lease_expires_at || 0) <= Date.now())) await base44.asServiceRole.entities.IngestionRun.update(stale.id, { status: "failed", finished_at: (/* @__PURE__ */ new Date()).toISOString(), failure_code: "STALE_PROJECTION_LEASE", notes: "Expired projection lease was closed before retry" });
-    const instruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_BENCHMARKS_MARKET_CODE }, "symbol", 500)).filter((item2) => US_BENCHMARKS_SYMBOLS.has(item2.symbol) && item2.status !== "delisted");
+    const slotKey = projectionSlotKey(sessionDate);
+    const instruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_BENCHMARKS_MARKET_CODE }, "symbol", 500)).filter((item2) => US_BENCHMARKS_SYMBOLS.has(item2.symbol) && item2.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
     if (instruments.length !== US_BENCHMARKS_CATALOG.instruments.length) throw Object.assign(new Error(`Benchmark catalog incomplete: ${instruments.length}/${US_BENCHMARKS_CATALOG.instruments.length}`), { status: 503, code: "US_BENCHMARKS_CATALOG_INCOMPLETE" });
-    const source = await projectionSource(base44);
-    run = await base44.asServiceRole.entities.IngestionRun.create({ run_type: "technical_projection", market_code: US_BENCHMARKS_MARKET_CODE, slot_key: slotKey, slot_kind: "technical_projection", scheduled_for: (/* @__PURE__ */ new Date()).toISOString(), lease_expires_at: new Date(Date.now() + 3 * 6e4).toISOString(), started_at: (/* @__PURE__ */ new Date()).toISOString(), total_records: instruments.length, success_count: 0, failed_count: 0, status: "running", source_id: source.id, notes: "U.S. indices and ETFs daily, weekly, monthly signal projection" });
-    const groups = batches(instruments, BATCH_SIZE);
-    const completed = [];
-    const failedBatches = [];
-    for (let offset = 0; offset < groups.length; offset += CONCURRENCY) {
-      const settled = await Promise.allSettled(groups.slice(offset, offset + CONCURRENCY).map((group) => projectBatch(base44, group, sessionDate, source.id, run.id)));
-      settled.forEach((result, index) => result.status === "fulfilled" ? completed.push(result.value) : failedBatches.push({ batch_index: offset + index, count: groups[offset + index].length, error: result.reason?.message || "projection_batch_failed" }));
+    if (Math.ceil(instruments.length / PROJECTION_BATCH_SIZE) !== PROJECTION_BATCH_COUNT) throw Object.assign(new Error(`Benchmark projection capacity changed: ${instruments.length}`), { status: 503, code: "PROJECTION_CAPACITY_CHANGED" });
+    const recentRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ market_code: US_BENCHMARKS_MARKET_CODE }, "-created_date", 250));
+    const completedRun = recentRuns.find((item2) => item2.slot_key === slotKey && ["success", "partial"].includes(item2.status));
+    if (completedRun && body.force !== true) return Response.json({ status: "skipped", reason: "already_projected", market_code: US_BENCHMARKS_MARKET_CODE, session_date: sessionDate, run_id: completedRun.id });
+    const completedBatches = [];
+    let nextBatchIndex = -1;
+    for (let batchIndex = 0; batchIndex < PROJECTION_BATCH_COUNT; batchIndex += 1) {
+      const batchSlotKey = projectionBatchSlotKey(sessionDate, batchIndex);
+      const batchRuns = recentRuns.filter((item2) => item2.slot_key === batchSlotKey).sort((left, right) => Date.parse(right.finished_at || right.updated_date || right.created_date || 0) - Date.parse(left.finished_at || left.updated_date || left.created_date || 0));
+      const completedBatch = batchRuns.find((item2) => ["success", "partial"].includes(item2.status));
+      if (completedBatch && body.force !== true) {
+        completedBatches.push(completedBatch);
+        continue;
+      }
+      const activeBatch = batchRuns.find((item2) => item2.status === "running" && Date.parse(item2.lease_expires_at || 0) > Date.now());
+      if (activeBatch && body.force !== true) return Response.json({ status: "running", stage: "projection_batch", session_date: sessionDate, batch_index: batchIndex, batch_count: PROJECTION_BATCH_COUNT, run_id: activeBatch.id });
+      for (const staleBatch of batchRuns.filter((item2) => item2.status === "running")) {
+        await base44.asServiceRole.entities.IngestionRun.update(staleBatch.id, { status: "failed", finished_at: (/* @__PURE__ */ new Date()).toISOString(), failure_code: "SUPERSEDED_STALE_BATCH", notes: "A stale benchmark projection batch was superseded by a bounded retry" });
+      }
+      nextBatchIndex = batchIndex;
+      break;
     }
-    const skipped = completed.flatMap((item2) => item2.skipped || []);
-    const failed = skipped.length + failedBatches.reduce((sum, item2) => sum + item2.count, 0);
-    const status = failed === 0 ? "success" : failed < instruments.length ? "partial" : "failed";
-    const candles = completed.reduce((sum, item2) => ({ created: sum.created + Number(item2.candles?.created || 0), updated: sum.updated + Number(item2.candles?.updated || 0) }), { created: 0, updated: 0 });
-    const signals = completed.reduce((sum, item2) => ({ created: sum.created + Number(item2.signals?.created || 0), updated: sum.updated + Number(item2.signals?.updated || 0) }), { created: 0, updated: 0 });
-    await base44.asServiceRole.entities.IngestionRun.update(run.id, { status, finished_at: (/* @__PURE__ */ new Date()).toISOString(), success_count: instruments.length - failed, failed_count: failed, coverage_percent: (instruments.length - failed) / instruments.length * 100, snapshot_version: slotKey, notes: JSON.stringify({ candles, signals, failed_batches: failedBatches, skipped_count: skipped.length }) });
-    return Response.json({ status, market_code: US_BENCHMARKS_MARKET_CODE, session_date: sessionDate, run_id: run.id, candles, signals, skipped, failed_batches: failedBatches });
+    if (nextBatchIndex >= 0) {
+      const selected = instruments.slice(nextBatchIndex * PROJECTION_BATCH_SIZE, (nextBatchIndex + 1) * PROJECTION_BATCH_SIZE);
+      const source2 = await projectionSource(base44);
+      run = await base44.asServiceRole.entities.IngestionRun.create({
+        run_type: "technical_projection_batch",
+        market_code: US_BENCHMARKS_MARKET_CODE,
+        slot_key: projectionBatchSlotKey(sessionDate, nextBatchIndex),
+        slot_kind: "technical_projection",
+        scheduled_for: (/* @__PURE__ */ new Date()).toISOString(),
+        lease_expires_at: new Date(Date.now() + 3 * 6e4).toISOString(),
+        started_at: (/* @__PURE__ */ new Date()).toISOString(),
+        total_records: selected.length,
+        success_count: 0,
+        failed_count: 0,
+        status: "running",
+        source_id: source2.id,
+        notes: `Bounded benchmark projection batch ${nextBatchIndex + 1}/${PROJECTION_BATCH_COUNT}`
+      });
+      const result = await projectBatch(base44, selected, sessionDate, source2.id, run.id);
+      const failed = new Set(result.skipped.map((item2) => item2.instrument_id)).size;
+      const status2 = failed === 0 ? "success" : failed < selected.length ? "partial" : "failed";
+      await base44.asServiceRole.entities.IngestionRun.update(run.id, {
+        status: status2,
+        finished_at: (/* @__PURE__ */ new Date()).toISOString(),
+        success_count: selected.length - failed,
+        failed_count: failed,
+        coverage_percent: selected.length ? (selected.length - failed) / selected.length * 100 : 0,
+        notes: JSON.stringify({ batch_index: nextBatchIndex, batch_count: PROJECTION_BATCH_COUNT, candles: result.candles, signals: result.signals, skipped: result.skipped })
+      });
+      return Response.json({ ...result, status: status2, stage: "projection_batch", market_code: US_BENCHMARKS_MARKET_CODE, session_date: sessionDate, run_id: run.id, batch_index: nextBatchIndex, batch_count: PROJECTION_BATCH_COUNT, completed_batches: nextBatchIndex + 1, remaining_batches: PROJECTION_BATCH_COUNT - nextBatchIndex - 1 });
+    }
+    const totalRecords = completedBatches.reduce((total, item2) => total + Number(item2.total_records || 0), 0);
+    const successCount = completedBatches.reduce((total, item2) => total + Number(item2.success_count || 0), 0);
+    const failedCount = Math.max(0, totalRecords - successCount);
+    const candles = completedBatches.reduce((total, item2) => {
+      const notes = parseRunNotes(item2.notes);
+      total.created += Number(notes.candles?.created || 0);
+      total.updated += Number(notes.candles?.updated || 0);
+      return total;
+    }, { created: 0, updated: 0 });
+    const signals = completedBatches.reduce((total, item2) => {
+      const notes = parseRunNotes(item2.notes);
+      total.created += Number(notes.signals?.created || 0);
+      total.updated += Number(notes.signals?.updated || 0);
+      return total;
+    }, { created: 0, updated: 0 });
+    const status = failedCount === 0 ? "success" : failedCount < totalRecords ? "partial" : "failed";
+    const source = await projectionSource(base44);
+    run = await base44.asServiceRole.entities.IngestionRun.create({
+      run_type: "technical_projection",
+      market_code: US_BENCHMARKS_MARKET_CODE,
+      slot_key: slotKey,
+      slot_kind: "technical_projection",
+      scheduled_for: (/* @__PURE__ */ new Date()).toISOString(),
+      started_at: (/* @__PURE__ */ new Date()).toISOString(),
+      finished_at: (/* @__PURE__ */ new Date()).toISOString(),
+      lease_expires_at: new Date(Date.now() + 6e4).toISOString(),
+      total_records: totalRecords,
+      success_count: successCount,
+      failed_count: failedCount,
+      status,
+      source_id: source.id,
+      coverage_percent: totalRecords ? successCount / totalRecords * 100 : 0,
+      snapshot_version: slotKey,
+      notes: JSON.stringify({ candles, signals, batch_count: PROJECTION_BATCH_COUNT, batch_run_ids: completedBatches.map((item2) => item2.id) })
+    });
+    return Response.json({ status, stage: "projection_finalize", market_code: US_BENCHMARKS_MARKET_CODE, session_date: sessionDate, run_id: run.id, instruments: totalRecords, success_count: successCount, failed_count: failedCount, candles, signals });
   } catch (error) {
     if (base44 && run?.id) try {
       await base44.asServiceRole.entities.IngestionRun.update(run.id, { status: "failed", finished_at: (/* @__PURE__ */ new Date()).toISOString(), failure_code: error?.code || "US_BENCHMARKS_SIGNAL_FAILED", notes: error?.message || "failed" });
