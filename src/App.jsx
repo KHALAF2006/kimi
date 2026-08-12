@@ -38,6 +38,7 @@ const DataQualityAdmin = lazy(() => import('@/pages/DataQualityAdmin'));
 const OperationsAdmin = lazy(() => import('@/pages/OperationsAdmin'));
 const AuditAdmin = lazy(() => import('@/pages/AuditAdmin'));
 const RolesAdmin = lazy(() => import('@/pages/RolesAdmin'));
+const AdvancedChartPilot = lazy(() => import('@/pages/AdvancedChartPilot'));
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -90,6 +91,7 @@ const AuthenticatedApp = () => {
           <Route path="/admin/operations" element={<PermissionGate permission="data.operations.read"><OperationsAdmin /></PermissionGate>} />
           <Route path="/admin/audit" element={<PermissionGate permission="audit.read"><AuditAdmin /></PermissionGate>} />
           <Route path="/admin/roles" element={<PermissionGate permission="roles.manage"><RolesAdmin /></PermissionGate>} />
+          <Route path="/admin/chart-preview" element={<PermissionGate permission="dashboard.owner.read"><AdvancedChartPilot /></PermissionGate>} />
         </Route>
       </Route>
       <Route path="*" element={<PageNotFound />} />

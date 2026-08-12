@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node scripts/verify-market-data.mjs && node scripts/verify-us-options-market.mjs && node scripts/verify-us-benchmarks-market.mjs && node scripts/verify-project.mjs && node scripts/build-app-editor-functions.mjs --check",
+    "test": "node scripts/verify-market-data.mjs && node scripts/verify-us-options-market.mjs && node scripts/verify-us-benchmarks-market.mjs && node scripts/verify-tradingview-datafeed.mjs && node scripts/verify-project.mjs && node scripts/build-app-editor-functions.mjs --check",
     "build:app-editor-functions": "node scripts/build-app-editor-functions.mjs",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
