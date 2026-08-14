@@ -27,6 +27,12 @@ const referenceClient = {
     resetPassword: referenceOnlyError,
   },
   functions: { invoke: referenceOnlyError },
+  integrations: {
+    Core: {
+      UploadPrivateFile: referenceOnlyError,
+      CreateFileSignedUrl: referenceOnlyError,
+    },
+  },
 };
 
 // The SDK is not initialized in the local reference preview. This prevents

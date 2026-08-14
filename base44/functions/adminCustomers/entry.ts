@@ -32,7 +32,7 @@ function customerView(customer, full) {
     role: customer.role,
     tags: customer.tags || [],
     email_verified_at: customer.email_verified_at,
-    phone_verified_at: customer.phone_verified_at,
+    phone_accuracy_acknowledged_at: customer.phone_accuracy_acknowledged_at,
     last_login_at: customer.last_login_at,
     last_seen_at: customer.last_seen_at,
     created_date: customer.created_date,

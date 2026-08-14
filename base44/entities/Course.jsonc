@@ -9,12 +9,12 @@
     "description_en": { "type": "string" },
     "cover_file_uri": { "type": "string" },
     "visibility": { "type": "string", "enum": ["public", "market"], "default": "public" },
-    "protection_level": { "type": "string", "enum": ["basic", "enterprise"], "default": "enterprise" },
+    "storage_mode": { "type": "string", "enum": ["base44_private"], "default": "base44_private" },
     "market_code": { "type": "string", "enum": ["SA_MAIN", "US_OPTIONS", "US_BENCHMARKS"] },
     "status": { "type": "string", "enum": ["draft", "published", "archived"], "default": "draft" },
     "display_order": { "type": "integer", "minimum": 0 },
     "revision": { "type": "integer", "minimum": 1 }
   },
-  "required": ["code", "title_ar", "title_en", "visibility", "protection_level", "status", "display_order", "revision"],
+  "required": ["code", "title_ar", "title_en", "visibility", "storage_mode", "status", "display_order", "revision"],
   "rls": { "create": false, "read": false, "update": false, "delete": false }
 }

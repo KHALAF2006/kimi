@@ -169,7 +169,7 @@ assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh"
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
 const allEntityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc")).sort();
 const entityFiles = allEntityFiles.filter((name) => /^[A-Z][A-Za-z0-9]*\.jsonc$/.test(name));
-assert.equal(entityFiles.length, 57, "all 57 identity-preserving Base44 entity schemas must be present");
+assert.equal(entityFiles.length, 56, "all 56 identity-preserving Base44 entity schemas must be present");
 assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "duplicate or identity-changing entity schema files must not remain beside the Base44 schemas");
 const entityNames = new Set();
 for (const name of entityFiles) {
@@ -186,7 +186,7 @@ for (const name of entityFiles) {
 }
 assert.ok(!entityNames.has("User"), "built-in Base44 User fields and permissions must not be redefined");
 const entityNamesLower = new Set([...entityNames].map((name) => name.toLowerCase()));
-for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "QuoteObservation", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "UsageCounter", "Market", "InstrumentAlias", "ProviderInstrumentMap", "RegistrationDraft", "TradingPlatform", "MarketAccessApplication", "Message", "NotificationPreference", "Course", "CourseLesson", "PlaybackLease", "ContentSecurityEvent", "CustomerReportSnapshot"]) {
+for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "QuoteObservation", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "UsageCounter", "Market", "InstrumentAlias", "ProviderInstrumentMap", "TradingPlatform", "MarketAccessApplication", "Message", "NotificationPreference", "Course", "CourseLesson", "PlaybackLease", "ContentSecurityEvent", "CustomerReportSnapshot"]) {
   assert.ok(entityNamesLower.has(required.toLowerCase()), `required entity is missing: ${required}`);
 }
 const customerProfile = JSON.parse(await readFile(new URL("../base44/entities/CustomerProfile.jsonc", import.meta.url), "utf8"));
@@ -195,7 +195,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 37, "all 37 backend functions must be present");
+assert.equal(functionNames.length, 36, "all 36 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -244,14 +244,18 @@ const authLayout = await readFile(new URL("../src/components/AuthLayout.jsx", im
 const siteStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
 assert.match(loginPage, /isAuthenticated\?t\.sendCode:t\.next/, "an already authenticated Base44 user must continue through SMART_INVESTOR email OTP");
 assert.match(registerPage, /marketing_consent:\s*form\.consent/, "registration must send the mandatory communication consent to the backend");
-assert.match(registerPage, /start_phone_verification/, "registration must verify the mobile number after email verification");
+assert.match(registerPage, /phone_accuracy_acknowledged/, "registration must require a clear mobile-number accuracy acknowledgement");
+assert.doesNotMatch(registerPage, /phone_code|start_phone_verification/, "registration must not request or send a mobile verification code");
+assert.doesNotMatch(authRegistrationFunction, /TWILIO|twilio|VerificationCheck|phone_verified/, "registration must not depend on phone verification services or claim the phone was verified");
 assert.match(authRegistrationFunction, /privaterelay\.appleid\.com/, "Apple private relay email addresses must be rejected");
 assert.match(authRegistrationFunction, /private\.icloud\.com/, "Apple shared private relay addresses must be rejected");
 assert.match(authRegistrationFunction, /account_status:\s*"pending_owner_approval"/, "new customers must remain pending until the owner decides");
 assert.match(adminAccessFunction, /context\.role !== "owner"/, "market application decisions must be owner-only");
 assert.match(adminAccessFunction, /10 \* 24 \* 60 \* 60 \* 1000/, "owner approval must create exactly ten free days");
 assert.match(adminAccessFunction, /market_code:\s*application\.market_code/, "each approved application must stay bound to one market");
-assert.match(trainingContentFunction, /ENTERPRISE_DRM_REQUIRED/, "enterprise courses must not publish until DRM is verified");
+assert.match(trainingContentFunction, /CreateFileSignedUrl/, "course playback must use temporary links for private Base44 files");
+assert.match(trainingContentFunction, /storage_provider:\s*"base44_private"/, "course videos must be stored in private Base44 storage");
+assert.doesNotMatch(trainingContentFunction, /BUNNY|bunny|mediadelivery|DRM/, "course delivery must not depend on an external video provider or claim DRM");
 assert.match(trainingContentFunction, /attempt >= 3/, "three verified parallel playback attempts must trigger the temporary block gate");
 assert.match(trainingContentFunction, /ActiveDeviceSession\.updateMany/, "a protected-content block must revoke active sessions");
 assert.match(customerReportFunction, /UploadPrivateFile/, "customer reports must be stored as private files");

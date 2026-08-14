@@ -75,7 +75,7 @@
       "type": "string",
       "format": "date-time"
     },
-    "phone_verified_at": {
+    "phone_accuracy_acknowledged_at": {
       "type": "string",
       "format": "date-time"
     },
