@@ -166,7 +166,7 @@ assert.match(drawingsBackend, /Instrument\.filter\(\{ symbol, market_code: marke
 assert.match(drawingsBackend, /\(row\.market_code \|\| "SA_MAIN"\) !== marketCode/);
 const drawingService = await source("src/services/drawingService.js");
 assert.match(drawingService, /market_code: marketCode/);
-assert.match(drawingService, /kmy_chart_drawings_\$\{marketCode\}_\$\{symbol\}/);
+assert.match(drawingService, /smart_investor_chart_drawings_\$\{marketCode\}_\$\{symbol\}/);
 
 const ingestion = await source("base44/functions/usOptionsMarketIngestion/source.ts");
 assert.match(ingestion, /url\.searchParams\.set\("interval", "5m"\)/);
@@ -276,7 +276,7 @@ assert.match(companyChart, /persistSuccessfulChartSelection/);
 assert.match(companyChart, /successfulSelectionRef/);
 assert.match(companyChart, /العودة إلى اليومي/);
 assert.doesNotMatch(companyChart, /className=\{candles\.length \? "chart-canvas-wrap" : "h-0"\}/, "a failed request must never collapse the chart controls and canvas to zero height");
-const layout = await source("src/components/KmyLayout.jsx");
+const layout = await source("src/components/SmartInvestorLayout.jsx");
 assert.match(layout, /<MarketAccessSelect compact/);
 
 const ingestionConfig = JSON.parse(await source("base44/functions/usOptionsMarketIngestion/function.jsonc"));

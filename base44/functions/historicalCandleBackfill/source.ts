@@ -175,7 +175,7 @@ async function fetchYahooHistorical(symbol: string, from: string, to: string, ba
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const response = await fetch(url, {
-        headers: { Accept: "application/json", "User-Agent": "KMY-Historical-Archive/1.0" },
+        headers: { Accept: "application/json", "User-Agent": "SMART_INVESTOR-Historical-Archive/1.0" },
         signal: controller.signal,
       });
       const payload = await response.json().catch(() => ({}));

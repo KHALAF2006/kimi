@@ -1,0 +1,17 @@
+{
+  "name": "customerReport",
+  "entry": "entry.ts",
+  "automations": [
+    {
+      "type": "scheduled",
+      "name": "daily_customer_report",
+      "description": "Updates the private master customer workbook at 23:55 Asia/Riyadh (20:55 UTC).",
+      "function_args": { "action": "scheduled" },
+      "is_active": true,
+      "schedule_mode": "recurring",
+      "schedule_type": "cron",
+      "cron_expression": "55 20 * * ?",
+      "ends_type": "never"
+    }
+  ]
+}

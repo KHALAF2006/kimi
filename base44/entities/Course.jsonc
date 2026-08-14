@@ -1,0 +1,20 @@
+{
+  "name": "Course",
+  "type": "object",
+  "properties": {
+    "code": { "type": "string" },
+    "title_ar": { "type": "string" },
+    "title_en": { "type": "string" },
+    "description_ar": { "type": "string" },
+    "description_en": { "type": "string" },
+    "cover_file_uri": { "type": "string" },
+    "visibility": { "type": "string", "enum": ["public", "market"], "default": "public" },
+    "protection_level": { "type": "string", "enum": ["basic", "enterprise"], "default": "enterprise" },
+    "market_code": { "type": "string", "enum": ["SA_MAIN", "US_OPTIONS", "US_BENCHMARKS"] },
+    "status": { "type": "string", "enum": ["draft", "published", "archived"], "default": "draft" },
+    "display_order": { "type": "integer", "minimum": 0 },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["code", "title_ar", "title_en", "visibility", "protection_level", "status", "display_order", "revision"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

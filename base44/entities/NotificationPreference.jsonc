@@ -1,0 +1,13 @@
+{
+  "name": "NotificationPreference",
+  "type": "object",
+  "properties": {
+    "customer_id": { "type": "string" },
+    "auth_user_id": { "type": "string" },
+    "feed_enabled": { "type": "boolean", "default": true },
+    "messages_enabled": { "type": "boolean", "default": true },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["customer_id", "auth_user_id", "feed_enabled", "messages_enabled", "revision"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

@@ -3,7 +3,7 @@ import { useAuthorization } from "@/lib/AuthorizationContext";
 import { resolveAvailableMarkets } from "@/lib/marketAccess";
 
 const MarketContext = createContext(null);
-const STORAGE_KEY = "kmy_market_code";
+const STORAGE_KEY = "smart_investor_market_code";
 
 export function ActiveMarketProvider({ children }) {
   const { loading, context, error, refresh } = useAuthorization();

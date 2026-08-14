@@ -2,14 +2,14 @@ import { invokeAppFunction, isReferencePreview } from "@/services/marketService"
 import { normalizedDrawing } from "@/components/market/chartDrawingModel";
 
 function storageKey(marketCode, symbol, interval = "all") {
-  return `kmy_chart_drawings_${marketCode}_${symbol}_${interval}`;
+  return `smart_investor_chart_drawings_${marketCode}_${symbol}_${interval}`;
 }
 
 function readLocal(marketCode, symbol, interval = "all") {
   try {
     const scoped = localStorage.getItem(storageKey(marketCode, symbol, interval));
-    const legacyInterval = marketCode === "SA_MAIN" ? localStorage.getItem(`kmy_chart_drawings_${symbol}_${interval}`) : null;
-    const legacySymbol = marketCode === "SA_MAIN" ? localStorage.getItem(`kmy_chart_drawings_${symbol}`) : null;
+    const legacyInterval = marketCode === "SA_MAIN" ? localStorage.getItem(`smart_investor_chart_drawings_${symbol}_${interval}`) : null;
+    const legacySymbol = marketCode === "SA_MAIN" ? localStorage.getItem(`smart_investor_chart_drawings_${symbol}`) : null;
     const raw = scoped || legacyInterval || legacySymbol || "[]";
     const drawings = (JSON.parse(raw) || []).map(normalizedDrawing).filter(Boolean);
     if (!scoped && drawings.length) localStorage.setItem(storageKey(marketCode, symbol, interval), JSON.stringify(drawings));

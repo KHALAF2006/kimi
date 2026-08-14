@@ -484,7 +484,7 @@ async function fetchPublicDelayedCharts({
         url.searchParams.set("includePrePost", "false");
         url.searchParams.set("events", "div,splits");
         const response = await fetchImpl(url, {
-          headers: { Accept: "application/json", "User-Agent": "KMY-Experimental-Market-Data/1.0" },
+          headers: { Accept: "application/json", "User-Agent": "SMART_INVESTOR-Experimental-Market-Data/1.0" },
           signal: controller.signal
         });
         if (!response.ok) throw new Error(`Public delayed source returned ${response.status}`);
@@ -605,7 +605,7 @@ async function fetchLicensedSnapshot({
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
-          "User-Agent": "KMY-Licensed-Market-Data/1.0"
+          "User-Agent": "SMART_INVESTOR-Licensed-Market-Data/1.0"
         },
         body: JSON.stringify(requestBody),
         signal: controller.signal
@@ -5781,7 +5781,7 @@ async function requireDataIngestionPermission(base44, sessionId) {
 }
 function replyError(error) {
   const status = Number(error?.status) || 500;
-  if (status >= 500) console.error("KMY backend error", error);
+  if (status >= 500) console.error("SMART_INVESTOR backend error", error);
   return Response.json({
     error: status >= 500 ? "Backend operation failed" : error?.message || "Request failed",
     code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
@@ -6162,12 +6162,12 @@ Deno.serve(async (req) => {
     if (holidays.length || sessions[0]?.is_trading_day === false) {
       return Response.json({ status: "skipped", reason: holidays.length ? "official_market_holiday" : "market_session_closed", clock: schedule.clock });
     }
-    const providerUrl = String(Deno.env.get("KMY_MARKET_DATA_URL") || "").trim();
-    const providerToken = String(Deno.env.get("KMY_MARKET_DATA_TOKEN") || "").trim();
-    const configuredMode = String(Deno.env.get("KMY_MARKET_DATA_MODE") || "experimental_public").trim();
+    const providerUrl = String(Deno.env.get("SMART_INVESTOR_MARKET_DATA_URL") || "").trim();
+    const providerToken = String(Deno.env.get("SMART_INVESTOR_MARKET_DATA_TOKEN") || "").trim();
+    const configuredMode = String(Deno.env.get("SMART_INVESTOR_MARKET_DATA_MODE") || "experimental_public").trim();
     const useLicensedProvider = configuredMode === "licensed";
     const providerCode = useLicensedProvider
-      ? String(Deno.env.get("KMY_MARKET_DATA_PROVIDER_CODE") || "LICENSED_SAUDI_MARKET_T15").trim()
+      ? String(Deno.env.get("SMART_INVESTOR_MARKET_DATA_PROVIDER_CODE") || "LICENSED_SAUDI_MARKET_T15").trim()
       : "EXPERIMENTAL_PUBLIC_DELAYED_15M";
     stage = "provider_source";
     const provider = useLicensedProvider
@@ -6417,7 +6417,7 @@ Deno.serve(async (req) => {
       is_final: normalized.isFinal
     });
   } catch (error) {
-    console.error("KMY market ingestion failed", {
+    console.error("SMART_INVESTOR market ingestion failed", {
       stage,
       run_id: run?.id || null,
       slot_key: run?.slot_key || null,
@@ -6435,7 +6435,7 @@ Deno.serve(async (req) => {
           notes: JSON.stringify({ failure_code: error?.code || "MARKET_INGESTION_FAILED" })
         });
       } catch (runError) {
-        console.error("KMY failed to finalize ingestion run", runError);
+        console.error("SMART_INVESTOR failed to finalize ingestion run", runError);
       }
     }
     return replyError(error);

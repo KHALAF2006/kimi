@@ -174,10 +174,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const [recoveryNotice, setRecoveryNotice] = useState("");
   const [retryKey, setRetryKey] = useState(0);
   const [hovered, setHovered] = useState(null);
-  const [showMomentum, setShowMomentum] = useState(() => localStorage.getItem("kmy_show_momentum") !== "false");
-  const [showMomentumCard, setShowMomentumCard] = useState(() => localStorage.getItem("kmy_show_momentum_card") !== "false");
-  const [showVolume, setShowVolume] = useState(() => localStorage.getItem("kmy_show_volume") !== "false");
-  const [showRsi, setShowRsi] = useState(() => localStorage.getItem("kmy_show_rsi") !== "false");
+  const [showMomentum, setShowMomentum] = useState(() => localStorage.getItem("smart_investor_show_momentum") !== "false");
+  const [showMomentumCard, setShowMomentumCard] = useState(() => localStorage.getItem("smart_investor_show_momentum_card") !== "false");
+  const [showVolume, setShowVolume] = useState(() => localStorage.getItem("smart_investor_show_volume") !== "false");
+  const [showRsi, setShowRsi] = useState(() => localStorage.getItem("smart_investor_show_rsi") !== "false");
   const [chartControls, setChartControls] = useState(/** @type {{ menu: string, panel: string }} */ ({ menu: "", panel: "" }));
   const [chartPortalContainer, setChartPortalContainer] = useState(null);
   const bindChartRoot = useCallback((node) => {
@@ -195,20 +195,20 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     mode: "idle",
     cursor: null,
     startTime: null,
-    speedMs: normalizeReplaySpeed(localStorage.getItem("kmy_chart_replay_speed")),
+    speedMs: normalizeReplaySpeed(localStorage.getItem("smart_investor_chart_replay_speed")),
   }));
   const [savingChartSettings, setSavingChartSettings] = useState(false);
   const [chartSettingsError, setChartSettingsError] = useState("");
   const [chartPreferences, setChartPreferences] = useState(() => sanitizeChartPreferences({
-    ...storedObject("kmy_chart_preferences_v2", chartVisualDefaults(theme)),
-    sma: storedObject("kmy_chart_preferences_v2", chartVisualDefaults(theme)).sma || {
-      fast: { ...chartVisualDefaults(theme).sma.fast, enabled: localStorage.getItem("kmy_show_sma20") !== "false" },
-      slow: { ...chartVisualDefaults(theme).sma.slow, enabled: localStorage.getItem("kmy_show_sma50") !== "false" },
+    ...storedObject("smart_investor_chart_preferences_v2", chartVisualDefaults(theme)),
+    sma: storedObject("smart_investor_chart_preferences_v2", chartVisualDefaults(theme)).sma || {
+      fast: { ...chartVisualDefaults(theme).sma.fast, enabled: localStorage.getItem("smart_investor_show_sma20") !== "false" },
+      slow: { ...chartVisualDefaults(theme).sma.slow, enabled: localStorage.getItem("smart_investor_show_sma50") !== "false" },
     },
   }, theme));
-  const [rsiSettings, setRsiSettings] = useState(() => storedObject("kmy_rsi_settings", rsiDefaults));
+  const [rsiSettings, setRsiSettings] = useState(() => storedObject("smart_investor_rsi_settings", rsiDefaults));
   const [momentumSettings, setMomentumSettings] = useState(() => {
-    const stored = storedObject("kmy_momentum_settings", momentumDefaults);
+    const stored = storedObject("smart_investor_momentum_settings", momentumDefaults);
     return {
       ...momentumDefaults,
       ...stored,
@@ -357,7 +357,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   }, [chartTarget, interval, range]);
 
   useEffect(() => {
-    localStorage.setItem("kmy_chart_replay_speed", String(replayState.speedMs));
+    localStorage.setItem("smart_investor_chart_replay_speed", String(replayState.speedMs));
   }, [replayState.speedMs]);
 
   useEffect(() => {
@@ -481,17 +481,17 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   }, [momentum, interval, onMomentumChange]);
 
   useEffect(() => {
-    localStorage.setItem("kmy_show_momentum", String(showMomentum));
-    localStorage.setItem("kmy_show_momentum_card", String(showMomentumCard));
-    localStorage.setItem("kmy_show_volume", String(showVolume));
-    localStorage.setItem("kmy_show_rsi", String(showRsi));
-    localStorage.setItem("kmy_show_sma20", String(showSma20));
-    localStorage.setItem("kmy_show_sma50", String(showSma50));
+    localStorage.setItem("smart_investor_show_momentum", String(showMomentum));
+    localStorage.setItem("smart_investor_show_momentum_card", String(showMomentumCard));
+    localStorage.setItem("smart_investor_show_volume", String(showVolume));
+    localStorage.setItem("smart_investor_show_rsi", String(showRsi));
+    localStorage.setItem("smart_investor_show_sma20", String(showSma20));
+    localStorage.setItem("smart_investor_show_sma50", String(showSma50));
   }, [showMomentum, showMomentumCard, showVolume, showRsi, showSma20, showSma50]);
 
-  useEffect(() => { localStorage.setItem("kmy_rsi_settings", JSON.stringify(rsiSettings)); }, [rsiSettings]);
-  useEffect(() => { localStorage.setItem("kmy_momentum_settings", JSON.stringify(momentumSettings)); }, [momentumSettings]);
-  useEffect(() => { localStorage.setItem("kmy_chart_preferences_v2", JSON.stringify(chartPreferencePayload(chartPreferences, theme))); }, [chartPreferences, theme]);
+  useEffect(() => { localStorage.setItem("smart_investor_rsi_settings", JSON.stringify(rsiSettings)); }, [rsiSettings]);
+  useEffect(() => { localStorage.setItem("smart_investor_momentum_settings", JSON.stringify(momentumSettings)); }, [momentumSettings]);
+  useEffect(() => { localStorage.setItem("smart_investor_chart_preferences_v2", JSON.stringify(chartPreferencePayload(chartPreferences, theme))); }, [chartPreferences, theme]);
 
   useEffect(() => {
     chartRef.current?.applyOptions({

@@ -45,7 +45,7 @@ export default function Landing() {
   return <div className="landing-page">
     <header className="landing-header">
       <SessionLink to="/" className="brand-lockup"><span className="brand-mark"><BarChart3 size={19} /></span><span>{isArabic ? "المستثمر الذكي" : "Smart Investor"}<small>SI</small></span></SessionLink>
-      <nav><a href="#platform">{isArabic ? "المزايا" : "Features"}</a><a href="#workflow">{isArabic ? "رحلة التنبيه" : "Alert journey"}</a><a href="#security">{isArabic ? "ابدأ الآن" : "Get started"}</a></nav>
+      <nav><a href="#platform">{isArabic ? "المزايا" : "Features"}</a><SessionLink to="/courses">{isArabic ? "الدورات" : "Courses"}</SessionLink><a href="#workflow">{isArabic ? "رحلة التنبيه" : "Alert journey"}</a><a href="#security">{isArabic ? "ابدأ الآن" : "Get started"}</a></nav>
       <div className="flex items-center gap-1"><button className="icon-button language-switch" onClick={toggleLanguage} aria-label={isArabic ? "Switch to English" : "التبديل إلى العربية"}>{isArabic ? "E" : "ع"}</button><button className="icon-button" onClick={toggleTheme} aria-label={isArabic ? "تبديل المظهر" : "Toggle theme"}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button><SessionLink to="/login" className="secondary-button">{isArabic ? "تسجيل الدخول" : "Sign in"}</SessionLink></div>
     </header>
 

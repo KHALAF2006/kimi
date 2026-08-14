@@ -1,0 +1,15 @@
+{
+  "name": "CustomerReportSnapshot",
+  "type": "object",
+  "properties": {
+    "report_key": { "type": "string" },
+    "file_uri": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "generated_by_user_id": { "type": "string" },
+    "customer_count": { "type": "integer", "minimum": 0 },
+    "report_date": { "type": "string", "format": "date" },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["report_key", "file_uri", "generated_at", "generated_by_user_id", "customer_count", "report_date", "revision"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "ContentSecurityEvent",
+  "type": "object",
+  "properties": {
+    "customer_id": { "type": "string" },
+    "auth_user_id": { "type": "string" },
+    "course_id": { "type": "string" },
+    "lesson_id": { "type": "string" },
+    "event_type": { "type": "string", "enum": ["token_reuse", "invalid_license", "parallel_playback", "download_attempt", "player_tamper"] },
+    "severity": { "type": "string", "enum": ["warning", "critical"] },
+    "fingerprint_hash": { "type": "string" },
+    "evidence": { "type": "object" },
+    "attempt_number": { "type": "integer", "minimum": 1 },
+    "action_taken": { "type": "string", "enum": ["warned", "final_warning", "temporarily_blocked"] }
+  },
+  "required": ["customer_id", "auth_user_id", "lesson_id", "event_type", "severity", "fingerprint_hash", "attempt_number", "action_taken"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

@@ -16,16 +16,16 @@ const copy = {
 };
 
 export function PreferencesProvider({ children }) {
-  const [language, setLanguage] = useState(() => localStorage.getItem("kmy_language") || "ar");
-  const [theme, setTheme] = useState(() => localStorage.getItem("kmy_theme") || "light");
+  const [language, setLanguage] = useState(() => localStorage.getItem("smart_investor_language") || "ar");
+  const [theme, setTheme] = useState(() => localStorage.getItem("smart_investor_theme") || "light");
 
   useEffect(() => {
     const root = document.documentElement;
     root.lang = language;
     root.dir = language === "ar" ? "rtl" : "ltr";
     root.classList.toggle("dark", theme === "dark");
-    localStorage.setItem("kmy_language", language);
-    localStorage.setItem("kmy_theme", theme);
+    localStorage.setItem("smart_investor_language", language);
+    localStorage.setItem("smart_investor_theme", theme);
   }, [language, theme]);
 
   const value = useMemo(() => ({

@@ -1,0 +1,20 @@
+{
+  "name": "RegistrationDraft",
+  "type": "object",
+  "properties": {
+    "auth_user_id": { "type": "string" },
+    "email_normalized": { "type": "string", "format": "email" },
+    "full_name": { "type": "string" },
+    "phone_e164": { "type": "string" },
+    "country_code": { "type": "string", "enum": ["SA", "AE", "KW", "QA", "BH", "OM"] },
+    "preferred_language": { "type": "string", "enum": ["ar", "en"], "default": "ar" },
+    "trading_platform_id": { "type": "string" },
+    "market_code": { "type": "string", "enum": ["SA_MAIN", "US_OPTIONS", "US_BENCHMARKS"] },
+    "marketing_consent": { "type": "boolean" },
+    "terms_version": { "type": "string" },
+    "phone_verification_status": { "type": "string", "enum": ["pending", "approved", "failed", "expired"] },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["auth_user_id", "email_normalized", "full_name", "phone_e164", "country_code", "trading_platform_id", "market_code", "marketing_consent", "terms_version", "phone_verification_status", "expires_at"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

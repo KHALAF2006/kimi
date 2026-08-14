@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
       await enforceOtpStartLimit(base44, user, profile);
       const otp = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1e6).padStart(6, "0");
       const challenge2 = await base44.asServiceRole.entities.LoginChallenge.create({ customer_id: profile.id, purpose: "login", email_otp_hash: await sha256(otp), attempts: 0, max_attempts: 5, expires_at: new Date(Date.now() + OTP_TTL_MS).toISOString() });
-      await base44.asServiceRole.integrations.Core.SendEmail({ to: user.email, subject: "\u0631\u0645\u0632 \u062F\u062E\u0648\u0644 \u0643\u064A\u0645\u064A", body: `\u0631\u0645\u0632 \u0627\u0644\u062A\u062D\u0642\u0642 \u0627\u0644\u062E\u0627\u0635 \u0628\u0643 \u0647\u0648: ${otp}
+      await base44.asServiceRole.integrations.Core.SendEmail({ to: user.email, subject: "رمز دخول المستثمر الذكي", body: `رمز التحقق الخاص بك هو: ${otp}
 \u064A\u0646\u062A\u0647\u064A \u062E\u0644\u0627\u0644 10 \u062F\u0642\u0627\u0626\u0642.` });
       await audit(base44, user.id, "login.otp_sent", "LoginChallenge", challenge2.id, "success");
       return Response.json({ challenge_id: challenge2.id, expires_at: challenge2.expires_at });

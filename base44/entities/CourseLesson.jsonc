@@ -1,0 +1,18 @@
+{
+  "name": "CourseLesson",
+  "type": "object",
+  "properties": {
+    "course_id": { "type": "string" },
+    "title_ar": { "type": "string" },
+    "title_en": { "type": "string" },
+    "display_order": { "type": "integer", "minimum": 0 },
+    "provider": { "type": "string", "enum": ["bunny_stream"], "default": "bunny_stream" },
+    "provider_video_id": { "type": "string" },
+    "provider_status": { "type": "string", "enum": ["not_uploaded", "uploading", "processing", "ready", "failed"], "default": "not_uploaded" },
+    "duration_seconds": { "type": "integer", "minimum": 0 },
+    "published": { "type": "boolean", "default": false },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["course_id", "title_ar", "title_en", "display_order", "provider", "provider_status", "published", "revision"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

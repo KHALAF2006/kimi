@@ -5230,7 +5230,7 @@ async function optionalRows(operation, label) {
   try {
     return entityRows(await operation());
   } catch (error) {
-    console.warn(`KMY optional ${label} query failed`, error?.message || error);
+    console.warn(`SMART_INVESTOR optional ${label} query failed`, error?.message || error);
     return [];
   }
 }

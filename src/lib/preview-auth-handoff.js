@@ -1,4 +1,4 @@
-const LEGACY_HANDOFF_HASH_KEY = "kmy_preview_auth";
+const LEGACY_HANDOFF_HASH_KEY = "smart_investor_preview_auth";
 const PREVIEW_CONTEXT_KEYS = [
   "functions_version",
   "server_url",
