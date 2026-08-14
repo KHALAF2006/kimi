@@ -9,6 +9,7 @@ const sourceRoot = join(root, "base44", "functions");
 const checkOnly = process.argv.includes("--check");
 
 const generatedFunctions = [
+  "customerReport",
   "historicalCandleBackfill",
   "marketSignalProjectionWorker",
   "marketSignalRefresh",
