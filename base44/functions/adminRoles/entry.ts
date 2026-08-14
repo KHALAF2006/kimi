@@ -175,6 +175,11 @@ Deno.serve(async (req) => {
       }
       await base44.asServiceRole.entities.ActiveDeviceSession.updateMany({ customer_id: member.customer_id, revoked_at: null }, { $set: { revoked_at: new Date().toISOString() } });
       const after = await base44.asServiceRole.entities.MemberRoleAssignment.filter({ member_id: member.id, status: "active" });
+      const persistedRoleIds = [...new Set(after.map((item) => String(item.role_id)))].sort();
+      const expectedRoleIds = [...roleIds].sort();
+      if (JSON.stringify(persistedRoleIds) !== JSON.stringify(expectedRoleIds)) {
+        bad("Role assignment was not persisted", "ROLE_ASSIGNMENT_PERSISTENCE_FAILED", 500);
+      }
       await audit(base44, context.user.id, "member.roles_changed", "AccountMember", member.id, "success", reason, before, after);
       return Response.json({ assignments: after, sessions_revoked: true });
     }

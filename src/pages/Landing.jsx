@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { SessionLink } from "@/components/SessionLink";
-import { Activity, ArrowLeft, ArrowRight, BarChart3, BellRing, CheckCircle2, Database, LineChart, LockKeyhole, Moon, ShieldCheck, Sparkles, Sun, Target } from "lucide-react";
+import { Activity, ArrowLeft, ArrowRight, BarChart3, BellRing, BookOpen, CheckCircle2, Database, LineChart, LockKeyhole, Moon, PlayCircle, ShieldCheck, Sparkles, Sun, Target } from "lucide-react";
 import { usePreferences } from "@/lib/preferences";
+import { base44 } from "@/api/base44Client";
 
 const sections = {
   market: {
@@ -29,6 +30,7 @@ const sections = {
 export default function Landing() {
   const { isArabic, theme, toggleLanguage, toggleTheme } = usePreferences();
   const [active, setActive] = useState("market");
+  const [training, setTraining] = useState({ loading: true, courses: [], lessons: {} });
   const item = sections[active];
   const Icon = item.icon;
   const Arrow = isArabic ? ArrowLeft : ArrowRight;
@@ -42,10 +44,22 @@ export default function Landing() {
     ? { market: "الأسواق", chart: "الشارت والمؤشرات", alerts: "التنبيهات الذكية", security: "الحماية والأمان" }
     : { market: "Markets", chart: "Charts & indicators", alerts: "Smart alerts", security: "Security & access" };
 
+  useEffect(() => {
+    let activeRequest = true;
+    Promise.resolve(base44.functions.invoke("trainingContent", { action: "public_list" }))
+      .then((response) => {
+        if (activeRequest) setTraining({ loading: false, courses: response.data?.courses || [], lessons: response.data?.lessons || {} });
+      })
+      .catch(() => {
+        if (activeRequest) setTraining({ loading: false, courses: [], lessons: {} });
+      });
+    return () => { activeRequest = false; };
+  }, []);
+
   return <div className="landing-page">
     <header className="landing-header">
       <SessionLink to="/" className="brand-lockup"><span className="brand-mark"><BarChart3 size={19} /></span><span>{isArabic ? "المستثمر الذكي" : "Smart Investor"}<small>SI</small></span></SessionLink>
-      <nav><a href="#platform">{isArabic ? "المزايا" : "Features"}</a><SessionLink to="/courses">{isArabic ? "الدورات" : "Courses"}</SessionLink><a href="#workflow">{isArabic ? "رحلة التنبيه" : "Alert journey"}</a><a href="#security">{isArabic ? "ابدأ الآن" : "Get started"}</a></nav>
+      <nav><a href="#platform">{isArabic ? "المزايا" : "Features"}</a><a href="#courses">{isArabic ? "الدورات" : "Courses"}</a><a href="#workflow">{isArabic ? "رحلة التنبيه" : "Alert journey"}</a><a href="#security">{isArabic ? "ابدأ الآن" : "Get started"}</a></nav>
       <div className="flex items-center gap-1"><button className="icon-button language-switch" onClick={toggleLanguage} aria-label={isArabic ? "Switch to English" : "التبديل إلى العربية"}>{isArabic ? "E" : "ع"}</button><button className="icon-button" onClick={toggleTheme} aria-label={isArabic ? "تبديل المظهر" : "Toggle theme"}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button><SessionLink to="/login" className="secondary-button">{isArabic ? "تسجيل الدخول" : "Sign in"}</SessionLink></div>
     </header>
 
@@ -65,6 +79,12 @@ export default function Landing() {
         <div className="section-kicker"><Sparkles size={16} />{isArabic ? "تجربة استثمار متكاملة" : "A complete investing experience"}</div><h2>{isArabic ? "كل ما تحتاجه لتحليل السوق واكتشاف الفرص في مكان واحد" : "Everything you need to analyze markets and discover opportunities in one place"}</h2>
         <div className="landing-tabs">{Object.entries(sections).map(([key, value]) => { const TabIcon = value.icon; return <button key={key} onClick={() => setActive(key)} className={active === key ? "active" : ""}><TabIcon size={17} />{tabLabels[key]}</button>; })}</div>
         <div className="landing-feature-panel"><div><span className="feature-icon"><Icon size={25} /></span><h3>{isArabic ? item.ar[0] : item.en[0]}</h3><p>{isArabic ? item.ar[1] : item.en[1]}</p></div><div className="feature-checks">{(isArabic ? item.ar[2] : item.en[2]).map((label) => <span key={label}><CheckCircle2 size={17} />{label}</span>)}</div></div>
+      </section>
+
+      <section id="courses" className="landing-section landing-section-muted">
+        <div className="section-kicker"><BookOpen size={16} />{isArabic ? "تعلّم قبل أن تبدأ" : "Learn before you begin"}</div>
+        <h2>{isArabic ? "دورات مجانية تساعدك على استخدام المنصة بثقة" : "Free courses that help you use the platform with confidence"}</h2>
+        {training.loading ? <div className="mt-8 rounded-2xl border border-slate-200/70 p-6 text-center text-sm text-slate-500 dark:border-slate-700">{isArabic ? "جارٍ عرض الدورات…" : "Loading courses…"}</div> : training.courses.length ? <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{training.courses.map((course) => <article key={course.id} className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/70"><BookOpen className="text-sky-500" size={24} /><h3 className="mt-4 text-xl font-black">{isArabic ? course.title_ar : course.title_en}</h3><p className="mt-2 text-sm leading-7 text-slate-500">{isArabic ? course.description_ar : course.description_en}</p><div className="mt-4 flex items-center justify-between gap-3"><span className="text-xs text-slate-400">{(training.lessons[course.id] || []).filter((lesson) => lesson.published).length} {isArabic ? "محاضرة" : "lectures"}</span><SessionLink to="/courses" className="secondary-button"><PlayCircle size={16} />{isArabic ? "مشاهدة الدورة" : "Watch course"}</SessionLink></div></article>)}</div> : <div className="mt-8 rounded-2xl border border-sky-400/30 bg-sky-400/10 p-6 text-center"><BookOpen className="mx-auto text-sky-500" size={28} /><h3 className="mt-3 font-black">{isArabic ? "الدورات المجانية قيد التجهيز" : "Free courses are being prepared"}</h3><p className="mt-2 text-sm text-slate-500">{isArabic ? "ستجدها هنا فور توفرها." : "You will find them here as soon as they are available."}</p></div>}
       </section>
 
       <section id="workflow" className="landing-section landing-section-muted"><div className="workflow-glow" /><div className="relative z-10"><div className="section-kicker"><BarChart3 size={16} />{isArabic ? "من البيانات إلى الفرصة" : "From market data to opportunity"}</div><h2>{isArabic ? "رحلة التنبيه الذكي.. من حركة السوق إلى إشعار واضح" : "The smart-alert journey—from market movement to a clear notification"}</h2><div className="workflow-grid">{workflowSteps.map(({ icon: StepIcon, title, body }, index) => <article key={title}><span>{index + 1}</span><StepIcon /><h3>{title}</h3><p>{body}</p></article>)}</div></div></section>

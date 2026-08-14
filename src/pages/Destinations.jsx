@@ -7,20 +7,20 @@ import { usePreferences } from "@/lib/preferences";
 
 export default function Destinations() {
   const { isArabic } = usePreferences();
-  const [state, setState] = useState({ loading: true, data: { destinations: [], groups: [], recipients: [] }, error: "", busy: "" });
+  const [state, setState] = useState({ loading: true, data: { destinations: [], groups: [], recipients: [] }, error: "", notice: "", busy: "" });
   const [telegram, setTelegram] = useState({ label: "", external_id: "" });
   const [groupName, setGroupName] = useState("");
   const [recipient, setRecipient] = useState({ group_id: "", phone_e164: "", consent_confirmed: false });
   const [whatsapp, setWhatsapp] = useState({ label: "", external_id: "" });
   const t = isArabic
-    ? { title: "قنوات التنبيه", description: "اربط تيليجرام أو مجموعات واتساب، تحقق من القناة، ثم فعّل أو أوقف التسليم.", telegram: "تيليجرام", whatsapp: "واتساب", label: "اسم القناة", telegramId: "اسم القناة مثل ‎@channel أو رقمها", create: "إنشاء", verify: "تحقق", enable: "تفعيل", disable: "إيقاف", remove: "حذف", groups: "مجموعات المستلمين", groupName: "اسم المجموعة", recipient: "رقم المستلم بصيغة دولية", consent: "أؤكد وجود موافقة موثقة من المستلم", addRecipient: "إضافة مستلم", chooseGroup: "اختر مجموعة", noDestinations: "لم تُضف قنوات بعد", verified: "متحققة", waiting: "تحتاج تحقق" }
-    : { title: "Alert destinations", description: "Connect Telegram or WhatsApp groups, verify each destination, then enable or pause delivery.", telegram: "Telegram", whatsapp: "WhatsApp", label: "Destination name", telegramId: "Channel handle such as @channel or numeric ID", create: "Create", verify: "Verify", enable: "Enable", disable: "Disable", remove: "Delete", groups: "Recipient groups", groupName: "Group name", recipient: "Recipient number in international format", consent: "I confirm documented recipient consent", addRecipient: "Add recipient", chooseGroup: "Choose a group", noDestinations: "No destinations yet", verified: "Verified", waiting: "Needs verification" };
+    ? { title: "قنوات التنبيه", description: "اربط تيليجرام أو مجموعات واتساب، تحقق من القناة، ثم فعّل أو أوقف التسليم.", telegram: "تيليجرام", whatsapp: "واتساب", label: "اسم القناة", telegramId: "اسم القناة مثل ‎@channel أو رقمها", create: "إنشاء", verify: "تحقق", enable: "تفعيل", disable: "إيقاف", remove: "حذف", groups: "مجموعات المستلمين", groupName: "اسم المجموعة", recipient: "رقم المستلم بصيغة دولية", consent: "أؤكد وجود موافقة موثقة من المستلم", addRecipient: "إضافة مستلم", chooseGroup: "اختر مجموعة", noDestinations: "لم تُضف قنوات بعد", verified: "متحققة", waiting: "تحتاج تحقق", saved: "حُفظ التغيير وظهر في قائمة قنواتك." }
+    : { title: "Alert destinations", description: "Connect Telegram or WhatsApp groups, verify each destination, then enable or pause delivery.", telegram: "Telegram", whatsapp: "WhatsApp", label: "Destination name", telegramId: "Channel handle such as @channel or numeric ID", create: "Create", verify: "Verify", enable: "Enable", disable: "Disable", remove: "Delete", groups: "Recipient groups", groupName: "Group name", recipient: "Recipient number in international format", consent: "I confirm documented recipient consent", addRecipient: "Add recipient", chooseGroup: "Choose a group", noDestinations: "No destinations yet", verified: "Verified", waiting: "Needs verification", saved: "The change was saved and is now shown in your destinations." };
 
   async function load() {
     setState((value) => ({ ...value, loading: true, error: "" }));
     try {
-      const data = await invokeAppFunction("customerSelfService", { action: "alerts" });
-      setState({ loading: false, data: { destinations: data.destinations || [], groups: data.groups || [], recipients: data.recipients || [] }, error: "", busy: "" });
+      const data = await invokeAppFunction("customerSelfService", { action: "destinations" });
+      setState((value) => ({ ...value, loading: false, data: { destinations: data.destinations || [], groups: data.groups || [], recipients: data.recipients || [] }, error: "", busy: "" }));
     } catch (error) {
       setState((value) => ({ ...value, loading: false, error: error?.response?.data?.error || error.message, busy: "" }));
     }
@@ -28,10 +28,11 @@ export default function Destinations() {
   useEffect(() => { load(); }, []);
 
   async function mutate(key, payload) {
-    setState((value) => ({ ...value, busy: key, error: "" }));
+    setState((value) => ({ ...value, busy: key, error: "", notice: "" }));
     try {
       await invokeAppFunction("customerSelfService", payload);
       await load();
+      setState((value) => ({ ...value, notice: t.saved }));
       return true;
     } catch (error) {
       setState((value) => ({ ...value, busy: "", error: error?.response?.data?.error || error.message }));
@@ -66,6 +67,7 @@ export default function Destinations() {
   return <div className="space-y-5">
     <PageHeader title={t.title} description={t.description}/>
     {state.error && <div className="error-banner" role="alert">{state.error}</div>}
+    {state.notice && <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300" role="status" aria-live="polite">{state.notice}</div>}
     <div className="grid gap-5 xl:grid-cols-2">
       <section className="content-card p-4 sm:p-5">
         <h2 className="flex items-center gap-2 font-black"><Send size={18}/>{t.telegram}</h2>

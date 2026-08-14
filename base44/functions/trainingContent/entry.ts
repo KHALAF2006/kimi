@@ -93,8 +93,10 @@ Deno.serve(async (req) => {
       const course = body.id
         ? await base44.asServiceRole.entities.Course.update(String(body.id), { ...payload, revision: Number(body.revision || 1) + 1 })
         : await base44.asServiceRole.entities.Course.create(payload);
+      const persisted = await base44.asServiceRole.entities.Course.get(course.id);
+      if (!persisted || persisted.code !== payload.code || persisted.status !== "draft") fail("Course was not persisted", "COURSE_PERSISTENCE_FAILED", 500);
       await audit(base44, context.user.id, "course.saved", "Course", course.id, "success", "owner action");
-      return Response.json({ course });
+      return Response.json({ course: persisted });
     }
 
     if (body.action === "save_lesson_upload") {
@@ -122,8 +124,10 @@ Deno.serve(async (req) => {
         published: false,
         revision: 1,
       });
+      const persisted = await base44.asServiceRole.entities.CourseLesson.get(lesson.id);
+      if (!persisted || persisted.file_uri !== fileUri || persisted.storage_status !== "ready") fail("Lesson was not persisted", "LESSON_PERSISTENCE_FAILED", 500);
       await audit(base44, context.user.id, "course.lesson_uploaded", "CourseLesson", lesson.id, "success", "private Base44 storage");
-      return Response.json({ lesson });
+      return Response.json({ lesson: persisted });
     }
 
     if (body.action === "publish_course") {
@@ -135,7 +139,10 @@ Deno.serve(async (req) => {
         fail("All course videos must be available in private storage before publishing", "COURSE_VIDEOS_NOT_READY", 409);
       }
       for (const lesson of lessons) await base44.asServiceRole.entities.CourseLesson.update(lesson.id, { published: true, revision: Number(lesson.revision || 1) + 1 });
-      const updated = await base44.asServiceRole.entities.Course.update(course.id, { status: "published", revision: Number(course.revision || 1) + 1 });
+      await base44.asServiceRole.entities.Course.update(course.id, { status: "published", revision: Number(course.revision || 1) + 1 });
+      const updated = await base44.asServiceRole.entities.Course.get(course.id);
+      const publishedLessons = await base44.asServiceRole.entities.CourseLesson.filter({ course_id: course.id });
+      if (!updated || updated.status !== "published" || publishedLessons.some((item) => item.published !== true)) fail("Course publication was not persisted", "COURSE_PUBLICATION_PERSISTENCE_FAILED", 500);
       await audit(base44, context.user.id, "course.published", "Course", course.id, "success", "private storage gate passed");
       return Response.json({ course: updated });
     }
