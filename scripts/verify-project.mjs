@@ -280,7 +280,7 @@ assert.match(landingCoursesPage, /action:\s*"public_list"/, "the landing page mu
 assert.match(landingCoursesPage, /id="courses"/, "the landing page must contain a real public-courses section");
 assert.match(customerReportFunction, /UploadPrivateFile/, "customer reports must be stored as private files");
 assert.match(customerReportFunction, /All Customers/, "the Excel-compatible workbook must retain the newest-first master sheet");
-assert.equal(customerReportConfig.automations[0].cron_expression, "55 20 * * ?", "daily customer reporting must run at 23:55 Riyadh time");
+assert.equal(customerReportConfig.automations[0].cron_expression, "55 20 * * *", "daily customer reporting must use valid Unix cron and run at 23:55 Riyadh time");
 assert.match(loginPage, /base44\.functions\.invoke\(['"]authLogin['"],\{action:['"]start['"]\}\)/, "login must start the server-side OTP challenge");
 for (const [name, source] of [["login", loginPage], ["registration", registerPage], ["authentication layout", authLayout]]) {
   assert.doesNotMatch(source, /amber|orange|245,158,11/, `${name} must use the site-wide sky identity rather than the retired orange identity`);
