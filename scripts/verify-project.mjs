@@ -220,6 +220,8 @@ assert.match(marketService, /localBrowserHosts\.has\(window\.location\.hostname\
 assert.doesNotMatch(marketService, /referenceApi\s*=\s*import\.meta\.env\.DEV/, "Base44 editor preview must not be mistaken for the local reference runtime");
 assert.match(marketService, /message\s*===\s*["']Active device session required["']/, "an expired or revoked SMART_INVESTOR session must be detected");
 assert.match(marketService, /localStorage\.removeItem\(["']smart_investor_session_id["']\)/, "an invalid SMART_INVESTOR session must be cleared before returning to login");
+assert.match(marketService, /marketReadQueue\.then\(factory, factory\)/, "market reads must be serialized so chart, company and sector requests do not exhaust the backend together");
+assert.match(marketService, /invokeWithTimeout\(invoke, 30_000\)/, "a healthy bounded market read must have enough time to finish without premature duplicate retries");
 
 const appParamsSource = await readFile(new URL("../src/lib/app-params.js", import.meta.url), "utf8");
 assert.match(appParamsSource, /functionsVersion:[\s\S]*persist:\s*false,[\s\S]*useStored:\s*false/, "published pages must not reuse a stale preview function version");
@@ -448,6 +450,9 @@ const marketReadFunction = await readFile(new URL("../base44/functions/marketRea
 assert.match(marketReadFunction, /body\.action === "sector"/, "sector details must be served from the protected market backend");
 assert.match(marketReadFunction, /body\.action === "sector_chart"/, "sector chart candles must be built by the protected market backend");
 assert.match(marketReadFunction, /sectorWeights/, "sector index construction must use an explicit weighting function");
+assert.match(marketReadFunction, /if \(interval === "1d"\) return \[interval\]/, "daily charts must not scan the much larger intraday archive as a fallback");
+assert.match(marketReadFunction.match(/async function sectorSummaries[\s\S]*?async function sectorResponse/)?.[0] || "", /is_historical_archive:\s*true[\s\S]*?500/, "sector heat must read only the bounded daily archive needed for its two-session rule");
+assert.match(marketReadFunction, /market_code: body\?\.market_code \|\| null/, "market-read failures must record the requested market for root-cause diagnosis");
 assert.match(marketReadFunction, /storedCandlesForInstruments/, "sector charts must bulk-read stored candles instead of issuing one database query per constituent");
 assert.match(marketReadFunction, /INTERVAL_RANGE_MATRIX/, "the backend must reject interval and range combinations outside the supported chart contract");
 assert.match(marketReadFunction, /candleRangeMetadata/, "chart responses must calculate actual stored coverage before describing a requested range as complete");

@@ -5391,8 +5391,11 @@ function normalizedStoredBars(chunks, marketCode) {
     .map(({ sourcePriority: _sourcePriority, receivedTime: _receivedTime, ...bar }) => bar);
 }
 function fallbackIntervals(interval) {
-  if (interval === "1wk" || interval === "1mo") return [interval, "1d", "15m"];
-  if (["1d", "1h", "2h", "3h", "4h"].includes(interval)) return [interval, "15m"];
+  // Long-horizon charts must never scan the much larger 15-minute archive.
+  // Daily storage is the canonical fallback for daily/weekly/monthly views.
+  if (interval === "1wk" || interval === "1mo") return [interval, "1d"];
+  if (interval === "1d") return [interval];
+  if (["1h", "2h", "3h", "4h"].includes(interval)) return [interval, "15m"];
   return [interval];
 }
 async function entityReadWithRetry(read) {
@@ -5740,16 +5743,18 @@ async function sectorSummaries(base44, instruments, quoteByInstrument, marketCod
   const equities = instruments.filter((instrument) => instrument.status !== "delisted");
   const equitiesById = new Map(equities.map((instrument) => [instrument.id, instrument]));
   const equitiesBySymbol = new Map(equities.map((instrument) => [String(instrument.symbol || "").trim().toUpperCase(), instrument]));
-  const recentDailyChunks = (await readStoredCandleChunks(base44, candleIdentityFilter(equities, "1d", marketCode), marketCode, "-end_time", 1e3))
-    .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
-  const chunksByInstrument = new Map();
-  for (const chunk of recentDailyChunks) {
+  const archivedDailyChunks = (await readStoredCandleChunks(base44,
+    { ...candleIdentityFilter(equities, "1d", marketCode), is_historical_archive: true },
+    marketCode,
+    "-end_time",
+    500,
+  )).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+  const barsByInstrument = new Map(equities.map((instrument) => [instrument.id, []]));
+  for (const chunk of archivedDailyChunks) {
     const instrument = instrumentForCandleChunk(chunk, equitiesById, equitiesBySymbol, marketCode);
     if (!instrument) continue;
-    if (!chunksByInstrument.has(instrument.id)) chunksByInstrument.set(instrument.id, []);
-    chunksByInstrument.get(instrument.id).push(chunk);
+    barsByInstrument.get(instrument.id)?.push(...normalizedStoredBars([chunk], marketCode));
   }
-  const barsByInstrument = new Map(equities.map((instrument) => [instrument.id, normalizedStoredBars(chunksByInstrument.get(instrument.id) || [], marketCode)]));
   const groups = new Map();
   for (const instrument of equities) {
     const key = instrument.sector_ar || instrument.sector_en;
@@ -5933,6 +5938,7 @@ Deno.serve(async (req) => {
     const body = await readJsonBody(req);
     requestDetails = {
       action: body?.action || "snapshot",
+      market_code: body?.market_code || null,
       symbol: body?.symbol || null,
       sector: body?.sector || null,
       interval: body?.interval || null,
@@ -6076,11 +6082,11 @@ Deno.serve(async (req) => {
       const [quotes2, indicators2, financials, actions, announcements, shareholders, losses2] = await Promise.all([
         base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: instrument.id, market_code: body.market_code }),
         optionalRows(() => readIndicatorSnapshots(base44, { instrument_id: instrument.id, market_code: body.market_code }, body.market_code), "company indicators"),
-        optionalRows(() => base44.asServiceRole.entities.CompanyFinancial.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company financials"),
-        optionalRows(() => base44.asServiceRole.entities.CorporateAction.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company actions"),
-        optionalRows(() => base44.asServiceRole.entities.CompanyAnnouncement.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company announcements"),
-        optionalRows(() => base44.asServiceRole.entities.MajorShareholder.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company shareholders"),
-        optionalRows(() => base44.asServiceRole.entities.LossClassification.filter({ instrument_id: instrument.id }), "company loss classification")
+        instrument.market_code === US_BENCHMARKS_MARKET_CODE ? Promise.resolve([]) : optionalRows(() => base44.asServiceRole.entities.CompanyFinancial.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company financials"),
+        instrument.market_code === US_BENCHMARKS_MARKET_CODE ? Promise.resolve([]) : optionalRows(() => base44.asServiceRole.entities.CorporateAction.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company actions"),
+        instrument.market_code === US_BENCHMARKS_MARKET_CODE ? Promise.resolve([]) : optionalRows(() => base44.asServiceRole.entities.CompanyAnnouncement.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company announcements"),
+        instrument.market_code === US_BENCHMARKS_MARKET_CODE ? Promise.resolve([]) : optionalRows(() => base44.asServiceRole.entities.MajorShareholder.filter({ instrument_id: instrument.id, market_code: body.market_code }), "company shareholders"),
+        instrument.market_code === "SA_MAIN" ? optionalRows(() => base44.asServiceRole.entities.LossClassification.filter({ instrument_id: instrument.id }), "company loss classification") : Promise.resolve([])
       ]);
       let quote = quotes2.filter(usableQuote).sort((a, b) => new Date(b.quote_time).getTime() - new Date(a.quote_time).getTime())[0] || null;
       if (!quote && instrument.instrument_type === "market_index") {

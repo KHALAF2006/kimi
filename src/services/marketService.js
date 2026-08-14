@@ -8,6 +8,7 @@ const chartRequestCache = new Map();
 const chartRequestInflight = new Map();
 const marketSupplementCache = new Map();
 const marketSupplementInflight = new Map();
+let marketReadQueue = Promise.resolve();
 const CHART_CACHE_MAX_AGE_MS = 60_000;
 const CHART_CACHE_MAX_ENTRIES = 80;
 const MARKET_SUPPLEMENT_MAX_AGE_MS = 15 * 60_000;
@@ -233,15 +234,22 @@ function invokeWithTimeout(factory, timeoutMs) {
   });
 }
 
+function enqueueMarketRead(factory) {
+  const operation = marketReadQueue.then(factory, factory);
+  marketReadQueue = operation.catch(() => undefined);
+  return operation;
+}
+
 export async function invokeAppFunction(functionName, payload = {}) {
   if (referenceApi && functionName === "marketRead") return referenceMarketRead(payload);
   try {
-    const invoke = () => base44.functions.invoke(functionName, { ...payload, session_id: localStorage.getItem("smart_investor_session_id") });
+    const directInvoke = () => base44.functions.invoke(functionName, { ...payload, session_id: localStorage.getItem("smart_investor_session_id") });
+    const invoke = () => functionName === "marketRead" ? enqueueMarketRead(directInvoke) : directInvoke();
     const maxAttempts = functionName === "marketRead" ? 2 : 1;
     let lastError = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        const response = await invokeWithTimeout(invoke, 20_000);
+        const response = await invokeWithTimeout(invoke, 30_000);
         return response.data;
       } catch (error) {
         lastError = error;
@@ -249,7 +257,7 @@ export async function invokeAppFunction(functionName, payload = {}) {
         const code = String(error?.response?.data?.code || error?.code || "");
         const transient = status === 429 || status >= 500 || code === "MARKET_READ_TIMEOUT";
         if (!transient || attempt >= maxAttempts) throw error;
-        await new Promise((resolve) => window.setTimeout(resolve, 250 * attempt));
+        await new Promise((resolve) => window.setTimeout(resolve, 1000 * attempt));
       }
     }
     throw lastError || new Error("market_read_failed");

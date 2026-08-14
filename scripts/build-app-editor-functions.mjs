@@ -18,6 +18,7 @@ const generatedFunctions = [
   "usOptionsMarketIngestion",
   "usOptionsSignalProjectionWorker",
   "usOptionsSignalRefresh",
+  "usBenchmarksMarketIngestion",
   "usBenchmarksSignalRefresh",
 ];
 

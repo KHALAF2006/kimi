@@ -69,14 +69,16 @@ export default function Dashboard() {
       const markets = marketData.markets || state.markets;
       setState((value) => ({ loading: false, marketCodeLoaded: marketCode, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, snapshot: data.snapshot || null, sectorSummaries: value.marketCodeLoaded === marketCode ? value.sectorSummaries : [], error: "", refreshWarning: "", notice: data.notice || "" }));
       if (activeTab !== "momentum") {
-        readMarketSupplement({ action: "sector_summaries", market_code: marketCode })
-          .then((sectorData) => {
-            if (requestId !== loadRequestRef.current) return;
-            setState((value) => value.marketCodeLoaded === marketCode
-              ? { ...value, sectorSummaries: sectorData.sector_summaries || [] }
-              : value);
-          })
-          .catch(() => {});
+        window.setTimeout(() => {
+          readMarketSupplement({ action: "sector_summaries", market_code: marketCode })
+            .then((sectorData) => {
+              if (requestId !== loadRequestRef.current) return;
+              setState((value) => value.marketCodeLoaded === marketCode
+                ? { ...value, sectorSummaries: sectorData.sector_summaries || [] }
+                : value);
+            })
+            .catch(() => {});
+        }, 2_000);
       }
     } catch (error) {
       if (requestId !== loadRequestRef.current) return;

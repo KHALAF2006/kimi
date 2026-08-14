@@ -285,7 +285,7 @@ const historyConfig = JSON.parse(await source("base44/functions/usOptionsHistori
 const companyConfig = JSON.parse(await source("base44/functions/usOptionsCompanyIntelligence/function.jsonc"));
 const signalWorkerConfig = JSON.parse(await source("base44/functions/usOptionsSignalProjectionWorker/function.jsonc"));
 assert.equal(signalWorkerConfig.name, "usOptionsSignalProjectionWorker");
-assert.ok([ingestionConfig, signalConfig, historyConfig, companyConfig, signalWorkerConfig].every((config) => config.automations === undefined), "the editor app uses Workflows and rejects function-level legacy automations");
+assert.ok([ingestionConfig, signalConfig, historyConfig, companyConfig, signalWorkerConfig].every((config) => config.automations === undefined), "this Workflows-enabled app must keep function-level legacy automations disabled");
 const ingestionWorkflow = JSON.parse(await source("base44/workflows/UsOptionsQuarterCycles.jsonc"));
 const ingestionBatch2Workflow = JSON.parse(await source("base44/workflows/UsOptionsQuarterCyclesBatch2.jsonc"));
 const signalWorkflow = JSON.parse(await source("base44/workflows/UsOptionsSignalsDaily.jsonc"));

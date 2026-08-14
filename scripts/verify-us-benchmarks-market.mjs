@@ -7,6 +7,8 @@ const source = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8"
 
 assert.equal(US_BENCHMARKS_MARKET_CODE, "US_BENCHMARKS");
 assert.equal(US_BENCHMARKS_CATALOG.instruments.length, 33);
+const ingestionConfig = JSON.parse(await readFile(new URL("../base44/functions/usBenchmarksMarketIngestion/function.jsonc", import.meta.url), "utf8"));
+assert.equal(ingestionConfig.automations, undefined, "this Workflows-enabled app must keep function-level legacy automations disabled");
 assert.equal(US_BENCHMARKS_SYMBOLS.size, 33, "benchmark symbols must be unique");
 assert.equal(new Set(US_BENCHMARKS_CATALOG.instruments.map((item) => item.providerSymbol)).size, 33, "provider mappings must be unique");
 assert.ok(US_BENCHMARKS_CATALOG.instruments.every((item) => ["market_index", "etf"].includes(item.type)));
@@ -14,7 +16,10 @@ assert.ok(SUPPORTED_MARKETS.some((market) => market.market_code === US_BENCHMARK
 assert.deepEqual(resolveAvailableMarkets({ market_access: [{ market_code: US_BENCHMARKS_MARKET_CODE }] }).map((market) => market.market_code), [US_BENCHMARKS_MARKET_CODE], "a benchmark-only subscriber must not receive another market");
 assert.deepEqual(resolveAvailableMarkets({ identity: { role: "owner" }, market_access: [] }).map((market) => market.market_code), ["SA_MAIN", "US_OPTIONS", "US_BENCHMARKS"], "the owner must see every supported market without cross-market data merging");
 
-const ingestion = await source("base44/functions/usBenchmarksMarketIngestion/entry.ts");
+const ingestion = await source("base44/functions/usBenchmarksMarketIngestion/source.ts");
+const bundledIngestion = await source("base44/functions/usBenchmarksMarketIngestion/entry.ts");
+assert.match(bundledIngestion, /GENERATED from usBenchmarksMarketIngestion\/source\.ts/, "the deployed benchmark function must be generated from its audited source");
+assert.doesNotMatch(bundledIngestion, /from "\.\.\/\.\.\/shared\//, "the deployed benchmark function must not depend on files outside its deployable folder");
 assert.match(ingestion, /new Set\(bar\.component_times\)\.size === 3/, "15-minute candles must require all three five-minute components");
 assert.match(ingestion, /incrementalProviderWindow/, "normal benchmark cycles must resume from the latest stored candle");
 assert.match(ingestion, /earliestRecentGapByInstrument/, "a recent interior gap must widen only the affected instrument request");

@@ -41,7 +41,7 @@
   .brand-mark { @apply flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-sky-400 shadow-lg shadow-slate-950/15 dark:bg-sky-400 dark:text-slate-950; }
   .app-nav { @apply flex flex-1 items-center gap-1 overflow-x-auto; scrollbar-width: none; }
   .app-nav::-webkit-scrollbar { display: none; }
-  .app-nav a { @apply flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-white; }
+  .app-nav a { @apply flex shrink-0 items-center gap-1.5 rounded-xl px-2.5 py-2 text-[11px] font-bold leading-none text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-white; }
   .app-nav a.active { @apply bg-slate-950 text-white shadow-sm dark:bg-white dark:text-slate-950; }
   .icon-button { @apply inline-flex h-9 min-w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-sky-400 hover:text-slate-950 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-400 dark:hover:text-white; }
   .language-switch { @apply text-sm font-black; }
@@ -495,6 +495,12 @@
   .chart-shell:fullscreen .chart-company-navigation, .chart-shell-fullscreen .chart-company-navigation { @apply order-3 max-w-none basis-full; }
   .chart-shell:fullscreen .chart-primary-actions, .chart-shell-fullscreen .chart-primary-actions { @apply order-2 w-auto flex-1 justify-end; }
   .chart-shell:fullscreen .chart-toolbar-grid, .chart-shell-fullscreen .chart-toolbar-grid { @apply grid-cols-2; }
+}
+
+@media (min-width:768px) {
+  .app-header-inner { @apply flex-wrap gap-y-2; }
+  .app-nav { @apply order-last basis-full justify-between border-t border-slate-200 pt-2 dark:border-slate-800; }
+  .app-nav a { @apply min-h-9 flex-1 justify-center; }
 }
 
 @media (min-width:1280px) {
