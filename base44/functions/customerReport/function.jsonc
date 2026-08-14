@@ -10,7 +10,7 @@
       "is_active": true,
       "schedule_mode": "recurring",
       "schedule_type": "cron",
-      "cron_expression": "55 20 * * ?",
+      "cron_expression": "55 20 * * *",
       "ends_type": "never"
     }
   ]
