@@ -247,7 +247,7 @@ const landingCoursesPage = await readFile(new URL("../src/pages/Landing.jsx", im
 const rolesAdminPage = await readFile(new URL("../src/pages/RolesAdmin.jsx", import.meta.url), "utf8");
 const subscriptionsAdminPage = await readFile(new URL("../src/pages/SubscriptionsAdmin.jsx", import.meta.url), "utf8");
 const customerReportFunction = await readFile(new URL("../base44/functions/customerReport/entry.ts", import.meta.url), "utf8");
-const customerReportConfig = JSON.parse(await readFile(new URL("../base44/functions/customerReport/function.jsonc", import.meta.url), "utf8"));
+const customerReportWorkflow = JSON.parse(await readFile(new URL("../base44/workflows/CustomerReportDaily.jsonc", import.meta.url), "utf8"));
 const authLayout = await readFile(new URL("../src/components/AuthLayout.jsx", import.meta.url), "utf8");
 const siteStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
 assert.match(loginPage, /isAuthenticated\?t\.sendCode:t\.next/, "an already authenticated Base44 user must continue through SMART_INVESTOR email OTP");
@@ -280,7 +280,9 @@ assert.match(landingCoursesPage, /action:\s*"public_list"/, "the landing page mu
 assert.match(landingCoursesPage, /id="courses"/, "the landing page must contain a real public-courses section");
 assert.match(customerReportFunction, /UploadPrivateFile/, "customer reports must be stored as private files");
 assert.match(customerReportFunction, /All Customers/, "the Excel-compatible workbook must retain the newest-first master sheet");
-assert.equal(customerReportConfig.automations[0].cron_expression, "55 20 * * *", "daily customer reporting must use valid Unix cron and run at 23:55 Riyadh time");
+assert.equal(customerReportWorkflow.trigger.config.cron_expression, "55 23 * * *", "daily customer reporting must run at 23:55 in the configured Riyadh timezone");
+assert.equal(customerReportWorkflow.trigger.config.timezone, "Asia/Riyadh", "daily customer reporting must use the Riyadh timezone explicitly");
+assert.equal(customerReportWorkflow.definition.do[0].update_customer_report.with.function_name, "customerReport", "the daily customer report workflow must invoke the protected report function");
 assert.match(loginPage, /base44\.functions\.invoke\(['"]authLogin['"],\{action:['"]start['"]\}\)/, "login must start the server-side OTP challenge");
 for (const [name, source] of [["login", loginPage], ["registration", registerPage], ["authentication layout", authLayout]]) {
   assert.doesNotMatch(source, /amber|orange|245,158,11/, `${name} must use the site-wide sky identity rather than the retired orange identity`);
