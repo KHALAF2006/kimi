@@ -1,0 +1,21 @@
+{
+  "name": "CourseLesson",
+  "type": "object",
+  "properties": {
+    "course_id": { "type": "string" },
+    "title_ar": { "type": "string" },
+    "title_en": { "type": "string" },
+    "display_order": { "type": "integer", "minimum": 0 },
+    "storage_provider": { "type": "string", "enum": ["base44_private"], "default": "base44_private" },
+    "file_uri": { "type": "string" },
+    "file_name": { "type": "string" },
+    "mime_type": { "type": "string" },
+    "file_size_bytes": { "type": "integer", "minimum": 1, "maximum": 104857600 },
+    "storage_status": { "type": "string", "enum": ["ready", "failed"], "default": "ready" },
+    "duration_seconds": { "type": "integer", "minimum": 0 },
+    "published": { "type": "boolean", "default": false },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["course_id", "title_ar", "title_en", "display_order", "storage_provider", "file_uri", "file_name", "mime_type", "file_size_bytes", "storage_status", "published", "revision"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "TradingPlatform",
+  "type": "object",
+  "properties": {
+    "code": { "type": "string" },
+    "name_ar": { "type": "string" },
+    "name_en": { "type": "string" },
+    "referral_url": { "type": "string" },
+    "supported_market_codes": { "type": "array", "items": { "type": "string", "enum": ["SA_MAIN", "US_OPTIONS", "US_BENCHMARKS"] } },
+    "active": { "type": "boolean", "default": true },
+    "display_order": { "type": "integer", "minimum": 0 },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["code", "name_ar", "name_en", "referral_url", "supported_market_codes", "active", "display_order", "revision"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

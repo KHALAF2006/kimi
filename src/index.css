@@ -78,7 +78,7 @@
   .market-ticker::before, .market-ticker::after { content: ""; @apply pointer-events-none absolute inset-y-0 z-10 w-16; }
   .market-ticker::before { left: 0; background: linear-gradient(90deg,#020617,transparent); }
   .market-ticker::after { right: 0; background: linear-gradient(-90deg,#020617,transparent); }
-  .market-ticker-track { @apply flex w-max items-center; animation: kmy-ticker 140s linear infinite; }
+  .market-ticker-track { @apply flex w-max items-center; animation: smart_investor-ticker 140s linear infinite; }
   .market-ticker:hover .market-ticker-track, .market-ticker:focus-within .market-ticker-track { animation-play-state: paused; }
   .market-ticker-item { @apply flex h-11 items-center gap-2 border-e border-white/10 px-4 text-xs font-bold text-slate-300 transition hover:bg-white/10 hover:text-white; }
   .market-ticker-item .font-black { @apply text-white; }
@@ -531,7 +531,7 @@
 @media (min-width:768px) and (max-width:1279px) and (orientation:landscape) and (max-height:600px) {
   .chart-canvas-wrap { height:clamp(340px,72dvh,520px); min-height:340px; }
 }
-@keyframes kmy-ticker { from { transform:translateX(0); } to { transform:translateX(-50%); } }
+@keyframes smart_investor-ticker { from { transform:translateX(0); } to { transform:translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
 }

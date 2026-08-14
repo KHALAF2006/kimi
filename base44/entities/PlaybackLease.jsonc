@@ -1,0 +1,16 @@
+{
+  "name": "PlaybackLease",
+  "type": "object",
+  "properties": {
+    "customer_id": { "type": "string" },
+    "auth_user_id": { "type": "string" },
+    "lesson_id": { "type": "string" },
+    "player_instance_id": { "type": "string" },
+    "session_fingerprint": { "type": "string" },
+    "status": { "type": "string", "enum": ["active", "released", "expired"] },
+    "last_heartbeat_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["customer_id", "auth_user_id", "lesson_id", "player_instance_id", "session_fingerprint", "status", "last_heartbeat_at", "expires_at"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

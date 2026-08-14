@@ -1,4 +1,4 @@
-# KMY Multi-Market Platform — منصة كيمي
+# Smart Investor Multi-Market Platform — المستثمر الذكي
 
 منصة عربية/إنجليزية متعددة الأسواق. تدعم السوق الرئيسية السعودية، وسوقًا مستقلًا من 110 شركات أمريكية ذات عقود خيارات، وسوقًا مستقلًا من 33 مؤشرًا وصندوقًا أمريكيًا، مع اشتراك منفصل لكل سوق وعزل كامل للسوق النشط. هذا المستودع هو تنفيذ Full-stack لـBase44، وليس واجهة عرض منفصلة.
 
@@ -12,7 +12,7 @@
 - بصمة SHA-256: `4BCC19FD271E1D84D1390E8B2E311046243A8CC9B79B024FF43850C4D8F31337`.
 - هذا الملف ليس موجز أسعار حياً، ولا تُعرض قيمه على أنها محدثة.
 - المصدر العام الافتراضي يجلب شموع `15m`، ويحسب الإغلاق السابق من آخر شمعة في جلسة التداول السابقة بدلاً من بيانات `meta` غير الموثوقة.
-- تعرض واجهة العميل وقت اللقطة والاستلام والتغطية فقط. ويمكن تبديل محول المصدر دون تغيير واجهات القراءة بوضع `KMY_MARKET_DATA_MODE=licensed`.
+- تعرض واجهة العميل وقت اللقطة والاستلام والتغطية فقط. ويمكن تبديل محول المصدر دون تغيير واجهات القراءة بوضع `SMART_INVESTOR_MARKET_DATA_MODE=licensed`.
 - تقوم `marketIngestion` بعمل upsert لكتالوج الشركة، ثم تحفظ كل قراءة في `QuoteObservation` قبل ترقية اللقطة السليمة إلى `QuoteLatest` و`CandleChunk`.
 - تُحفظ هوية كل أداة بنوع صريح: `equity` أو `sector_index` أو `market_index`. مؤشر `TASI` له سجل مستقل ومرادفات بحث، وتُستورد شموعه اليومية التاريخية مرة واحدة من رمز المؤشر `^TASI.SR` إلى `CandleChunk` ثم تُقرأ محليًا مثل بقية الشموع.
 - مؤشر القطاع الداخلي له رمز ثابت من شكل `SECTOR:<CODE>`، وتُبنى شموعه من الشموع المحفوظة لشركات القطاع بقراءة مجمعة واحدة، لا بطلب قاعدة بيانات منفصل لكل شركة.
@@ -56,7 +56,7 @@ npm run dev
 لربط الواجهة محليًا بالـbackend المرجعي الحقيقي:
 
 ```bash
-VITE_KMY_REFERENCE_API=/reference-api npm run dev
+VITE_SMART_INVESTOR_REFERENCE_API=/reference-api npm run dev
 ```
 
 يمر المسار `/reference-api` عبر Vite إلى `http://127.0.0.1:3001/api` لتجنب أخطاء CORS. هذا المسار محلي فقط؛ الإنتاج يستخدم وظائف Base44 المحمية.
@@ -104,12 +104,12 @@ npx base44 deploy -y
 
 تُضاف في أسرار Base44 فقط، ولا تدخل GitHub أو الواجهة:
 
-- `KMY_MARKET_DATA_PROVIDER_CODE`
-- `KMY_MARKET_DATA_URL`
-- `KMY_MARKET_DATA_TOKEN`
-- `KMY_MARKET_DATA_MODE`
+- `SMART_INVESTOR_MARKET_DATA_PROVIDER_CODE`
+- `SMART_INVESTOR_MARKET_DATA_URL`
+- `SMART_INVESTOR_MARKET_DATA_TOKEN`
+- `SMART_INVESTOR_MARKET_DATA_MODE`
 
-القيمة الافتراضية القديمة المتوافقة لـ`KMY_MARKET_DATA_MODE` هي `experimental_public` ولا تحتاج رابطاً أو رمزاً. عند اختيار `licensed` يجب أن يعيد الرابط لقطة مجمعة لكل السوق مع `provider_as_of`, و`quotes[]` و—إن كانت متاحة—شموع `15m`.
+القيمة الافتراضية القديمة المتوافقة لـ`SMART_INVESTOR_MARKET_DATA_MODE` هي `experimental_public` ولا تحتاج رابطاً أو رمزاً. عند اختيار `licensed` يجب أن يعيد الرابط لقطة مجمعة لكل السوق مع `provider_as_of`, و`quotes[]` و—إن كانت متاحة—شموع `15m`.
 
 ## أسرار التنبيهات
 

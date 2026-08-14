@@ -11,6 +11,19 @@
     "plan_id": {
       "type": "string"
     },
+    "application_id": {
+      "type": "string"
+    },
+    "trading_platform_id": {
+      "type": "string"
+    },
+    "market_code": {
+      "type": "string",
+      "enum": ["SA_MAIN", "US_OPTIONS", "US_BENCHMARKS"]
+    },
+    "unique_reference": {
+      "type": "string"
+    },
     "status": {
       "type": "string",
       "enum": [

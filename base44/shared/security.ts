@@ -1,7 +1,7 @@
 import { LEGACY_ROLE_PERMISSIONS, PERMISSION_CATALOG } from "./permissions.ts";
 
 const MAX_JSON_BODY_BYTES = 256 * 1024;
-const SESSION_TOKEN_PREFIX = "kmy1";
+const SESSION_TOKEN_PREFIX = "smart_investor1";
 const MARKET_ACCESS = {
   SA_MAIN: { entitlement: "market.saudi", name_ar: "السوق السعودية الرئيسية", name_en: "Saudi Main Market", currency: "SAR" },
   US_OPTIONS: { entitlement: "market.us.options", name_ar: "شركات عقود الخيارات", name_en: "U.S. Optionable Companies", currency: "USD" },
@@ -120,7 +120,7 @@ export async function ensureAdministrativeProfile(base44, user) {
   const now = new Date().toISOString();
   if (!profile) {
     profile = await base44.asServiceRole.entities.CustomerProfile.create({
-      customer_number: `KMY-ADMIN-${String(user.id).slice(-8).toUpperCase()}`,
+      customer_number: `SMART_INVESTOR-ADMIN-${String(user.id).slice(-8).toUpperCase()}`,
       auth_user_id: user.id,
       email_normalized: normalizedEmail(user),
       full_name: administrativeName(user),
@@ -184,7 +184,7 @@ export async function requireActiveSession(base44, profile, sessionId) {
 
 export function replyError(error) {
   const status = Number(error?.status) || 500;
-  if (status >= 500) console.error("KMY backend error", error);
+  if (status >= 500) console.error("SMART_INVESTOR backend error", error);
   return Response.json({
     error: status >= 500 ? "Backend operation failed" : (error?.message || "Request failed"),
     code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED"),
@@ -215,7 +215,7 @@ export async function ensurePersonalAccount(base44, profile, userId) {
   }
   if (!account) {
     account = await base44.asServiceRole.entities.Account.create({
-      account_number: `KMY-A-${String(profile.customer_number || profile.id).replace(/[^A-Za-z0-9-]/g, "").slice(-24)}`,
+      account_number: `SMART_INVESTOR-A-${String(profile.customer_number || profile.id).replace(/[^A-Za-z0-9-]/g, "").slice(-24)}`,
       account_type: "personal",
       name: profile.full_name,
       owner_customer_id: profile.id,
@@ -284,7 +284,7 @@ async function subscriptionContext(base44, profile, account) {
     if (codes.has("market.us.options")) marketCodes.add("US_OPTIONS");
     if (codes.has("market.us.benchmarks")) marketCodes.add("US_BENCHMARKS");
     if ([...codes].some((code) => ["market.saudi", "market.saudi.delayed", "market.saudi.realtime"].includes(code))) marketCodes.add("SA_MAIN");
-    // Existing KMY plans predate market-specific entitlements. Preserve their
+    // Existing SMART_INVESTOR plans predate market-specific entitlements. Preserve their
     // Saudi access only; never infer U.S. access from a legacy subscription.
     if (!explicitMarkets.length) marketCodes.add("SA_MAIN");
   });
@@ -330,9 +330,10 @@ export async function authorizationContext(base44, sessionId) {
   const role = resolvedRole(user, profile);
   const { account, membership } = await ensurePersonalAccount(base44, profile, user.id);
   const assigned = await assignedPermissions(base44, membership);
+  const ownerOnlyCodes = new Set(PERMISSION_CATALOG.filter((permission) => permission.owner_only).map((permission) => permission.code));
   const permissions = role === "owner"
     ? new Set(PERMISSION_CATALOG.map((permission) => permission.code))
-    : new Set([...(LEGACY_ROLE_PERMISSIONS[role] || []), ...assigned.codes]);
+    : new Set([...(LEGACY_ROLE_PERMISSIONS[role] || []), ...assigned.codes].filter((code) => !ownerOnlyCodes.has(code)));
   const subscription = await subscriptionContext(base44, profile, account);
   return {
     user,

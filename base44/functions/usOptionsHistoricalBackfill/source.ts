@@ -91,7 +91,7 @@ async function fetchHistorical(symbol, from, to) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20e3);
     try {
-      const response = await fetch(url, { headers: { Accept: "application/json", "User-Agent": "KMY-US-Historical-Archive/1.0" }, signal: controller.signal });
+      const response = await fetch(url, { headers: { Accept: "application/json", "User-Agent": "SMART_INVESTOR-US-Historical-Archive/1.0" }, signal: controller.signal });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.chart?.result?.[0]) throw Object.assign(new Error(payload?.chart?.error?.description || `provider_http_${response.status}`), { code: payload?.chart?.error?.code || "HISTORY_PROVIDER_FAILED" });
       return payload;

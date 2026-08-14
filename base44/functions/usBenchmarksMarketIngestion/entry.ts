@@ -111,7 +111,7 @@ async function fetchChart(providerSymbol, interval, rangeOrWindow) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      const response = await fetch(url, { headers: { Accept: "application/json", "User-Agent": "KMY-US-Benchmarks/1.0" }, signal: controller.signal });
+      const response = await fetch(url, { headers: { Accept: "application/json", "User-Agent": "SMART_INVESTOR-US-Benchmarks/1.0" }, signal: controller.signal });
       const payload = await response.json().catch(() => ({}));
       const result = payload?.chart?.result?.[0];
       if (!response.ok || !result) throw new Error(payload?.chart?.error?.description || `provider_http_${response.status}`);

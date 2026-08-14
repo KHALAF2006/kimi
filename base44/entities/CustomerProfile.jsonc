@@ -44,7 +44,9 @@
       "type": "string",
       "enum": [
         "pending_verification",
+        "pending_owner_approval",
         "active",
+        "temporarily_blocked",
         "suspended",
         "banned",
         "closed"
@@ -73,9 +75,31 @@
       "type": "string",
       "format": "date-time"
     },
-    "phone_verified_at": {
+    "phone_accuracy_acknowledged_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "marketing_consent_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "terms_version": {
+      "type": "string"
+    },
+    "name_last_updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "temporary_blocked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "temporary_block_reason": {
+      "type": "string"
+    },
+    "feed_enabled": {
+      "type": "boolean",
+      "default": true
     },
     "last_login_at": {
       "type": "string",

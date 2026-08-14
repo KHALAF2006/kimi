@@ -45,7 +45,7 @@ assert.match(ingestion, /requireDataIngestionPermission\(base44, body\.session_i
 assert.match(ingestion, /identityContext/, "manual market ingestion must resolve identity and entitlements on the server");
 assert.doesNotMatch(ingestion, /Base44-Service-Authorization/, "market ingestion must not trust a client-supplied service header");
 assert.match(ingestion, /MAIN_MARKET_SYMBOLS\.has\(row\.symbol\)/, "ingestion must exclude records outside the verified main-market catalog");
-assert.match(ingestion, /KMY_MARKET_DATA_URL/, "licensed ingestion must require a provider endpoint secret");
+assert.match(ingestion, /SMART_INVESTOR_MARKET_DATA_URL/, "licensed ingestion must require a provider endpoint secret");
 assert.match(ingestion, /fetchPublicDelayedCharts/, "experimental ingestion must support public delayed 15-minute charts without a paid key");
 assert.match(ingestion, /buildPublicCandleContexts/, "experimental ingestion must build a stored cursor before provider requests");
 assert.match(ingestion, /url\.searchParams\.set\("period1"/, "normal public-source cycles must request only after the stored candle cursor");
@@ -169,7 +169,7 @@ assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh"
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
 const allEntityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc")).sort();
 const entityFiles = allEntityFiles.filter((name) => /^[A-Z][A-Za-z0-9]*\.jsonc$/.test(name));
-assert.equal(entityFiles.length, 46, "all 46 identity-preserving Base44 entity schemas must be present");
+assert.equal(entityFiles.length, 56, "all 56 identity-preserving Base44 entity schemas must be present");
 assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "duplicate or identity-changing entity schema files must not remain beside the Base44 schemas");
 const entityNames = new Set();
 for (const name of entityFiles) {
@@ -186,7 +186,7 @@ for (const name of entityFiles) {
 }
 assert.ok(!entityNames.has("User"), "built-in Base44 User fields and permissions must not be redefined");
 const entityNamesLower = new Set([...entityNames].map((name) => name.toLowerCase()));
-for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "QuoteObservation", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "UsageCounter", "Market", "InstrumentAlias", "ProviderInstrumentMap"]) {
+for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "QuoteObservation", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "UsageCounter", "Market", "InstrumentAlias", "ProviderInstrumentMap", "TradingPlatform", "MarketAccessApplication", "Message", "NotificationPreference", "Course", "CourseLesson", "PlaybackLease", "ContentSecurityEvent", "CustomerReportSnapshot"]) {
   assert.ok(entityNamesLower.has(required.toLowerCase()), `required entity is missing: ${required}`);
 }
 const customerProfile = JSON.parse(await readFile(new URL("../base44/entities/CustomerProfile.jsonc", import.meta.url), "utf8"));
@@ -195,7 +195,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 30, "all 30 backend functions must be present");
+assert.equal(functionNames.length, 36, "all 36 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -218,8 +218,8 @@ assert.match(marketService, /name_en:\s*company\.nameEn/);
 assert.doesNotMatch(marketService, /Math\.random|faker|mockCompany/i);
 assert.match(marketService, /localBrowserHosts\.has\(window\.location\.hostname\)/, "reference market API must be limited to localhost browsers");
 assert.doesNotMatch(marketService, /referenceApi\s*=\s*import\.meta\.env\.DEV/, "Base44 editor preview must not be mistaken for the local reference runtime");
-assert.match(marketService, /message\s*===\s*["']Active device session required["']/, "an expired or revoked KMY session must be detected");
-assert.match(marketService, /localStorage\.removeItem\(["']kmy_session_id["']\)/, "an invalid KMY session must be cleared before returning to login");
+assert.match(marketService, /message\s*===\s*["']Active device session required["']/, "an expired or revoked SMART_INVESTOR session must be detected");
+assert.match(marketService, /localStorage\.removeItem\(["']smart_investor_session_id["']\)/, "an invalid SMART_INVESTOR session must be cleared before returning to login");
 
 const appParamsSource = await readFile(new URL("../src/lib/app-params.js", import.meta.url), "utf8");
 assert.match(appParamsSource, /functionsVersion:[\s\S]*persist:\s*false,[\s\S]*useStored:\s*false/, "published pages must not reuse a stale preview function version");
@@ -231,13 +231,56 @@ assert.match(base44Client, /localBrowserHosts\.has\(window\.location\.hostname\)
 assert.doesNotMatch(base44Client, /isLocalReferencePreview\s*=\s*import\.meta\.env\.DEV/, "Base44 editor preview must initialize the real Base44 SDK");
 
 const protectedRoute = await readFile(new URL("../src/components/ProtectedRoute.jsx", import.meta.url), "utf8");
-assert.match(protectedRoute, /!isReferencePreview\(\)\s*&&\s*!localStorage\.getItem\(['"]kmy_session_id['"]\)/, "protected market routes must require the verified KMY device session");
+assert.match(protectedRoute, /!isReferencePreview\(\)\s*&&\s*!localStorage\.getItem\(['"]smart_investor_session_id['"]\)/, "protected market routes must require the verified SMART_INVESTOR device session");
 
 const loginPage = await readFile(new URL("../src/pages/Login.jsx", import.meta.url), "utf8");
 const registerPage = await readFile(new URL("../src/pages/Register.jsx", import.meta.url), "utf8");
+const authRegistrationFunction = await readFile(new URL("../base44/functions/authRegistration/entry.ts", import.meta.url), "utf8");
+const adminAccessFunction = await readFile(new URL("../base44/functions/adminAccess/entry.ts", import.meta.url), "utf8");
+const trainingContentFunction = await readFile(new URL("../base44/functions/trainingContent/entry.ts", import.meta.url), "utf8");
+const customerSelfServiceFunction = await readFile(new URL("../base44/functions/customerSelfService/entry.ts", import.meta.url), "utf8");
+const adminSubscriptionsPersistenceFunction = await readFile(new URL("../base44/functions/adminSubscriptions/entry.ts", import.meta.url), "utf8");
+const adminRolesPersistenceFunction = await readFile(new URL("../base44/functions/adminRoles/entry.ts", import.meta.url), "utf8");
+const destinationsPage = await readFile(new URL("../src/pages/Destinations.jsx", import.meta.url), "utf8");
+const coursesAdminPage = await readFile(new URL("../src/pages/CoursesAdmin.jsx", import.meta.url), "utf8");
+const landingCoursesPage = await readFile(new URL("../src/pages/Landing.jsx", import.meta.url), "utf8");
+const rolesAdminPage = await readFile(new URL("../src/pages/RolesAdmin.jsx", import.meta.url), "utf8");
+const subscriptionsAdminPage = await readFile(new URL("../src/pages/SubscriptionsAdmin.jsx", import.meta.url), "utf8");
+const customerReportFunction = await readFile(new URL("../base44/functions/customerReport/entry.ts", import.meta.url), "utf8");
+const customerReportConfig = JSON.parse(await readFile(new URL("../base44/functions/customerReport/function.jsonc", import.meta.url), "utf8"));
 const authLayout = await readFile(new URL("../src/components/AuthLayout.jsx", import.meta.url), "utf8");
 const siteStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
-assert.match(loginPage, /isAuthenticated\?t\.sendCode:t\.next/, "an already authenticated Base44 user must continue through KMY email OTP");
+assert.match(loginPage, /isAuthenticated\?t\.sendCode:t\.next/, "an already authenticated Base44 user must continue through SMART_INVESTOR email OTP");
+assert.match(registerPage, /marketing_consent:\s*form\.consent/, "registration must send the mandatory communication consent to the backend");
+assert.match(registerPage, /phone_accuracy_acknowledged/, "registration must require a clear mobile-number accuracy acknowledgement");
+assert.doesNotMatch(registerPage, /phone_code|start_phone_verification/, "registration must not request or send a mobile verification code");
+assert.doesNotMatch(authRegistrationFunction, /TWILIO|twilio|VerificationCheck|phone_verified/, "registration must not depend on phone verification services or claim the phone was verified");
+assert.match(authRegistrationFunction, /privaterelay\.appleid\.com/, "Apple private relay email addresses must be rejected");
+assert.match(authRegistrationFunction, /private\.icloud\.com/, "Apple shared private relay addresses must be rejected");
+assert.match(authRegistrationFunction, /account_status:\s*"pending_owner_approval"/, "new customers must remain pending until the owner decides");
+assert.match(adminAccessFunction, /context\.role !== "owner"/, "market application decisions must be owner-only");
+assert.match(adminAccessFunction, /10 \* 24 \* 60 \* 60 \* 1000/, "owner approval must create exactly ten free days");
+assert.match(adminAccessFunction, /market_code:\s*application\.market_code/, "each approved application must stay bound to one market");
+assert.match(trainingContentFunction, /CreateFileSignedUrl/, "course playback must use temporary links for private Base44 files");
+assert.match(trainingContentFunction, /storage_provider:\s*"base44_private"/, "course videos must be stored in private Base44 storage");
+assert.doesNotMatch(trainingContentFunction, /BUNNY|bunny|mediadelivery|DRM/, "course delivery must not depend on an external video provider or claim DRM");
+assert.match(trainingContentFunction, /attempt >= 3/, "three verified parallel playback attempts must trigger the temporary block gate");
+assert.match(trainingContentFunction, /ActiveDeviceSession\.updateMany/, "a protected-content block must revoke active sessions");
+assert.match(customerSelfServiceFunction, /body\.action === "destinations"/, "destination management must have a market-independent backend read path");
+assert.match(destinationsPage, /action:\s*"destinations"/, "the destinations page must not call a market-scoped alerts read without a market");
+assert.match(adminSubscriptionsPersistenceFunction, /SUBSCRIPTION_PERSISTENCE_FAILED/, "subscription changes must be read back and confirmed before success");
+assert.match(adminRolesPersistenceFunction, /ROLE_ASSIGNMENT_PERSISTENCE_FAILED/, "role assignments must be read back and confirmed before success");
+assert.match(subscriptionsAdminPage, /transitionOptions\(item\.status\)/, "subscription status choices must only expose valid backend transitions");
+assert.match(subscriptionsAdminPage, /aria-live="polite"/, "subscription saves must provide accessible confirmation");
+assert.match(rolesAdminPage, /membership_id/, "the owner must not be offered as a self-assignment target");
+assert.match(rolesAdminPage, /aria-live="polite"/, "role saves must provide accessible confirmation");
+assert.match(coursesAdminPage, /UploadPrivateFile/, "the owner course page must upload lecture videos to private storage");
+assert.match(coursesAdminPage, /إضافة محاضرة ورفع الفيديو/, "the owner course page must expose lecture creation clearly");
+assert.match(landingCoursesPage, /action:\s*"public_list"/, "the landing page must load published public courses");
+assert.match(landingCoursesPage, /id="courses"/, "the landing page must contain a real public-courses section");
+assert.match(customerReportFunction, /UploadPrivateFile/, "customer reports must be stored as private files");
+assert.match(customerReportFunction, /All Customers/, "the Excel-compatible workbook must retain the newest-first master sheet");
+assert.equal(customerReportConfig.automations[0].cron_expression, "55 20 * * ?", "daily customer reporting must run at 23:55 Riyadh time");
 assert.match(loginPage, /base44\.functions\.invoke\(['"]authLogin['"],\{action:['"]start['"]\}\)/, "login must start the server-side OTP challenge");
 for (const [name, source] of [["login", loginPage], ["registration", registerPage], ["authentication layout", authLayout]]) {
   assert.doesNotMatch(source, /amber|orange|245,158,11/, `${name} must use the site-wide sky identity rather than the retired orange identity`);
@@ -333,7 +376,7 @@ assert.deepEqual(chartControlTransition({ menu: "", panel: "momentum" }, { type:
 assert.deepEqual(chartControlTransition({ menu: "indicators", panel: "" }, { type: "toggle-panel", panel: "momentum" }), { menu: "", panel: "momentum" }, "opening zone settings must close the indicator popover");
 
 const chartDrawingsFunction = await readFile(new URL("../base44/functions/chartDrawings/entry.ts", import.meta.url), "utf8");
-assert.match(chartDrawingsFunction, /authorizationContext\(base44, body\.session_id\)/, "drawing storage must require the verified KMY session and authorization context");
+assert.match(chartDrawingsFunction, /authorizationContext\(base44, body\.session_id\)/, "drawing storage must require the verified SMART_INVESTOR session and authorization context");
 assert.match(chartDrawingsFunction, /requireMarketEntitlement\(context, body\.market_code\)/, "drawing storage must enforce the selected market subscription");
 assert.match(chartDrawingsFunction, /row\.customer_id !== profile\.id/, "drawing mutations must enforce object ownership");
 assert.match(chartDrawingsFunction, /DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED/, "a drawing with an alert must not be deleted without explicit confirmation");
@@ -511,7 +554,7 @@ assert.match(appParams, /persist:\s*false[\s\S]*useStored:\s*false/, "the one-sh
 assert.match(appParams, /allowUrlValue:\s*isBase44PreviewHost\(window\.location\.hostname\)/, "published pages must ignore access_token values supplied through the URL");
 const internalLinkFiles = [
   "../src/components/AuthLayout.jsx",
-  "../src/components/KmyLayout.jsx",
+  "../src/components/SmartInvestorLayout.jsx",
   "../src/components/market/MarketTable.jsx",
   "../src/components/market/MarketTicker.jsx",
   "../src/pages/AdminDashboard.jsx",
@@ -523,7 +566,9 @@ const internalLinkFiles = [
   "../src/pages/Profile.jsx",
   "../src/pages/Register.jsx",
   "../src/pages/ResetPassword.jsx",
-  "../src/pages/VerifyContact.jsx",
+  "../src/pages/ApplicationStatus.jsx",
+  "../src/pages/Courses.jsx",
+  "../src/pages/MarketApplications.jsx",
   "../src/pages/Watchlists.jsx",
 ];
 for (const relativePath of internalLinkFiles) {
@@ -672,7 +717,7 @@ assert.match(authLoginFunction, /shared\/security\.ts/, "the deployed authLogin 
 assert.match(authLoginFunction, /createSessionToken\(session\.id, sessionSecret\)/, "login must return an opaque session bearer rather than an entity ID");
 assert.match(authLoginFunction, /body\.action === "logout"[\s\S]*requireActiveSession[\s\S]*revoked_at/, "logout must revoke the verified server-side device session");
 assert.match(loginPage, /base44\.auth\.setToken\(login\.access_token,true\)/, "Base44 authentication must persist across same-origin tabs");
-assert.match(loginPage, /kmy_device_id/, "all tabs on one browser device must share a stable device identity");
+assert.match(loginPage, /smart_investor_device_id/, "all tabs on one browser device must share a stable device identity");
 for (const fileName of ["adminCustomers", "adminSubscriptions", "adminRoles", "identityContext", "operationsQuality", "adminMarketData"]) {
   const deployed = await readFile(new URL(`../base44/functions/${fileName}/entry.ts`, import.meta.url), "utf8");
   assert.match(deployed, /authorizationContext|requirePermission/, `${fileName} must enforce the centralized backend authorization context`);
@@ -721,7 +766,8 @@ assert.match(viteSecurityConfig, /cspInlineScriptHashes/, "the build must hash B
 assert.match(viteSecurityConfig, /createHash\('sha256'\)/, "inline-script CSP allowances must be content-bound SHA-256 hashes");
 assert.match(viteSecurityConfig, /analyticsTracker:\s*false/, "the deploy must not inject Base44's post-processed inline tracker under a strict CSP");
 const packageManifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-assert.equal(packageManifest.dependencies["react-router-dom"], "7.18.1");
+assert.equal(packageManifest.dependencies["react-router-dom"], "7.18.2");
+assert.equal(packageManifest.overrides.nanoid, "3.3.18", "the patched nanoid release must remain pinned");
 assert.equal(packageManifest.devDependencies.postcss, "8.5.23");
 assert.match(packageManifest.devDependencies["brace-expansion"], /\/v1\.1\.18\.tar\.gz$/, "the patched brace-expansion release must use a deployable HTTPS artifact");
 assert.equal(packageManifest.overrides["brace-expansion"], "$brace-expansion");

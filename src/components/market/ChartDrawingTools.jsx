@@ -40,8 +40,8 @@ const ALERT_TYPES = new Set(["trend_line", "ray", "horizontal_line"]);
 const RANGE_TYPES = new Set(["price_range", "date_range", "date_and_price_range"]);
 const TOOLBAR_STORAGE_KEY = "si_drawing_toolbar_layout";
 const SELECTION_TOOLBAR_STORAGE_KEY = "si_drawing_selection_toolbar_layout";
-const DRAWING_CLIPBOARD_STORAGE_KEY = "kmy_drawing_clipboard_v1";
-const DRAWING_CLIPBOARD_PREFIX = "KMY_DRAWING:";
+const DRAWING_CLIPBOARD_STORAGE_KEY = "smart_investor_drawing_clipboard_v1";
+const DRAWING_CLIPBOARD_PREFIX = "SMART_INVESTOR_DRAWING:";
 const DEFAULT_TOOLBAR_LAYOUT = { x: null, y: 8, orientation: "horizontal", collapsed: false, hidden: false };
 
 function storedToolbarLayout() {

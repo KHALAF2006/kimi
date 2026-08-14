@@ -42,7 +42,7 @@ const intervalValues = new Set(CHART_INTERVALS.map((item) => item.value));
 
 export function chartSelectionStorageKey(marketCode, targetType, target) {
   const safe = [marketCode, targetType, target].map((value) => encodeURIComponent(String(value || "unknown"))).join(":");
-  return `kmy_chart_selection_v4:${safe}`;
+  return `smart_investor_chart_selection_v4:${safe}`;
 }
 
 export function defaultRangeForInterval(interval) {

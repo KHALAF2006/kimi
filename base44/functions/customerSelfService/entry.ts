@@ -84,6 +84,19 @@ Deno.serve(async (req) => {
       await audit(base44, user.id, "chart.preferences.update", "CustomerProfile", profile.id, "success", "", profile.chart_preferences || null, preferences);
       return Response.json({ preferences: persisted });
     }
+    if (body.action === "destinations") {
+      const destinations = await base44.asServiceRole.entities.AlertDestination.filter({ customer_id: profile.id });
+      const groups = await base44.asServiceRole.entities.RecipientGroup.filter({ customer_id: profile.id });
+      const groupIds = new Set(groups.map((row) => row.id));
+      const recipients = (await base44.asServiceRole.entities.Recipient.list("-updated_date", 5e3))
+        .filter((row) => groupIds.has(row.group_id))
+        .map(({ phone_e164: _phone, ...row }) => row);
+      return Response.json({
+        destinations: destinations.map(({ secret_ref: _secret, ...row }) => row),
+        groups,
+        recipients,
+      });
+    }
     if (body.action === "alerts") {
       const marketCode = requireMarketEntitlement(context, body.market_code);
       const allRules = await base44.asServiceRole.entities.AlertRule.filter({ customer_id: profile.id });

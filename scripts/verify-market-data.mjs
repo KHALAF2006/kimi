@@ -100,19 +100,19 @@ const restored = consumePreviewAuthHandoff({
     hostname: previewHost,
     pathname: "/screener",
     search: handedOffUrl.search,
-    hash: "#kmy_preview_auth=legacy-credential-payload",
+    hash: "#smart_investor_preview_auth=legacy-credential-payload",
   },
   history: { replaceState: (_state, _title, url) => { cleanedPreviewUrl = url; } },
   storage: targetPreviewStorage,
 });
 assert.equal(restored, false);
 assert.equal(targetPreviewStorage.getItem("base44_access_token"), null);
-assert.equal(targetPreviewStorage.getItem("kmy_session_id"), null);
+assert.equal(targetPreviewStorage.getItem("smart_investor_session_id"), null);
 assert.equal(cleanedPreviewUrl, `/screener${handedOffUrl.search}`, "legacy credential fragments must be removed without restoring them");
 let malformedCleanUrl = "";
 assert.doesNotThrow(() => {
   const malformedRestored = consumePreviewAuthHandoff({
-    location: { hostname: previewHost, pathname: "/screener", search: "", hash: "#kmy_preview_auth=invalid" },
+    location: { hostname: previewHost, pathname: "/screener", search: "", hash: "#smart_investor_preview_auth=invalid" },
     history: { replaceState: (_state, _title, url) => { malformedCleanUrl = url; } },
     storage: memoryStorage(),
   });

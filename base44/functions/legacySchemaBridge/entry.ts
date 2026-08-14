@@ -127,7 +127,7 @@ async function copyOwner(base44, owner) {
     && Array.isArray(owner.profile?.tags)
     && owner.profile.tags.includes("owner");
   const row = sourceTrusted ? stripServerFields(owner.profile) : {
-    customer_number: `KMY-OWNER-${owner.user.id.slice(-8).toUpperCase()}`,
+    customer_number: `SMART_INVESTOR-OWNER-${owner.user.id.slice(-8).toUpperCase()}`,
     auth_user_id: owner.user.id,
     email_normalized: String(owner.user.email || "").trim().toLowerCase(),
     full_name: String(owner.user.full_name || owner.user.email || "Platform Owner"),

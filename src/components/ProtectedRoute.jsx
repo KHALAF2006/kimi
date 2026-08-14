@@ -34,7 +34,7 @@ export default function ProtectedRoute({ fallback = <DefaultFallback />, unauthe
     return unauthenticatedElement;
   }
 
-  if (!isReferencePreview() && !localStorage.getItem('kmy_session_id')) {
+  if (!isReferencePreview() && !localStorage.getItem('smart_investor_session_id')) {
     return unauthenticatedElement;
   }
 

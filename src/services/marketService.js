@@ -1,6 +1,6 @@
 import { base44 } from "@/api/base44Client";
 
-const configuredReferenceApi = String(import.meta.env.VITE_KMY_REFERENCE_API || "").replace(/\/$/, "");
+const configuredReferenceApi = String(import.meta.env.VITE_SMART_INVESTOR_REFERENCE_API || "").replace(/\/$/, "");
 const localBrowserHosts = new Set(["localhost", "127.0.0.1", "::1"]);
 const isLocalBrowser = typeof window !== "undefined" && localBrowserHosts.has(window.location.hostname);
 const referenceApi = isLocalBrowser ? (configuredReferenceApi || "/reference-api") : "";
@@ -13,7 +13,7 @@ const CHART_CACHE_MAX_ENTRIES = 80;
 const MARKET_SUPPLEMENT_MAX_AGE_MS = 15 * 60_000;
 
 function stableRequestKey(payload) {
-  const sessionId = localStorage.getItem("kmy_session_id") || "anonymous";
+  const sessionId = localStorage.getItem("smart_investor_session_id") || "anonymous";
   const values = Object.entries(payload || {}).sort(([left], [right]) => left.localeCompare(right));
   return `${sessionId}:${JSON.stringify(Object.fromEntries(values))}`;
 }
@@ -236,7 +236,7 @@ function invokeWithTimeout(factory, timeoutMs) {
 export async function invokeAppFunction(functionName, payload = {}) {
   if (referenceApi && functionName === "marketRead") return referenceMarketRead(payload);
   try {
-    const invoke = () => base44.functions.invoke(functionName, { ...payload, session_id: localStorage.getItem("kmy_session_id") });
+    const invoke = () => base44.functions.invoke(functionName, { ...payload, session_id: localStorage.getItem("smart_investor_session_id") });
     const maxAttempts = functionName === "marketRead" ? 2 : 1;
     let lastError = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -256,9 +256,9 @@ export async function invokeAppFunction(functionName, payload = {}) {
   } catch (error) {
     const message = error?.response?.data?.error || error?.message;
     if (message === "Active device session required") {
-      localStorage.removeItem("kmy_session_id");
-      localStorage.removeItem("kmy_session_expires_at");
-      window.dispatchEvent(new Event("kmy-auth-changed"));
+      localStorage.removeItem("smart_investor_session_id");
+      localStorage.removeItem("smart_investor_session_expires_at");
+      window.dispatchEvent(new Event("smart_investor-auth-changed"));
       if (window.location.pathname !== "/login") window.location.assign("/login");
     }
     throw error;

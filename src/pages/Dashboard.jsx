@@ -38,7 +38,7 @@ export default function Dashboard() {
   const [excludeLoss, setExcludeLoss] = useState(false);
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
-  const [profileWidth, setProfileWidth] = useState(() => Math.min(760, Math.max(380, Number(localStorage.getItem("kmy_profile_width")) || 500)));
+  const [profileWidth, setProfileWidth] = useState(() => Math.min(760, Math.max(380, Number(localStorage.getItem("smart_investor_profile_width")) || 500)));
   const resizeRef = useRef(null);
   const loadRequestRef = useRef(0);
   const selectedSymbol = params.get("company") || "";
@@ -220,11 +220,11 @@ export default function Dashboard() {
     if (!resizeRef.current) return;
     resizeRef.current = null;
     event.currentTarget.releasePointerCapture(event.pointerId);
-    localStorage.setItem("kmy_profile_width", String(profileWidth));
+    localStorage.setItem("smart_investor_profile_width", String(profileWidth));
   }
   function resetWidth() {
     setProfileWidth(500);
-    localStorage.setItem("kmy_profile_width", "500");
+    localStorage.setItem("smart_investor_profile_width", "500");
   }
 
   const tabs = [

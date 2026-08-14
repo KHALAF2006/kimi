@@ -1,0 +1,14 @@
+{
+  "name": "CourseProgress",
+  "type": "object",
+  "properties": {
+    "customer_id": { "type": "string" },
+    "course_id": { "type": "string" },
+    "lesson_id": { "type": "string" },
+    "position_seconds": { "type": "number", "minimum": 0 },
+    "completed": { "type": "boolean", "default": false },
+    "last_watched_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["customer_id", "course_id", "lesson_id", "position_seconds", "completed", "last_watched_at"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

@@ -4,6 +4,7 @@ import PageHeader from "@/components/PageHeader";
 import StatusPanel from "@/components/StatusPanel";
 import { invokeAppFunction, isReferencePreview } from "@/services/marketService";
 import { useAuthorization } from "@/lib/AuthorizationContext";
+import { usePreferences } from "@/lib/preferences";
 
 function message(error) {
   return error?.response?.data?.error || error?.message || "تعذر تنفيذ العملية.";
@@ -11,9 +12,10 @@ function message(error) {
 
 export default function SubscriptionsAdmin() {
   const { can } = useAuthorization();
+  const { isArabic } = usePreferences();
   const [state, setState] = useState({ loading: true, plans: [], subscriptions: [], customers: [], error: "", status: "", busy: false });
   const [activation, setActivation] = useState({ customer_id: "", plan_id: "", starts_at: new Date().toISOString().slice(0, 10), reason: "" });
-  const [transition, setTransition] = useState({ id: "", status: "suspended", reason: "", expected_revision: 1 });
+  const [transition, setTransition] = useState({ id: "", from_status: "", status: "", reason: "", expected_revision: 1 });
   const [plan, setPlan] = useState({ code: "starter", name_ar: "الخطة الأساسية", name_en: "Starter", duration_months: 1, price_sar: 0, active: true });
   const [planReason, setPlanReason] = useState("");
   const [entitlementEditor, setEntitlementEditor] = useState({ plan_id: "", expected_revision: 1, reason: "", entitlements: [] });
@@ -55,16 +57,30 @@ export default function SubscriptionsAdmin() {
   async function run(payload, success) {
     try {
       setState((current) => ({ ...current, busy: true, error: "", status: "" }));
-      await invokeAppFunction("adminSubscriptions", payload);
+      const result = await invokeAppFunction("adminSubscriptions", payload);
       await load();
-      setState((current) => ({ ...current, busy: false, status: success }));
+      setState((current) => ({ ...current, busy: false, status: `${success} ${new Date().toLocaleTimeString(isArabic ? "ar-SA" : "en-US", { hour: "2-digit", minute: "2-digit" })}` }));
+      return result;
     } catch (error) {
       setState((current) => ({ ...current, busy: false, error: message(error) }));
+      return null;
     }
   }
 
   function chooseTransition(subscription) {
-    setTransition({ id: subscription.id, status: subscription.status === "active" ? "suspended" : "active", reason: "", expected_revision: subscription.revision || 1 });
+    const options = transitionOptions(subscription.status);
+    setTransition({ id: subscription.id, from_status: subscription.status, status: options[0] || "", reason: "", expected_revision: subscription.revision || 1 });
+  }
+
+  function transitionOptions(status) {
+    return ({ pending: ["active", "banned"], active: ["suspended", "expired", "banned"], suspended: ["active", "expired", "banned"], expired: ["active"], banned: [] })[status] || [];
+  }
+
+  async function saveTransition() {
+    if (!transition.status) return setState((current) => ({ ...current, error: isArabic ? "لا يوجد انتقال مسموح لهذه الحالة." : "No status transition is allowed from the current state." }));
+    if (transition.reason.trim().length < 3) return setState((current) => ({ ...current, error: isArabic ? "اكتب سبب التغيير من ثلاثة أحرف على الأقل." : "Enter a change reason of at least three characters." }));
+    const saved = await run({ action: "transition", id: transition.id, status: transition.status, reason: transition.reason, expected_revision: transition.expected_revision }, isArabic ? "حُفظت حالة الاشتراك وتأكدت من الخادم." : "The subscription status was saved and confirmed by the server.");
+    if (saved) setTransition({ id: "", from_status: "", status: "", reason: "", expected_revision: 1 });
   }
 
   function chooseEntitlements(selectedPlan) {
@@ -101,7 +117,7 @@ export default function SubscriptionsAdmin() {
     <div className="mx-auto max-w-[1800px] space-y-5 px-4 pb-10">
       {state.loading && <StatusPanel loading />}
       {state.error && <StatusPanel error={state.error} />}
-      {state.status && <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300">{state.status}</div>}
+      {state.status && <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300" role="status" aria-live="polite">{state.status}</div>}
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{state.plans.map((item) => <button type="button" onClick={() => can("plans.manage") && chooseEntitlements(item)} key={item.id} className="rounded-2xl border border-slate-200 bg-white p-5 text-start transition hover:border-sky-400 dark:border-slate-800 dark:bg-[#0d192a]"><div className="flex items-center justify-between"><WalletCards className="text-sky-500" size={19} /><span className={`rounded-full px-2 py-1 text-[10px] ${item.active ? "bg-emerald-500/10 text-emerald-500" : "bg-slate-500/10 text-slate-500"}`}>{item.active ? "نشطة" : "موقفة"}</span></div><b className="mt-4 block">{item.name_ar}</b><p className="mt-1 text-xs text-slate-400">{item.duration_months} شهر · {Number(item.price_sar).toLocaleString("ar-SA")} ر.س</p><small className="mt-3 block text-slate-400">{item.entitlements?.filter((value) => value.enabled).length || 0} خاصية مفعلة</small></button>)}</section>
 
       {can("plans.manage") && entitlementEditor.plan_id && <section className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-5">
@@ -123,9 +139,9 @@ export default function SubscriptionsAdmin() {
         {can("plans.manage") && <form onSubmit={(event) => { event.preventDefault(); run({ action: "create_plan", plan, reason: planReason }, "أُنشئت الخطة وسُجلت العملية."); }} className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#0d192a]"><h2 className="flex items-center gap-2 font-black"><Plus size={18} />إنشاء خطة</h2><div className="mt-4 grid gap-3 sm:grid-cols-2"><input className="form-input" value={plan.code} onChange={(event) => setPlan((value) => ({ ...value, code: event.target.value }))} placeholder="رمز الخطة" required /><input className="form-input" value={plan.name_ar} onChange={(event) => setPlan((value) => ({ ...value, name_ar: event.target.value }))} placeholder="الاسم العربي" required /><input className="form-input" value={plan.name_en} onChange={(event) => setPlan((value) => ({ ...value, name_en: event.target.value }))} placeholder="الاسم الإنجليزي" required /><select className="form-input" value={plan.duration_months} onChange={(event) => setPlan((value) => ({ ...value, duration_months: Number(event.target.value) }))}><option value="1">شهر</option><option value="3">3 أشهر</option><option value="6">6 أشهر</option></select><input type="number" min="0" className="form-input" value={plan.price_sar} onChange={(event) => setPlan((value) => ({ ...value, price_sar: Number(event.target.value) }))} placeholder="السعر" /><input className="form-input" value={planReason} onChange={(event) => setPlanReason(event.target.value)} placeholder="سبب الإنشاء" required /><button className="primary-button sm:col-span-2" disabled={state.busy}><Plus size={15} />إنشاء الخطة</button></div></form>}
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#0d192a]"><div className="mb-4 flex items-center justify-between"><h2 className="flex items-center gap-2 font-black"><Clock3 size={18} />سجل الاشتراكات</h2><button type="button" className="secondary-button" onClick={load}><RefreshCcw size={15} />تحديث</button></div><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="text-slate-400"><tr><th className="p-3 text-start">العميل</th><th className="p-3 text-start">الخطة</th><th className="p-3">الحالة</th><th className="p-3">البداية</th><th className="p-3">النهاية</th><th className="p-3">الإجراء</th></tr></thead><tbody>{state.subscriptions.map((item) => <tr key={item.id} className="border-t border-slate-100 dark:border-slate-800"><td className="p-3">{state.customers.find((customer) => customer.id === item.customer_id)?.full_name || item.customer_id}</td><td className="p-3">{state.plans.find((planItem) => planItem.id === item.plan_id)?.name_ar || item.plan_id}</td><td className="p-3 text-center">{item.status}</td><td className="p-3 text-center">{new Date(item.starts_at).toLocaleDateString("ar-SA")}</td><td className="p-3 text-center">{new Date(item.ends_at).toLocaleDateString("ar-SA")}</td><td className="p-3 text-center"><button type="button" className="secondary-button" onClick={() => chooseTransition(item)}>تغيير</button></td></tr>)}</tbody></table>{!state.subscriptions.length && <StatusPanel title="لا توجد اشتراكات بعد" />}</div></section>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#0d192a]"><div className="mb-4 flex items-center justify-between"><h2 className="flex items-center gap-2 font-black"><Clock3 size={18} />سجل الاشتراكات</h2><button type="button" className="secondary-button" onClick={load}><RefreshCcw size={15} />تحديث</button></div><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="text-slate-400"><tr><th className="p-3 text-start">العميل</th><th className="p-3 text-start">الخطة</th><th className="p-3">الحالة</th><th className="p-3">البداية</th><th className="p-3">النهاية</th><th className="p-3">الإجراء</th></tr></thead><tbody>{state.subscriptions.map((item) => <tr key={item.id} className="border-t border-slate-100 dark:border-slate-800"><td className="p-3">{state.customers.find((customer) => customer.id === item.customer_id)?.full_name || item.customer_id}</td><td className="p-3">{state.plans.find((planItem) => planItem.id === item.plan_id)?.name_ar || item.plan_id}</td><td className="p-3 text-center">{item.status}</td><td className="p-3 text-center">{new Date(item.starts_at).toLocaleDateString("ar-SA")}</td><td className="p-3 text-center">{new Date(item.ends_at).toLocaleDateString("ar-SA")}</td><td className="p-3 text-center"><button type="button" className="secondary-button" disabled={!transitionOptions(item.status).length} onClick={() => chooseTransition(item)}>{isArabic ? "تغيير" : "Change"}</button></td></tr>)}</tbody></table>{!state.subscriptions.length && <StatusPanel title="لا توجد اشتراكات بعد" />}</div></section>
 
-      {transition.id && <section className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-5"><h2 className="font-black">تغيير حالة الاشتراك</h2><div className="mt-3 flex flex-wrap gap-3"><select className="form-input" value={transition.status} onChange={(event) => setTransition((value) => ({ ...value, status: event.target.value }))}>{["active", "suspended", "expired", "banned"].map((status) => <option key={status}>{status}</option>)}</select><input className="form-input min-w-64 flex-1" value={transition.reason} onChange={(event) => setTransition((value) => ({ ...value, reason: event.target.value }))} placeholder="سبب التغيير" /><button type="button" className="primary-button" disabled={state.busy || transition.reason.trim().length < 3} onClick={() => run({ action: "transition", ...transition }, "حُدثت حالة الاشتراك وسُجلت القيم قبل وبعد.")}>حفظ التغيير</button></div></section>}
+      {transition.id && <section className="rounded-2xl border border-sky-400/30 bg-sky-400/10 p-5"><h2 className="font-black">{isArabic ? "تغيير حالة الاشتراك" : "Change subscription status"}</h2><p className="mt-1 text-xs text-slate-500">{isArabic ? `الحالة الحالية: ${transition.from_status}` : `Current status: ${transition.from_status}`}</p><div className="mt-3 flex flex-wrap gap-3"><select className="form-input" value={transition.status} onChange={(event) => setTransition((value) => ({ ...value, status: event.target.value }))}>{transitionOptions(transition.from_status).map((status) => <option key={status}>{status}</option>)}</select><input className="form-input min-w-64 flex-1" value={transition.reason} onChange={(event) => setTransition((value) => ({ ...value, reason: event.target.value }))} placeholder={isArabic ? "سبب التغيير — ثلاثة أحرف على الأقل" : "Change reason — at least three characters"} minLength={3} /><button type="button" className="primary-button" disabled={state.busy} onClick={saveTransition}>{state.busy ? (isArabic ? "جارٍ الحفظ…" : "Saving…") : (isArabic ? "حفظ التغيير" : "Save change")}</button></div></section>}
     </div>
   </>;
 }

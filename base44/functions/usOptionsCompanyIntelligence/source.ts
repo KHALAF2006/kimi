@@ -15,7 +15,7 @@ const NASDAQ_SOURCE = "REFERENCE_NASDAQ_US_COMPANY";
 const YAHOO_ACTIONS_SOURCE = "REFERENCE_YAHOO_US_ACTIONS";
 const DEFAULT_BATCH_SIZE = 10;
 const MAX_BATCH_SIZE = 20;
-const SEC_USER_AGENT = "Mozilla/5.0 KMYMarketPlatform/1.0";
+const SEC_USER_AGENT = "Mozilla/5.0 SMART_INVESTORMarketPlatform/1.0";
 const SEC_CONTACT = "khalaf2006@users.noreply.github.com";
 
 function rows(value) {
@@ -54,7 +54,7 @@ async function fetchJson(url, { sec = false, attempts = 2 } = {}) {
         signal: controller.signal,
         headers: sec
           ? { Accept: "application/json", "User-Agent": SEC_USER_AGENT, From: SEC_CONTACT, "Accept-Encoding": "gzip, deflate" }
-          : { Accept: "application/json, text/plain, */*", "User-Agent": "Mozilla/5.0 KMY-US-Company-Intelligence/1.0", Origin: "https://www.nasdaq.com", Referer: "https://www.nasdaq.com/" },
+          : { Accept: "application/json, text/plain, */*", "User-Agent": "Mozilla/5.0 SMART_INVESTOR-US-Company-Intelligence/1.0", Origin: "https://www.nasdaq.com", Referer: "https://www.nasdaq.com/" },
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw Object.assign(new Error(`provider_http_${response.status}`), { code: `HTTP_${response.status}` });

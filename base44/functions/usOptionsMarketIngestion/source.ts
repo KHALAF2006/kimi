@@ -236,7 +236,7 @@ async function fetchChart(symbol, now = new Date(), window = { mode: "bootstrap"
     const timeout = setTimeout(() => controller.abort(), 10e3);
     try {
       const response = await fetch(url, {
-        headers: { Accept: "application/json", "User-Agent": "KMY-US-Options-Market/1.0" },
+        headers: { Accept: "application/json", "User-Agent": "SMART_INVESTOR-US-Options-Market/1.0" },
         signal: controller.signal,
       });
       if (!response.ok) {

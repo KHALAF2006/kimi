@@ -8,6 +8,8 @@ import { useAuthorization } from "@/lib/AuthorizationContext";
 
 const navigation = [
   { to: "/admin/customers", label: "العملاء", description: "الملف الشامل والحالة والجلسات والملاحظات", permission: "customers.masked.read", icon: UsersRound },
+  { to: "/admin/access", label: "طلبات الوصول والمنصات", description: "قبول العملاء وربط كل منصة بسوق واحد", permission: "customers.full.read", icon: ShieldCheck },
+  { to: "/admin/courses", label: "الدورات والفيديو", description: "رفع المقاطع ونشر الدورات العامة والخاصة", permission: "settings.manage", icon: FileClock },
   { to: "/admin/subscriptions", label: "الاشتراكات والخطط", description: "التفعيل اليدوي والحدود ودورة الحياة", permission: "subscriptions.read", icon: WalletCards },
   { to: "/admin/roles", label: "الأدوار والصلاحيات", description: "سحب وإفلات وإسناد محكوم من الخلفية", permission: "roles.manage", icon: UserRoundCog },
   { to: "/admin/quality", label: "جودة البيانات", description: "المصادر والأخطاء وحالة المعالجة", permission: "data.quality.manage", icon: Database },

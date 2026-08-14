@@ -31,8 +31,8 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (referencePreview) return undefined;
     const syncAuthentication = (event) => {
-      if (event.key && !["base44_access_token", "kmy_session_id"].includes(event.key)) return;
-      if (!localStorage.getItem("kmy_session_id")) {
+      if (event.key && !["base44_access_token", "smart_investor_session_id"].includes(event.key)) return;
+      if (!localStorage.getItem("smart_investor_session_id")) {
         setIsAuthenticated(false);
         setAuthChecked(true);
         return;
@@ -40,10 +40,10 @@ export const AuthProvider = ({ children }) => {
       checkUserAuth();
     };
     window.addEventListener("storage", syncAuthentication);
-    window.addEventListener("kmy-auth-changed", syncAuthentication);
+    window.addEventListener("smart_investor-auth-changed", syncAuthentication);
     return () => {
       window.removeEventListener("storage", syncAuthentication);
-      window.removeEventListener("kmy-auth-changed", syncAuthentication);
+      window.removeEventListener("smart_investor-auth-changed", syncAuthentication);
     };
   }, [referencePreview]);
 

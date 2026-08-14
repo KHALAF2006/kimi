@@ -1,7 +1,7 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 import { audit, authorizationContext, readJsonBody, replyError, requirePermission } from "../../shared/security.ts";
 
-const ACCOUNT_STATUSES = new Set(["pending_verification", "active", "suspended", "banned", "closed"]);
+const ACCOUNT_STATUSES = new Set(["pending_verification", "pending_owner_approval", "active", "temporarily_blocked", "suspended", "banned", "closed"]);
 
 function bad(message, code = "INVALID_CUSTOMER_REQUEST", status = 400) {
   throw Object.assign(new Error(message), { status, code });
@@ -32,7 +32,7 @@ function customerView(customer, full) {
     role: customer.role,
     tags: customer.tags || [],
     email_verified_at: customer.email_verified_at,
-    phone_verified_at: customer.phone_verified_at,
+    phone_accuracy_acknowledged_at: customer.phone_accuracy_acknowledged_at,
     last_login_at: customer.last_login_at,
     last_seen_at: customer.last_seen_at,
     created_date: customer.created_date,
@@ -49,6 +49,7 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req);
     const context = await authorizationContext(base44, body.session_id);
+    if (context.role !== "owner") bad("Owner access required", "OWNER_ONLY", 403);
     const canReadFull = context.permissions.has("customers.full.read");
     if (!context.permissions.has("customers.masked.read") && !canReadFull) bad("Forbidden", "PERMISSION_DENIED", 403);
 

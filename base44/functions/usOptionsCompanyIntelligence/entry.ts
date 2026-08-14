@@ -6,11 +6,11 @@ import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 // base44/shared/permissions.ts
 var PERMISSION_CATALOG = [
   { code: "dashboard.owner.read", group_code: "dashboard", name_ar: "\u0639\u0631\u0636 \u0644\u0648\u062D\u0629 \u0627\u0644\u0645\u0627\u0644\u0643", name_en: "View owner dashboard", sensitive: true, owner_only: false },
-  { code: "customers.masked.read", group_code: "customers", name_ar: "\u0639\u0631\u0636 \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0627\u0644\u0645\u0642\u0646\u0651\u0639\u0629", name_en: "View masked customer data", sensitive: false, owner_only: false },
-  { code: "customers.full.read", group_code: "customers", name_ar: "\u0639\u0631\u0636 \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0627\u0644\u0643\u0627\u0645\u0644\u0629", name_en: "View full customer data", sensitive: true, owner_only: false },
-  { code: "customers.status.manage", group_code: "customers", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u062D\u0627\u0644\u0629 \u0627\u0644\u0639\u0645\u064A\u0644", name_en: "Manage customer status", sensitive: true, owner_only: false },
-  { code: "customers.sessions.revoke", group_code: "customers", name_ar: "\u0625\u0644\u063A\u0627\u0621 \u062C\u0644\u0633\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621", name_en: "Revoke customer sessions", sensitive: true, owner_only: false },
-  { code: "customers.notes.manage", group_code: "customers", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621", name_en: "Manage customer notes", sensitive: true, owner_only: false },
+  { code: "customers.masked.read", group_code: "customers", name_ar: "\u0639\u0631\u0636 \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0627\u0644\u0645\u0642\u0646\u0651\u0639\u0629", name_en: "View masked customer data", sensitive: true, owner_only: true },
+  { code: "customers.full.read", group_code: "customers", name_ar: "\u0639\u0631\u0636 \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0627\u0644\u0643\u0627\u0645\u0644\u0629", name_en: "View full customer data", sensitive: true, owner_only: true },
+  { code: "customers.status.manage", group_code: "customers", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u062D\u0627\u0644\u0629 \u0627\u0644\u0639\u0645\u064A\u0644", name_en: "Manage customer status", sensitive: true, owner_only: true },
+  { code: "customers.sessions.revoke", group_code: "customers", name_ar: "\u0625\u0644\u063A\u0627\u0621 \u062C\u0644\u0633\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621", name_en: "Revoke customer sessions", sensitive: true, owner_only: true },
+  { code: "customers.notes.manage", group_code: "customers", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621", name_en: "Manage customer notes", sensitive: true, owner_only: true },
   { code: "subscriptions.read", group_code: "subscriptions", name_ar: "\u0639\u0631\u0636 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643\u0627\u062A", name_en: "View subscriptions", sensitive: false, owner_only: false },
   { code: "subscriptions.manage", group_code: "subscriptions", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643\u0627\u062A", name_en: "Manage subscriptions", sensitive: true, owner_only: false },
   { code: "plans.manage", group_code: "subscriptions", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062E\u0637\u0637 \u0648\u0627\u0644\u062D\u062F\u0648\u062F", name_en: "Manage plans and entitlements", sensitive: true, owner_only: true },
@@ -26,14 +26,9 @@ var PERMISSION_CATALOG = [
 ].map((permission) => ({ ...permission, active: true }));
 var PERMISSION_CODES = new Set(PERMISSION_CATALOG.map((permission) => permission.code));
 var LEGACY_ROLE_PERMISSIONS = {
-  support: ["dashboard.owner.read", "customers.masked.read"],
+  support: ["dashboard.owner.read"],
   admin: [
     "dashboard.owner.read",
-    "customers.masked.read",
-    "customers.full.read",
-    "customers.status.manage",
-    "customers.sessions.revoke",
-    "customers.notes.manage",
     "subscriptions.read",
     "subscriptions.manage",
     "data.operations.read",
@@ -47,7 +42,7 @@ var LEGACY_ROLE_PERMISSIONS = {
 
 // base44/shared/security.ts
 var MAX_JSON_BODY_BYTES = 256 * 1024;
-var SESSION_TOKEN_PREFIX = "kmy1";
+var SESSION_TOKEN_PREFIX = "smart_investor1";
 var MARKET_ACCESS = {
   SA_MAIN: { entitlement: "market.saudi", name_ar: "\u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629", name_en: "Saudi Main Market", currency: "SAR" },
   US_OPTIONS: { entitlement: "market.us.options", name_ar: "\u0634\u0631\u0643\u0627\u062A \u0639\u0642\u0648\u062F \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A", name_en: "U.S. Optionable Companies", currency: "USD" },
@@ -140,7 +135,7 @@ async function ensureAdministrativeProfile(base44, user) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   if (!profile) {
     profile = await base44.asServiceRole.entities.CustomerProfile.create({
-      customer_number: `KMY-ADMIN-${String(user.id).slice(-8).toUpperCase()}`,
+      customer_number: `SMART_INVESTOR-ADMIN-${String(user.id).slice(-8).toUpperCase()}`,
       auth_user_id: user.id,
       email_normalized: normalizedEmail(user),
       full_name: administrativeName(user),
@@ -189,7 +184,7 @@ async function requireActiveSession(base44, profile, sessionId) {
 }
 function replyError(error) {
   const status = Number(error?.status) || 500;
-  if (status >= 500) console.error("KMY backend error", error);
+  if (status >= 500) console.error("SMART_INVESTOR backend error", error);
   return Response.json({
     error: status >= 500 ? "Backend operation failed" : error?.message || "Request failed",
     code: error?.code || (status >= 500 ? "BACKEND_FAILURE" : "REQUEST_FAILED")
@@ -218,7 +213,7 @@ async function ensurePersonalAccount(base44, profile, userId) {
   }
   if (!account) {
     account = await base44.asServiceRole.entities.Account.create({
-      account_number: `KMY-A-${String(profile.customer_number || profile.id).replace(/[^A-Za-z0-9-]/g, "").slice(-24)}`,
+      account_number: `SMART_INVESTOR-A-${String(profile.customer_number || profile.id).replace(/[^A-Za-z0-9-]/g, "").slice(-24)}`,
       account_type: "personal",
       name: profile.full_name,
       owner_customer_id: profile.id,
@@ -305,7 +300,8 @@ async function authorizationContext(base44, sessionId) {
   const role = resolvedRole(user, profile);
   const { account, membership } = await ensurePersonalAccount(base44, profile, user.id);
   const assigned = await assignedPermissions(base44, membership);
-  const permissions = role === "owner" ? new Set(PERMISSION_CATALOG.map((permission) => permission.code)) : /* @__PURE__ */ new Set([...LEGACY_ROLE_PERMISSIONS[role] || [], ...assigned.codes]);
+  const ownerOnlyCodes = new Set(PERMISSION_CATALOG.filter((permission) => permission.owner_only).map((permission) => permission.code));
+  const permissions = role === "owner" ? new Set(PERMISSION_CATALOG.map((permission) => permission.code)) : new Set([...LEGACY_ROLE_PERMISSIONS[role] || [], ...assigned.codes].filter((code) => !ownerOnlyCodes.has(code)));
   const subscription = await subscriptionContext(base44, profile, account);
   return {
     user,
@@ -2015,7 +2011,7 @@ var NASDAQ_SOURCE = "REFERENCE_NASDAQ_US_COMPANY";
 var YAHOO_ACTIONS_SOURCE = "REFERENCE_YAHOO_US_ACTIONS";
 var DEFAULT_BATCH_SIZE = 10;
 var MAX_BATCH_SIZE = 20;
-var SEC_USER_AGENT = "Mozilla/5.0 KMYMarketPlatform/1.0";
+var SEC_USER_AGENT = "Mozilla/5.0 SMART_INVESTORMarketPlatform/1.0";
 var SEC_CONTACT = "khalaf2006@users.noreply.github.com";
 function rows(value) {
   if (Array.isArray(value)) return value.filter(Boolean);
@@ -2046,7 +2042,7 @@ async function fetchJson(url, { sec = false, attempts = 2 } = {}) {
     try {
       const response = await fetch(url, {
         signal: controller.signal,
-        headers: sec ? { Accept: "application/json", "User-Agent": SEC_USER_AGENT, From: SEC_CONTACT, "Accept-Encoding": "gzip, deflate" } : { Accept: "application/json, text/plain, */*", "User-Agent": "Mozilla/5.0 KMY-US-Company-Intelligence/1.0", Origin: "https://www.nasdaq.com", Referer: "https://www.nasdaq.com/" }
+        headers: sec ? { Accept: "application/json", "User-Agent": SEC_USER_AGENT, From: SEC_CONTACT, "Accept-Encoding": "gzip, deflate" } : { Accept: "application/json, text/plain, */*", "User-Agent": "Mozilla/5.0 SMART_INVESTOR-US-Company-Intelligence/1.0", Origin: "https://www.nasdaq.com", Referer: "https://www.nasdaq.com/" }
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw Object.assign(new Error(`provider_http_${response.status}`), { code: `HTTP_${response.status}` });

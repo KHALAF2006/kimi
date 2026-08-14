@@ -5,7 +5,7 @@ import { defineConfig } from 'vite'
 
 function cspInlineScriptHashes() {
   return {
-    name: 'kmy-csp-inline-script-hashes',
+    name: 'smart_investor-csp-inline-script-hashes',
     transformIndexHtml: {
       order: 'post',
       handler(html) {

@@ -11,7 +11,7 @@ export default class AppErrorBoundary extends Component {
   }
 
   componentDidCatch(error) {
-    console.error("KMY interface render failed", error?.message || "unknown_render_error");
+    console.error("SMART_INVESTOR interface render failed", error?.message || "unknown_render_error");
   }
 
   render() {

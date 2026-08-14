@@ -818,7 +818,7 @@ export async function fetchPublicDelayedCharts({
         url.searchParams.set("includePrePost", "false");
         url.searchParams.set("events", "div,splits");
         const response = await fetchImpl(url, {
-          headers: { Accept: "application/json", "User-Agent": "KMY-Experimental-Market-Data/1.0" },
+          headers: { Accept: "application/json", "User-Agent": "SMART_INVESTOR-Experimental-Market-Data/1.0" },
           signal: controller.signal,
         });
         if (!response.ok) throw new Error(`Public delayed source returned ${response.status}`);
@@ -953,7 +953,7 @@ export async function fetchLicensedSnapshot({
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
-          "User-Agent": "KMY-Licensed-Market-Data/1.0",
+          "User-Agent": "SMART_INVESTOR-Licensed-Market-Data/1.0",
         },
         body: JSON.stringify(requestBody),
         signal: controller.signal,

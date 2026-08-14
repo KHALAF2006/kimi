@@ -1,0 +1,27 @@
+{
+  "name": "Message",
+  "type": "object",
+  "properties": {
+    "recipient_auth_user_id": { "type": "string" },
+    "recipient_customer_id": { "type": "string" },
+    "message_type": { "type": "string", "enum": ["registration", "application", "account", "course", "security", "report", "system"] },
+    "priority": { "type": "string", "enum": ["normal", "important", "critical"], "default": "normal" },
+    "title_ar": { "type": "string" },
+    "title_en": { "type": "string" },
+    "body_ar": { "type": "string" },
+    "body_en": { "type": "string" },
+    "action_path": { "type": "string" },
+    "feed_eligible": { "type": "boolean", "default": true },
+    "dedupe_key": { "type": "string" },
+    "read_at": { "type": "string", "format": "date-time" },
+    "hidden_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["recipient_auth_user_id", "message_type", "priority", "title_ar", "title_en", "body_ar", "body_en", "feed_eligible", "dedupe_key"],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}

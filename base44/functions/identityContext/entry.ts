@@ -12,6 +12,7 @@ Deno.serve(async (req) => {
         customer_id: context.profile.id,
         customer_number: context.profile.customer_number,
         full_name: context.profile.full_name,
+        phone_e164: context.profile.phone_e164,
         preferred_language: context.profile.preferred_language,
         account_status: context.profile.account_status,
         role: context.role,

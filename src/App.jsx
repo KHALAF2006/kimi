@@ -7,7 +7,7 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ScrollToTop from './components/ScrollToTop';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import KmyLayout from '@/components/KmyLayout';
+import SmartInvestorLayout from '@/components/SmartInvestorLayout';
 import { PreferencesProvider } from '@/lib/preferences';
 import { AuthorizationProvider } from '@/lib/AuthorizationContext';
 import { ActiveMarketProvider } from '@/lib/MarketContext';
@@ -21,7 +21,8 @@ const Login = lazy(() => import('@/pages/Login'));
 const Register = lazy(() => import('@/pages/Register'));
 const ForgotPassword = lazy(() => import('@/pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('@/pages/ResetPassword'));
-const VerifyContact = lazy(() => import('@/pages/VerifyContact'));
+const Courses = lazy(() => import('@/pages/Courses'));
+const ApplicationStatus = lazy(() => import('@/pages/ApplicationStatus'));
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
 const CompanyDetails = lazy(() => import('@/pages/CompanyDetails'));
 const Movers = lazy(() => import('@/pages/Movers'));
@@ -31,9 +32,12 @@ const Watchlists = lazy(() => import('@/pages/Watchlists'));
 const Alerts = lazy(() => import('@/pages/Alerts'));
 const Destinations = lazy(() => import('@/pages/Destinations'));
 const Profile = lazy(() => import('@/pages/Profile'));
+const MarketApplications = lazy(() => import('@/pages/MarketApplications'));
 const AdminDashboard = lazy(() => import('@/pages/AdminDashboard'));
 const SubscriptionsAdmin = lazy(() => import('@/pages/SubscriptionsAdmin'));
 const CustomersAdmin = lazy(() => import('@/pages/CustomersAdmin'));
+const AccessAdmin = lazy(() => import('@/pages/AccessAdmin'));
+const CoursesAdmin = lazy(() => import('@/pages/CoursesAdmin'));
 const DataQualityAdmin = lazy(() => import('@/pages/DataQualityAdmin'));
 const OperationsAdmin = lazy(() => import('@/pages/OperationsAdmin'));
 const AuditAdmin = lazy(() => import('@/pages/AuditAdmin'));
@@ -69,11 +73,13 @@ const AuthenticatedApp = () => {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
-      <Route path="/verify" element={<VerifyContact />} />
+      <Route path="/application-status" element={<ApplicationStatus />} />
+      <Route path="/verify" element={<Navigate to="/application-status" replace />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/courses" element={<Courses />} />
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
-        <Route element={<KmyLayout />}>
+        <Route element={<SmartInvestorLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/company" element={<CompanyDetails />} />
           <Route path="/movers" element={<Movers />} />
@@ -83,9 +89,12 @@ const AuthenticatedApp = () => {
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/destinations" element={<Destinations />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/market-applications" element={<MarketApplications />} />
           <Route path="/admin" element={<PermissionGate permission="dashboard.owner.read"><AdminDashboard /></PermissionGate>} />
           <Route path="/admin/subscriptions" element={<PermissionGate permission="subscriptions.read"><SubscriptionsAdmin /></PermissionGate>} />
-          <Route path="/admin/customers" element={<PermissionGate permission="customers.masked.read"><CustomersAdmin /></PermissionGate>} />
+          <Route path="/admin/customers" element={<PermissionGate permission="customers.masked.read" ownerOnly><CustomersAdmin /></PermissionGate>} />
+          <Route path="/admin/access" element={<PermissionGate permission="customers.full.read" ownerOnly><AccessAdmin /></PermissionGate>} />
+          <Route path="/admin/courses" element={<PermissionGate permission="settings.manage" ownerOnly><CoursesAdmin /></PermissionGate>} />
           <Route path="/admin/quality" element={<PermissionGate permission="data.quality.manage"><DataQualityAdmin /></PermissionGate>} />
           <Route path="/admin/operations" element={<PermissionGate permission="data.operations.read"><OperationsAdmin /></PermissionGate>} />
           <Route path="/admin/audit" element={<PermissionGate permission="audit.read"><AuditAdmin /></PermissionGate>} />
