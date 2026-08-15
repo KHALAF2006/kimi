@@ -263,7 +263,7 @@ const authLayout = await readFile(new URL("../src/components/AuthLayout.jsx", im
 const siteStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
 const registrationState = await readFile(new URL("../base44/shared/registrationState.mjs", import.meta.url), "utf8");
 const registrationLease = await readFile(new URL("../base44/shared/registrationLease.mjs", import.meta.url), "utf8");
-assert.match(loginPage, /isAuthenticated\?t\.sendCode:t\.next/, "an already authenticated Base44 user must continue through SMART_INVESTOR email OTP");
+assert.match(loginPage, /appAuthenticated\?t\.sendCode:t\.next/, "an application-authenticated user must continue through SMART_INVESTOR email OTP");
 assert.match(registerPage, /marketing_consent:\s*form\.consent/, "registration must send the mandatory communication consent to the backend");
 assert.match(registerPage, /phone_accuracy_acknowledged/, "registration must require a clear mobile-number accuracy acknowledgement");
 assert.doesNotMatch(registerPage, /phone_code|start_phone_verification/, "registration must not request or send a mobile verification code");
@@ -531,6 +531,7 @@ assert.match(screenerPage, /snapshot_count === 0/, "the screener must distinguis
 assert.match(screenerPage, /لا تعني النتيجة الصفرية عدم وجود إشارات/, "Arabic screener feedback must not report a false zero result when snapshots are missing");
 const appRouter = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
 const authContext = await readFile(new URL("../src/lib/AuthContext.jsx", import.meta.url), "utf8");
+const customerLoginPage = await readFile(new URL("../src/pages/Login.jsx", import.meta.url), "utf8");
 assert.match(appRouter, /BrowserRouter as Router/, "the current React Router advisory is not applicable only while the app remains in declarative BrowserRouter mode");
 assert.doesNotMatch(appRouter, /unstable_|RSC|ServerAction|createRequestHandler/, "the client application must not activate the advisory's unstable RSC server-action path");
 assert.match(appRouter, /path="\/application-status" element=\{<ApplicationStatus \/>\}/, "pending customers must be able to reach application status outside the market workspace guard");
@@ -538,6 +539,7 @@ assert.doesNotMatch(appRouter, /navigateToLogin\(\)/, "public registration and a
 assert.match(appRouter, /const ProtectedProviders = \(\) => \([\s\S]*<AuthProvider>[\s\S]*<ProtectedRoute/, "authentication and market providers must be mounted only for protected workspace routes");
 assert.doesNotMatch(appRouter, /<PreferencesProvider>[\s\S]{0,120}<AuthProvider>/, "public routes must not be nested under the protected authentication provider");
 assert.match(authContext, /token:\s*null/, "public settings must not receive a stale customer token that can redirect public routes");
+assert.match(customerLoginPage, /appAuthenticated = isAuthenticated && hasAppToken/, "a platform cookie must not be mistaken for an application function token");
 for (const signal of ["bullish_pin_bar", "bearish_pin_bar", "bullish_engulfing", "bearish_engulfing", "bullish_zone_pin_bar", "bearish_zone_pin_bar", "pin_bar_signal", "engulfing_signal", "zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"]) {
   assert.match(screenerPage, new RegExp(signal), `screener signal is missing: ${signal}`);
 }

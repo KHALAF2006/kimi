@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { SessionLink } from "@/components/SessionLink";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
@@ -27,17 +27,22 @@ function deviceId() {
 export default function Login() {
   const { language } = usePreferences();
   const { user, isAuthenticated } = useAuth();
+  const hasAppToken = typeof window !== "undefined" && Boolean(window.localStorage.getItem("base44_access_token"));
+  const appAuthenticated = isAuthenticated && hasAppToken;
   const t = copy[language];
   const [form,setForm]=useState({email:"",password:"",otp:"",remember_me:false});
   const [challenge,setChallenge]=useState(null),[error,setError]=useState(""),[loading,setLoading]=useState(false);
+  useEffect(() => {
+    if (user?.email) setForm((current) => current.email ? current : { ...current, email: user.email });
+  }, [user?.email]);
   const change=e=>setForm({...form,[e.target.name]:e.target.type==='checkbox'?e.target.checked:e.target.value});
   const submit=async e=>{e.preventDefault();setError("");setLoading(true);try{
-    if(!challenge){if(!isAuthenticated){const login=await base44.auth.loginViaEmailPassword(form.email,form.password);if(login&&typeof login==='object'&&'access_token'in login&&login.access_token)base44.auth.setToken(login.access_token,true);}const r=await base44.functions.invoke('authLogin',{action:'start'});setChallenge(r.data.challenge_id);}
+    if(!challenge){if(!appAuthenticated){const login=await base44.auth.loginViaEmailPassword(form.email,form.password);if(login&&typeof login==='object'&&'access_token'in login&&login.access_token)base44.auth.setToken(login.access_token,true);}const r=await base44.functions.invoke('authLogin',{action:'start'});setChallenge(r.data.challenge_id);}
     else{const r=await base44.functions.invoke('authLogin',{action:'verify',challenge_id:challenge,otp:form.otp,remember_me:form.remember_me,device_id:deviceId()});localStorage.setItem('smart_investor_session_id',r.data.session_id);localStorage.setItem('smart_investor_session_expires_at',r.data.expires_at);window.dispatchEvent(new Event('smart_investor-auth-changed'));window.location.href='/dashboard';}
   }catch(err){const code=err.response?.data?.code;if(code==="ACCOUNT_NOT_ACTIVE"||code==="PROFILE_SETUP_REQUIRED"){window.location.href=code==="ACCOUNT_NOT_ACTIVE"?"/application-status":"/register";return;}setError(err.response?.data?.error||err.message||t.error);}finally{setLoading(false)}};
-  return <AuthLayout icon={LogIn} title={t.title} subtitle={challenge?t.otpIntro:isAuthenticated?t.verifiedIntro:t.intro} footer={<span>{t.noAccount} <SessionLink to="/register" className="font-bold text-sky-600 dark:text-sky-400">{t.register}</SessionLink></span>}>
+  return <AuthLayout icon={LogIn} title={t.title} subtitle={challenge?t.otpIntro:appAuthenticated?t.verifiedIntro:t.intro} footer={<span>{t.noAccount} <SessionLink to="/register" className="font-bold text-sky-600 dark:text-sky-400">{t.register}</SessionLink></span>}>
     {error&&<div className="mb-4 rounded-lg bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">{error}</div>}
-    <form onSubmit={submit} className="space-y-4">{!challenge?(isAuthenticated?<div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"><p className="font-bold text-slate-950 dark:text-white">{t.verified}</p><p className="mt-1">{t.sendTo} {user?.email || t.email}.</p><label className="mt-4 flex items-center gap-2"><input name="remember_me" type="checkbox" checked={form.remember_me} onChange={change}/>{t.remember}</label></div>:<><Field label={t.email} name="email" type="email" value={form.email} onChange={change}/><Field label={t.password} name="password" type="password" value={form.password} onChange={change}/><label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400"><input name="remember_me" type="checkbox" checked={form.remember_me} onChange={change}/>{t.remember}</label><SessionLink to="/forgot-password" className="block text-sm font-bold text-sky-600 dark:text-sky-400">{t.forgot}</SessionLink></>):<Field label={t.otp} name="otp" inputMode="numeric" maxLength={6} value={form.otp} onChange={change}/>}<Button className="h-12 w-full bg-sky-400 font-bold text-slate-950 hover:bg-sky-300" disabled={loading}>{loading&&<Loader2 className="h-4 w-4 animate-spin"/>}{loading?t.loading:challenge?t.confirm:isAuthenticated?t.sendCode:t.next}</Button></form>
+    <form onSubmit={submit} className="space-y-4">{!challenge?(appAuthenticated?<div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"><p className="font-bold text-slate-950 dark:text-white">{t.verified}</p><p className="mt-1">{t.sendTo} {user?.email || t.email}.</p><label className="mt-4 flex items-center gap-2"><input name="remember_me" type="checkbox" checked={form.remember_me} onChange={change}/>{t.remember}</label></div>:<><Field label={t.email} name="email" type="email" value={form.email} onChange={change}/><Field label={t.password} name="password" type="password" value={form.password} onChange={change}/><label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400"><input name="remember_me" type="checkbox" checked={form.remember_me} onChange={change}/>{t.remember}</label><SessionLink to="/forgot-password" className="block text-sm font-bold text-sky-600 dark:text-sky-400">{t.forgot}</SessionLink></>):<Field label={t.otp} name="otp" inputMode="numeric" maxLength={6} value={form.otp} onChange={change}/>}<Button className="h-12 w-full bg-sky-400 font-bold text-slate-950 hover:bg-sky-300" disabled={loading}>{loading&&<Loader2 className="h-4 w-4 animate-spin"/>}{loading?t.loading:challenge?t.confirm:appAuthenticated?t.sendCode:t.next}</Button></form>
   </AuthLayout>;
 }
 function Field({label,...props}){return <div className="space-y-2"><Label htmlFor={props.name}>{label}</Label><Input id={props.name} required className="h-12 border-slate-200 bg-slate-50 text-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-white" {...props}/></div>}
