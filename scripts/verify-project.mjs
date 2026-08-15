@@ -532,6 +532,8 @@ assert.match(screenerPage, /لا تعني النتيجة الصفرية عدم �
 const appRouter = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
 assert.match(appRouter, /BrowserRouter as Router/, "the current React Router advisory is not applicable only while the app remains in declarative BrowserRouter mode");
 assert.doesNotMatch(appRouter, /unstable_|RSC|ServerAction|createRequestHandler/, "the client application must not activate the advisory's unstable RSC server-action path");
+assert.match(appRouter, /path="\/application-status" element=\{<ApplicationStatus \/>\}/, "pending customers must be able to reach application status outside the market workspace guard");
+assert.doesNotMatch(appRouter, /navigateToLogin\(\)/, "public registration and application-status routes must not be globally redirected by authentication state");
 for (const signal of ["bullish_pin_bar", "bearish_pin_bar", "bullish_engulfing", "bearish_engulfing", "bullish_zone_pin_bar", "bearish_zone_pin_bar", "pin_bar_signal", "engulfing_signal", "zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"]) {
   assert.match(screenerPage, new RegExp(signal), `screener signal is missing: ${signal}`);
 }
