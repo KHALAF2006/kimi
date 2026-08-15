@@ -46,7 +46,11 @@ export default function Register() {
   const [form, setForm] = useState({ full_name: "", email: "", phone_e164: "", country_code: "SA", market_code: "SA_MAIN", trading_platform_id: "", password: "", confirm: "", email_otp: "", consent: false, phone_accuracy_acknowledged: false, referral_link_opened: false });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const change = (event) => setForm((current) => ({ ...current, [event.target.name]: event.target.type === "checkbox" ? event.target.checked : event.target.value }));
+  const change = (event) => setForm((current) => ({
+    ...current,
+    [event.target.name]: event.target.type === "checkbox" ? event.target.checked : event.target.value,
+    ...(["market_code", "trading_platform_id"].includes(event.target.name) ? { referral_link_opened: false } : {}),
+  }));
   const available = catalog.platforms.filter((item) => item.supported_market_codes?.includes(form.market_code));
   const platform = available.find((item) => item.id === form.trading_platform_id);
 

@@ -25,6 +25,12 @@ function referralUrl(value) {
   return parsed.toString();
 }
 
+function platformCode(value) {
+  const result = text(value, 60).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!/^[a-z0-9][a-z0-9_-]{0,59}$/.test(result)) fail("Platform code must contain English letters or numbers", "INVALID_PLATFORM_CODE");
+  return result;
+}
+
 async function ownerContext(base44, sessionId) {
   const context = await authorizationContext(base44, sessionId);
   if (context.role !== "owner") fail("Owner access required", "OWNER_ONLY", 403);
@@ -73,7 +79,7 @@ Deno.serve(async (req) => {
         .filter((item) => MARKETS[item]);
       if (!supported.length) fail("Select at least one supported market", "MARKET_REQUIRED");
       const payload = {
-        code: text(body.code, 60).toLowerCase().replace(/[^a-z0-9_-]/g, "-"),
+        code: platformCode(body.code),
         name_ar: text(body.name_ar, 120),
         name_en: text(body.name_en, 120),
         referral_url: referralUrl(body.referral_url),
