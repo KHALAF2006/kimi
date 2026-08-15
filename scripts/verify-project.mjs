@@ -178,10 +178,11 @@ for (const name of entityFiles) {
   const schema = JSON.parse(source);
   assert.equal(schema.type, "object", `${name} must have an object schema`);
   if (name === "User.jsonc") {
-    assert.equal(schema.name, undefined, "the built-in User schema must only extend custom fields");
+    assert.equal(schema.name, "User", "the built-in User extension must retain its exact Base44 identity");
     assert.equal(schema.properties.email, undefined, "the built-in User email field must not be redefined");
     assert.equal(schema.properties.role, undefined, "the built-in User role field must not be redefined");
     assert.deepEqual(Object.keys(schema.properties).sort(), ["registration_lock_expires_at", "registration_lock_token"], "the User extension must remain limited to the registration concurrency lease");
+    entityNames.add(schema.name);
     continue;
   } else {
     assert.match(schema.name, /^[A-Za-z0-9]+$/, `${name} has an invalid entity name`);
@@ -192,7 +193,7 @@ for (const name of entityFiles) {
     assert.equal(schema.rls?.[operation], false, `${name} must deny browser ${operation}`);
   }
 }
-assert.ok(!entityNames.has("User"), "built-in Base44 User fields and permissions must not be redefined");
+assert.ok(entityNames.has("User"), "the Base44 User extension must be present without redefining built-in fields or permissions");
 const entityNamesLower = new Set([...entityNames].map((name) => name.toLowerCase()));
 for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "QuoteObservation", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "UsageCounter", "Market", "InstrumentAlias", "ProviderInstrumentMap", "TradingPlatform", "MarketAccessApplication", "Message", "NotificationPreference", "Course", "CourseLesson", "PlaybackLease", "ContentSecurityEvent", "CustomerReportSnapshot"]) {
   assert.ok(entityNamesLower.has(required.toLowerCase()), `required entity is missing: ${required}`);

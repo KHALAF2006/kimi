@@ -1,4 +1,5 @@
 {
+  "name": "User",
   "type": "object",
   "properties": {
     "registration_lock_token": {
