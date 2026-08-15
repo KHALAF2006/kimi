@@ -1,17 +1,22 @@
 import React from "react";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { previewSafeHref } from "@/lib/preview-auth-handoff";
 
 /** @param {import("react-router-dom").LinkProps["to"]} to @param {import("react").MouseEventHandler<HTMLAnchorElement> | undefined} onClick */
 function useSessionLink(to, onClick) {
   const navigate = useNavigate();
+  const location = useLocation();
   const href = previewSafeHref(to);
   const handleClick = (event) => {
     onClick?.(event);
     if (event.defaultPrevented) return;
     if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
       event.preventDefault();
-      navigate(to);
+      navigate(to, {
+        state: {
+          smartInvestorFrom: `${location.pathname}${location.search}${location.hash}`,
+        },
+      });
     }
   };
   return { href, handleClick };

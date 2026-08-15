@@ -8,6 +8,7 @@ import { usePreferences } from "@/lib/preferences";
 import { useAuthorization } from "@/lib/AuthorizationContext";
 import NotificationCenter from "@/components/NotificationCenter";
 import IdentityWatermark from "@/components/IdentityWatermark";
+import PageNavigation from "@/components/PageNavigation";
 
 export default function SmartInvestorLayout() {
   const navigate = useNavigate();
@@ -40,6 +41,6 @@ export default function SmartInvestorLayout() {
       </div>
     </header>
     <IdentityWatermark />
-    <main><Outlet /></main>
+    <main><PageNavigation /><Outlet /></main>
   </div>;
 }

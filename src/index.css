@@ -45,8 +45,21 @@
   .app-nav a.active { @apply bg-slate-950 text-white shadow-sm dark:bg-white dark:text-slate-950; }
   .icon-button { @apply inline-flex h-9 min-w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-sky-400 hover:text-slate-950 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-400 dark:hover:text-white; }
   .language-switch { @apply text-sm font-black; }
-  .market-account-switcher { @apply inline-flex h-10 max-w-56 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-2 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200; }
-  .market-account-switcher select { @apply min-w-0 max-w-44 bg-transparent text-xs font-black outline-none; }
+  .market-tabs { @apply flex min-w-0 items-center gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-700 dark:bg-slate-900/80; scrollbar-width:none; }
+  .market-tabs::-webkit-scrollbar { display:none; }
+  .market-tab { @apply inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-transparent px-2.5 text-[11px] font-black text-slate-600 transition hover:bg-white hover:text-slate-950 disabled:cursor-wait disabled:opacity-60 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white; }
+  .market-tab.active { @apply bg-white shadow-sm ring-1 ring-inset dark:bg-slate-800; }
+  .market-tab-saudi.active { @apply text-emerald-700 ring-emerald-300 dark:text-emerald-300 dark:ring-emerald-500/50; }
+  .market-tab-options.active { @apply text-blue-700 ring-blue-300 dark:text-blue-300 dark:ring-blue-500/50; }
+  .market-tab-benchmarks.active { @apply text-violet-700 ring-violet-300 dark:text-violet-300 dark:ring-violet-500/50; }
+  .market-tab.locked { @apply opacity-60; }
+  .market-flag { @apply text-base leading-none; }
+  .page-navigation-shell { @apply mx-auto mb-4 flex max-w-[1800px] flex-wrap items-center gap-3 px-3 pt-4 sm:px-5; }
+  .page-back-button { @apply inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 shadow-sm transition hover:border-sky-400 hover:text-sky-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-sky-400 dark:hover:text-sky-300; }
+  .page-breadcrumb { @apply flex min-w-0 items-center gap-1.5 overflow-x-auto text-xs font-bold text-slate-400; scrollbar-width:none; }
+  .page-breadcrumb::-webkit-scrollbar { display:none; }
+  .page-breadcrumb a { @apply inline-flex shrink-0 items-center gap-1 text-slate-500 transition hover:text-sky-600 dark:text-slate-400 dark:hover:text-sky-300; }
+  .page-breadcrumb [aria-current="page"] { @apply shrink-0 text-slate-900 dark:text-white; }
   .primary-button { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-black text-white shadow-lg shadow-sky-500/20 transition hover:-translate-y-0.5 hover:bg-sky-400; }
   .secondary-button { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 transition hover:border-sky-400 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-400 dark:hover:text-white; }
   .form-input { @apply min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-400/15 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100; }
@@ -484,7 +497,7 @@
   .app-nav { @apply order-last basis-full justify-between border-t border-slate-200 pt-2 dark:border-slate-800; }
   .app-nav a { @apply min-h-11 flex-1 justify-center px-2; }
   .icon-button { @apply h-11 min-w-11; }
-  .market-account-switcher { @apply h-11 max-w-44; }
+  .market-tabs { @apply max-w-[calc(100vw-320px)]; }
   .summary-card { @apply min-h-20; }
   .chart-shell .icon-button, .chart-type-button, .indicator-hub-button { @apply h-10 min-w-10; }
   .chart-primary-actions { @apply w-full justify-start; }
@@ -512,6 +525,9 @@
   .dashboard-resizer { display:flex; }
 }
 @media (max-width:767px) {
+  .app-header-actions { @apply max-w-[calc(100vw-110px)] overflow-x-auto; }
+  .market-tabs { @apply max-w-[70vw]; }
+  .market-tab span:not(.market-flag) { @apply hidden; }
   .app-nav a { @apply px-2; }
   .app-nav a span { @apply hidden; }
   .hero-section { @apply min-h-0; }

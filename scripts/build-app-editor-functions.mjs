@@ -13,6 +13,7 @@ const generatedFunctions = [
   "historicalCandleBackfill",
   "marketSignalProjectionWorker",
   "marketSignalRefresh",
+  "operationsQuality",
   "usOptionsCompanyIntelligence",
   "usOptionsHistoricalBackfill",
   "usOptionsMarketIngestion",

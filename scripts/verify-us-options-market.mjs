@@ -265,11 +265,12 @@ assert.deepEqual(marketAccess.resolveAvailableMarkets({ market_access: [{ market
 assert.deepEqual(marketAccess.resolveAvailableMarkets({ identity: { role: "owner" }, market_access: [] }).map((market) => market.market_code), ["SA_MAIN", "US_OPTIONS", "US_BENCHMARKS"], "the owner must retain every supported market even when the entitlement array is empty");
 const marketAccessSelect = await source("src/components/MarketAccessSelect.jsx");
 assert.match(marketAccessSelect, /SUPPORTED_MARKETS\.map/);
+assert.doesNotMatch(marketAccessSelect, /<select/);
 assert.ok(marketAccessSelect.indexOf("if (!allowed.has(nextCode))") < marketAccessSelect.indexOf("setMarketCode(nextCode)"), "a locked market must open subscription guidance before any active-market mutation");
 assert.match(marketAccessSelect, /setLockedMarket/);
 const dashboard = await source("src/pages/Dashboard.jsx");
 assert.match(dashboard, /if \(!marketCode\) \{[\s\S]*loading: false,[\s\S]*market_access_unavailable/, "the dashboard must terminate loading when no market is available");
-assert.match(dashboard, /<MarketAccessSelect/);
+assert.doesNotMatch(dashboard, /<MarketAccessSelect/, "dashboard must not duplicate the global market navigation");
 assert.match(dashboard, /value\.marketCodeLoaded === marketCode/, "same-market refresh must keep the last good rows while a new read is in flight");
 const companyChart = await source("src/components/market/CompanyChart.jsx");
 assert.match(companyChart, /persistSuccessfulChartSelection/);

@@ -6016,20 +6016,23 @@ async function experimentalPublicSource(base44) {
     base_url: "https://query1.finance.yahoo.com",
   });
 }
-async function recordQualityIssues(base44, sourceId, runId, snapshotVersion, issues) {
-  if (!issues.length) return;
+async function recordQualityIssues(base44, sourceId, runId, snapshotVersion, issues, options = {}) {
+  if (!issues.length && options.resolveRecovered !== true) return;
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const existing = await base44.asServiceRole.entities.DataQualityIssue.filter({ status: "open", source_id: sourceId });
   const keyFor = (row) => `${row.instrument_id || row.symbol || "market"}:${row.issue_type}`;
   const byKey = new Map(existing.map((row) => [keyFor(row), row]));
   const creates = [];
   const updates = [];
-  for (const group of groupRowsByKey(issues, keyFor)) {
+  const groups = groupRowsByKey(issues, keyFor);
+  const currentKeys = new Set(groups.map((group) => group.key));
+  for (const group of groups) {
     const issue = group.row;
     const current = byKey.get(group.key);
     const values = {
       instrument_id: issue.instrument_id || void 0,
       symbol: issue.symbol || void 0,
+      market_code: options.marketCode || issue.market_code || "SA_MAIN",
       issue_type: issue.issue_type,
       severity: issue.severity || "warning",
       message: issue.message,
@@ -6043,6 +6046,17 @@ async function recordQualityIssues(base44, sourceId, runId, snapshotVersion, iss
     };
     if (current) updates.push({ id: current.id, ...values });
     else creates.push(values);
+  }
+  if (options.resolveRecovered === true) {
+    for (const previous of existing) {
+      if (currentKeys.has(keyFor(previous))) continue;
+      updates.push({
+        id: previous.id,
+        market_code: options.marketCode || previous.market_code || "SA_MAIN",
+        status: "resolved",
+        resolved_at: now,
+      });
+    }
   }
   if (creates.length) await base44.asServiceRole.entities.DataQualityIssue.bulkCreate(creates);
   await bulkUpdateUnique(base44.asServiceRole.entities.DataQualityIssue, updates);
@@ -6348,7 +6362,10 @@ Deno.serve(async (req) => {
     if (normalized.accepted.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(normalized.accepted);
     const publicSourceIssues = Array.isArray(payload?.rejected) ? payload.rejected : [];
     stage = "quality_issue_upsert";
-    await recordQualityIssues(base44, provider.id, run.id, snapshotVersion, [...publicSourceIssues, ...normalized.rejected]);
+    await recordQualityIssues(base44, provider.id, run.id, snapshotVersion, [...publicSourceIssues, ...normalized.rejected], {
+      marketCode,
+      resolveRecovered: coverage.status !== "failed",
+    });
     if (coverage.status === "failed") {
       throw ingestionFailure(`Market snapshot coverage failed: ${coverage.coveragePercent.toFixed(2)}%`, "MARKET_COVERAGE_FAILED");
     }

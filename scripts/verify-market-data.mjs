@@ -66,6 +66,7 @@ import {
   consumePreviewAuthHandoff,
   isBase44PreviewHost,
   previewSafeHref,
+  rememberPreviewContext,
   safePreviewServerUrl,
 } from "../src/lib/preview-auth-handoff.js";
 
@@ -92,6 +93,13 @@ assert.equal(handedOffUrl.searchParams.get("base44_data_env"), "preview-data");
 assert.equal(handedOffUrl.searchParams.get("_b44_commit"), "commit-123");
 assert.equal(handedOffUrl.hash, "", "preview links must never carry credentials in the URL fragment");
 assert.equal(handedOffHref.includes("test-access-token"), false);
+const sharedPreviewStorage = memoryStorage();
+assert.equal(rememberPreviewContext({ location: { hostname: previewHost, search: previewContextSearch }, storage: sharedPreviewStorage }), true);
+const restoredContextHref = previewSafeHref("/dashboard?company=AMD&market=US_OPTIONS", { hostname: previewHost, search: "", storage: sharedPreviewStorage });
+const restoredContextUrl = new URL(`https://${previewHost}${restoredContextHref}`);
+assert.equal(restoredContextUrl.searchParams.get("functions_version"), "preview-functions-v3", "a new same-origin tab must recover the preview backend version after SPA navigation removed it from the visible URL");
+assert.equal(restoredContextUrl.searchParams.get("server_url"), `https://${previewHost}`, "a new same-origin tab must recover only the validated preview server origin");
+assert.equal(restoredContextHref.includes("access_token"), false, "preview context storage must never place an access token in a link");
 assert.equal(previewSafeHref("/screener", { hostname: "neat-smart-ops-flow.base44.app" }), "/screener", "production links must never carry preview context or credentials");
 const targetPreviewStorage = memoryStorage();
 let cleanedPreviewUrl = "";

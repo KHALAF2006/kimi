@@ -13,7 +13,7 @@ function dateTime(value) {
 
 export default function OperationsAdmin() {
   const { can } = useAuthorization();
-  const { marketCode, market, availableMarkets, setMarketCode } = useActiveMarket();
+  const { marketCode, market } = useActiveMarket();
   const [state, setState] = useState({ loading: true, data: null, error: "", running: false, progress: "" });
   const [reason, setReason] = useState("");
 
@@ -21,7 +21,15 @@ export default function OperationsAdmin() {
     if (!marketCode) return;
     setState((value) => ({ ...value, loading: true, error: "" }));
     try {
-      const data = await invokeAppFunction("adminMarketData", { action: "health", market_code: marketCode });
+      const [healthResult, qualityResult] = await Promise.allSettled([
+        invokeAppFunction("adminMarketData", { action: "health", market_code: marketCode }),
+        invokeAppFunction("operationsQuality", { market_code: marketCode }),
+      ]);
+      if (healthResult.status === "rejected") throw healthResult.reason;
+      const data = {
+        ...healthResult.value,
+        quality_summary: qualityResult.status === "fulfilled" ? qualityResult.value?.issue_summary : null,
+      };
       setState({ loading: false, data, error: "", running: false, progress: "" });
     } catch (error) {
       setState((value) => ({ ...value, loading: false, error: error?.response?.data?.error || error?.message || "تعذر تحميل حالة السوق", running: false }));
@@ -66,12 +74,6 @@ export default function OperationsAdmin() {
   return <>
     <PageHeader title="تشغيل بيانات السوق" description={`مراقبة مزامنة ${market?.name_ar || "السوق"}، التغطية، جودة اللقطات واستهلاك الأتمتة.`} />
     <div className="mx-auto max-w-[1800px] space-y-5 px-4 pb-10">
-      <label className="flex max-w-md items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-sm dark:border-slate-800 dark:bg-[#0d192a]">
-        <span className="font-bold">السوق</span>
-        <select className="form-input flex-1" value={marketCode} onChange={(event) => setMarketCode(event.target.value)}>
-          {availableMarkets.map((item) => <option key={item.market_code} value={item.market_code}>{item.name_ar}</option>)}
-        </select>
-      </label>
       {state.loading && !data && <StatusPanel loading />}
       {state.error && <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 text-sm text-rose-700 dark:text-rose-200">{state.error}</div>}
       {data && <>
@@ -87,7 +89,7 @@ export default function OperationsAdmin() {
           {[
             ["تغطية آخر لقطة", `${Number(data.snapshot?.coverage_percent || 0).toFixed(1)}%`, Database],
             ["الأسهم القديمة", data.snapshot?.stale_count || 0, AlertTriangle],
-            ["المشاكل المفتوحة", data.open_issue_count || 0, Activity],
+            ["المشاكل الفعلية المفتوحة", data.quality_summary?.active_count ?? data.open_issue_count ?? 0, Activity],
             ["تشغيل شهري مقدر", data.automation_budget?.estimated_monthly_runs || 506, RefreshCw],
           ].map(([label, value, Icon]) => <div key={label} className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#0d192a]"><div className="flex items-center justify-between text-slate-500"><span className="text-sm">{label}</span><Icon size={17} /></div><b className="mt-4 block text-3xl font-black">{value}</b></div>)}
         </section>

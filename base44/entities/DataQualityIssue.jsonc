@@ -2,6 +2,14 @@
   "name": "DataQualityIssue",
   "type": "object",
   "properties": {
+    "market_code": {
+      "type": "string",
+      "enum": [
+        "SA_MAIN",
+        "US_OPTIONS",
+        "US_BENCHMARKS"
+      ]
+    },
     "instrument_id": {
       "type": "string"
     },
