@@ -758,6 +758,8 @@ for (const fileName of ["adminCustomers", "adminSubscriptions", "adminRoles", "i
 const adminCustomersFunction = await readFile(new URL("../base44/functions/adminCustomers/entry.ts", import.meta.url), "utf8");
 const customersAdminPage = await readFile(new URL("../src/pages/CustomersAdmin.jsx", import.meta.url), "utf8");
 assert.match(adminCustomersFunction, /context\.role !== "owner"/, "customer operations must remain owner-only at the backend boundary");
+assert.match(adminCustomersFunction, /customer\.role !== "user"/, "service, staff, and owner profiles must never be managed as customers");
+assert.match(adminCustomersFunction, /filter\(\(customer\) => customer\.role === "user"\)/, "the customer directory must contain actual customer accounts only");
 assert.match(adminCustomersFunction, /MarketAccessApplication\.filter\(\{ customer_id: customer\.id \}\)/, "the customer profile must load the customer's market applications");
 assert.match(adminCustomersFunction, /customer\.message_sent/, "owner messages to customers must be audited");
 assert.match(adminCustomersFunction, /recipient_auth_user_id: customer\.auth_user_id/, "owner messages must be delivered to the selected customer's inbox identity");

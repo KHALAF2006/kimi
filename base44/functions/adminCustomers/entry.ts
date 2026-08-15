@@ -44,6 +44,12 @@ function customerView(customer, full) {
   };
 }
 
+async function managedCustomer(base44, id) {
+  const customer = await base44.asServiceRole.entities.CustomerProfile.get(String(id || ""));
+  if (!customer || customer.role !== "user") bad("Customer not found", "CUSTOMER_NOT_FOUND", 404);
+  return customer;
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -54,13 +60,13 @@ Deno.serve(async (req) => {
     if (!context.permissions.has("customers.masked.read") && !canReadFull) bad("Forbidden", "PERMISSION_DENIED", 403);
 
     if (body.action === "list") {
-      const rows = await base44.asServiceRole.entities.CustomerProfile.list("-created_date", Math.min(Math.max(Number(body.limit) || 50, 1), 100));
+      const rows = (await base44.asServiceRole.entities.CustomerProfile.list("-created_date", Math.min(Math.max(Number(body.limit) || 50, 1), 100)))
+        .filter((customer) => customer.role === "user");
       return Response.json({ customers: rows.map((customer) => customerView(customer, canReadFull)), data_mode: canReadFull ? "full" : "masked" });
     }
 
     if (body.action === "detail") {
-      const customer = await base44.asServiceRole.entities.CustomerProfile.get(String(body.id || ""));
-      if (!customer) bad("Customer not found", "CUSTOMER_NOT_FOUND", 404);
+      const customer = await managedCustomer(base44, body.id);
       const [subscriptions, applications, sessions, consents, notes, memberships, watchlists, alerts] = await Promise.all([
         base44.asServiceRole.entities.Subscription.filter({ customer_id: customer.id }),
         base44.asServiceRole.entities.MarketAccessApplication.filter({ customer_id: customer.id }),
@@ -88,8 +94,7 @@ Deno.serve(async (req) => {
       const reason = reasonFrom(body.reason);
       const status = String(body.status || "");
       if (!ACCOUNT_STATUSES.has(status)) bad("Unsupported account status");
-      const before = await base44.asServiceRole.entities.CustomerProfile.get(String(body.id || ""));
-      if (!before) bad("Customer not found", "CUSTOMER_NOT_FOUND", 404);
+      const before = await managedCustomer(base44, body.id);
       if (before.id === context.profile.id) bad("The active administrator cannot change their own account status", "SELF_STATUS_CHANGE_DENIED", 403);
       if (before.role === "owner") bad("The platform owner status cannot be changed here", "OWNER_PROTECTED", 403);
       const after = await base44.asServiceRole.entities.CustomerProfile.update(before.id, { account_status: status });
@@ -103,8 +108,7 @@ Deno.serve(async (req) => {
     if (body.action === "revoke_sessions") {
       await requirePermission(base44, body.session_id, "customers.sessions.revoke");
       const reason = reasonFrom(body.reason);
-      const customer = await base44.asServiceRole.entities.CustomerProfile.get(String(body.id || ""));
-      if (!customer) bad("Customer not found", "CUSTOMER_NOT_FOUND", 404);
+      const customer = await managedCustomer(base44, body.id);
       if (customer.id === context.profile.id) bad("Use sign out to revoke the current administrator session", "SELF_SESSION_REVOKE_DENIED", 403);
       await base44.asServiceRole.entities.ActiveDeviceSession.updateMany({ customer_id: customer.id, revoked_at: null }, { $set: { revoked_at: new Date().toISOString() } });
       await audit(base44, context.user.id, "customer.sessions_revoked", "CustomerProfile", customer.id, "success", reason, {}, { revoked_at: new Date().toISOString() });
@@ -114,8 +118,7 @@ Deno.serve(async (req) => {
     if (body.action === "add_note") {
       await requirePermission(base44, body.session_id, "customers.notes.manage");
       const reason = reasonFrom(body.reason);
-      const customer = await base44.asServiceRole.entities.CustomerProfile.get(String(body.id || ""));
-      if (!customer) bad("Customer not found", "CUSTOMER_NOT_FOUND", 404);
+      const customer = await managedCustomer(base44, body.id);
       const text = String(body.note || "").trim();
       if (!text || text.length > 1000) bad("A note between 1 and 1000 characters is required");
       const visibility = context.role === "owner" ? "owner" : context.role === "admin" ? "admin" : "support";
@@ -127,8 +130,7 @@ Deno.serve(async (req) => {
     if (body.action === "message") {
       await requirePermission(base44, body.session_id, "customers.notes.manage");
       const reason = reasonFrom(body.reason);
-      const customer = await base44.asServiceRole.entities.CustomerProfile.get(String(body.id || ""));
-      if (!customer) bad("Customer not found", "CUSTOMER_NOT_FOUND", 404);
+      const customer = await managedCustomer(base44, body.id);
       const text = String(body.message || "").trim();
       if (text.length < 3 || text.length > 1200) bad("A message between 3 and 1200 characters is required", "MESSAGE_REQUIRED");
       const title = String(body.title || "").trim() || "رسالة من إدارة المستثمر الذكي";
