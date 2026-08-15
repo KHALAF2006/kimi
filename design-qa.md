@@ -1,24 +1,13 @@
-# Design QA — أدوات الرسم وبطاقة مناطق الزخم
+# Design QA
 
-## المرجع
-
-- مرجع المستخدم: شريط أدوات رسم مضغوط عائم فوق الشارت، مع أدوات الإنشاء والخصائص والقفل والتنبيه والحذف.
-- التنفيذ المرجعي: `CompanyChart` و`ChartDrawingTools` على شاشة الشركة في الوضع العربي RTL.
-- شاشة الاختبار: `1270 × 730` على الرابط المحلي للشركة `4210`.
-
-## التحقق البصري والوظيفي
-
-- ظهر شريط الأدوات داخل مساحة الشارت دون تغيير هوية الموقع الحالية.
-- تم رسم خط اتجاه فعليًا، وظهرت نقاط الارتكاز وشريط خصائص الرسم المحدد.
-- ظهرت خصائص اللون والسماكة ونمط الخط والامتداد والقفل والإخفاء والتنبيه والنسخ والترتيب والحذف.
-- تم فصل بطاقة أسعار مناطق الزخم عن طبقة المناطق، وأصبحت لها عين مستقلة على البطاقة نفسها.
-- عولج تداخل البطاقة مع شريط الرسم بوضع الأدوات أعلى اليمين والبطاقة أعلى اليسار بمسافة رأسية آمنة.
-- بقيت واجهة العربية واتجاه RTL سليمة، ولم يظهر عيب بصري بدرجة P0 أو P1 أو P2 في الرحلة المختبرة.
-- في اللوحات الضيقة يلتف شريط الخصائص على أكثر من سطر بصورة مقصودة بدل قص الأزرار أو إخفائها.
-
-## ملاحظات الاختبار
-
-- اختبار المتصفح شمل: رسم خط اتجاه، تحديده، إظهار الخصائص، إنشاء تنبيه، إخفاء مناطق الزخم مع بقاء البطاقة مستقلة، وتحريك نطاق الشارت بعد الرسم.
-- بقية أنواع الرسم خضعت لاختبارات النموذج الهندسي الثابتة، والتحقق البرمجي من وجود الأدوات الإحدى عشرة وربطها بطبقة الحفظ المحمية.
-
-final result: passed
+- Reference: `codex-clipboard-9983ae6c-3cca-4178-b703-63b5282e9cdf.png`
+- Target: owner-only customer operations center
+- Viewport: desktop, Arabic RTL, dark theme
+- Verified: customer identity, market cards, subscription period, referral references, colored action grid, direct email/WhatsApp actions, and one-device status.
+- Accessibility: visible form labels, keyboard-native buttons and links, descriptive icon labels, theme-aware contrast.
+- Localization: customer, application, market, and subscription statuses render in Arabic or English instead of exposing internal values.
+- P0 issues: none
+- P1 issues: none
+- P2 issues: none
+- P3 issues: none
+- Final result: passed
