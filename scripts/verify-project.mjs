@@ -485,7 +485,7 @@ const appShell = await readFile(new URL("../src/App.jsx", import.meta.url), "utf
 const appErrorBoundary = await readFile(new URL("../src/components/AppErrorBoundary.jsx", import.meta.url), "utf8");
 assert.match(companyPanel, /hasCurrentInstrument = state\.dataSymbol === symbol && Boolean\(state\.data\?\.instrument\)/, "opening a company must guard the first render before company data arrives");
 assert.match(companyPanel, /if \(!data\?\.instrument\) throw new Error\("company_payload_incomplete"\)/, "an incomplete company response must use the recoverable error path");
-assert.match(appShell, /<AppErrorBoundary><AuthenticatedApp \/><\/AppErrorBoundary>/, "a route render failure must not leave the application on a blank page");
+assert.match(appShell, /<AppErrorBoundary><AppRoutes \/><\/AppErrorBoundary>/, "a route render failure must not leave the application on a blank page");
 assert.match(appErrorBoundary, /<SessionLink[^>]+to="\/dashboard"/, "the render fallback must provide a real-link return to the dashboard");
 assert.match(dashboardPage, /SectorPanel/, "sector selection must open a sector profile, not only filter the table");
 assert.match(dashboardPage, /InstrumentSearchInput/, "the visible dashboard search must use the protected autocomplete instead of a cosmetic table filter");
@@ -535,6 +535,8 @@ assert.match(appRouter, /BrowserRouter as Router/, "the current React Router adv
 assert.doesNotMatch(appRouter, /unstable_|RSC|ServerAction|createRequestHandler/, "the client application must not activate the advisory's unstable RSC server-action path");
 assert.match(appRouter, /path="\/application-status" element=\{<ApplicationStatus \/>\}/, "pending customers must be able to reach application status outside the market workspace guard");
 assert.doesNotMatch(appRouter, /navigateToLogin\(\)/, "public registration and application-status routes must not be globally redirected by authentication state");
+assert.match(appRouter, /const ProtectedProviders = \(\) => \([\s\S]*<AuthProvider>[\s\S]*<ProtectedRoute/, "authentication and market providers must be mounted only for protected workspace routes");
+assert.doesNotMatch(appRouter, /<PreferencesProvider>[\s\S]{0,120}<AuthProvider>/, "public routes must not be nested under the protected authentication provider");
 assert.match(authContext, /token:\s*null/, "public settings must not receive a stale customer token that can redirect public routes");
 for (const signal of ["bullish_pin_bar", "bearish_pin_bar", "bullish_engulfing", "bearish_engulfing", "bullish_zone_pin_bar", "bearish_zone_pin_bar", "pin_bar_signal", "engulfing_signal", "zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"]) {
   assert.match(screenerPage, new RegExp(signal), `screener signal is missing: ${signal}`);

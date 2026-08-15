@@ -3,7 +3,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
-import { AuthProvider, useAuth } from '@/lib/AuthContext';
+import { AuthProvider } from '@/lib/AuthContext';
 import ScrollToTop from './components/ScrollToTop';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import SmartInvestorLayout from '@/components/SmartInvestorLayout';
@@ -42,33 +42,29 @@ const OperationsAdmin = lazy(() => import('@/pages/OperationsAdmin'));
 const AuditAdmin = lazy(() => import('@/pages/AuditAdmin'));
 const RolesAdmin = lazy(() => import('@/pages/RolesAdmin'));
 
-const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings } = useAuth();
+const ProtectedProviders = () => (
+  <AuthProvider>
+    <AuthorizationProvider>
+      <ActiveMarketProvider>
+        <ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />
+      </ActiveMarketProvider>
+    </AuthorizationProvider>
+  </AuthProvider>
+);
 
-  // Show loading spinner while checking app public settings or auth
-  if (isLoadingPublicSettings || isLoadingAuth) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-
-  // Public routes must remain reachable before the owner activates a market.
-  // ProtectedRoute applies authentication and application-session checks only
-  // to the customer workspace and administration routes below.
+const AppRoutes = () => {
   return (
     <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-white dark:bg-slate-950"><div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-sky-500" /></div>}>
     <Routes>
       <Route path="/" element={<Landing />} />
-      <Route path="/login" element={<Login />} />
+      <Route path="/login" element={<AuthProvider><Login /></AuthProvider>} />
       <Route path="/register" element={<Register />} />
       <Route path="/application-status" element={<ApplicationStatus />} />
       <Route path="/verify" element={<Navigate to="/application-status" replace />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/courses" element={<Courses />} />
-      <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
+      <Route element={<ProtectedProviders />}>
         <Route element={<SmartInvestorLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/company" element={<CompanyDetails />} />
@@ -102,19 +98,13 @@ function App() {
 
   return (
     <PreferencesProvider>
-      <AuthProvider>
-        <QueryClientProvider client={queryClientInstance}>
-          <AuthorizationProvider>
-            <ActiveMarketProvider>
-              <Router>
-                <ScrollToTop />
-                <AppErrorBoundary><AuthenticatedApp /></AppErrorBoundary>
-              </Router>
-              <Toaster />
-            </ActiveMarketProvider>
-          </AuthorizationProvider>
-        </QueryClientProvider>
-      </AuthProvider>
+      <QueryClientProvider client={queryClientInstance}>
+        <Router>
+          <ScrollToTop />
+          <AppErrorBoundary><AppRoutes /></AppErrorBoundary>
+        </Router>
+        <Toaster />
+      </QueryClientProvider>
     </PreferencesProvider>
   )
 }
