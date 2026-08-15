@@ -2,7 +2,7 @@ import { createClientFromRequest } from "npm:@base44/sdk@0.8.41";
 import { audit, profileFor, readJsonBody, replyError, requireUser } from "../../shared/security.ts";
 import { cooldownUntil, uniqueApplicationReference } from "../../shared/marketAccess.ts";
 import { reconcileRegistrationGraph } from "../../shared/registrationState.mjs";
-import { acquireRegistrationLease, releaseRegistrationLease } from "../../shared/registrationLease.mjs";
+import { acquireRegistrationLease, assertRegistrationLease, releaseRegistrationLease } from "../../shared/registrationLease.mjs";
 
 const TERMS_VERSION = "2026-08-15";
 const RELAY_DOMAINS = new Set(["privaterelay.appleid.com", "private.icloud.com"]);
@@ -117,6 +117,7 @@ Deno.serve(async (req) => {
       platform,
       now,
       allocateReference: uniqueApplicationReference,
+      assertLease: () => assertRegistrationLease(base44, user.id, lease.token),
       values: {
         email,
         phone,

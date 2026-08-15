@@ -272,7 +272,8 @@ assert.match(authRegistrationFunction, /privaterelay\.appleid\.com/, "Apple priv
 assert.match(authRegistrationFunction, /private\.icloud\.com/, "Apple shared private relay addresses must be rejected");
 assert.match(registrationState, /account_status:\s*"pending_owner_approval"/, "new customers must remain pending until the owner decides");
 assert.match(authRegistrationFunction, /acquireRegistrationLease/, "registration completion must serialize concurrent requests for one authenticated user");
-assert.match(registrationLease, /entities\.User\.updateMany/, "the registration lease must use an atomic conditional database update");
+assert.match(registrationLease, /entities\.User\.update\(userId/, "the registration lease must use the Base44-supported single-user update path");
+assert.match(registrationLease, /registration_lock_token !== token/, "the registration lease must verify ownership after each single-user update");
 assert.match(adminAccessFunction, /context\.role !== "owner"/, "market application decisions must be owner-only");
 assert.match(adminAccessFunction, /10 \* 24 \* 60 \* 60 \* 1000/, "owner approval must create exactly ten free days");
 assert.match(adminAccessFunction, /market_code:\s*application\.market_code/, "each approved application must stay bound to one market");

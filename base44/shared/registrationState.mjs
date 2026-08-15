@@ -57,7 +57,7 @@ export async function uniqueCustomerNumber(base44, year = new Date().getUTCFullY
 }
 
 export async function reconcileRegistrationGraph(base44, input) {
-  const { user, owner, platform, values, now, allocateReference } = input;
+  const { user, owner, platform, values, now, allocateReference, assertLease = async () => {} } = input;
   if (!owner?.id || !owner?.auth_user_id) {
     throw Object.assign(new Error("Registration administration is temporarily unavailable"), { code: "OWNER_NOTIFICATION_TARGET_MISSING", status: 503 });
   }
@@ -69,6 +69,7 @@ export async function reconcileRegistrationGraph(base44, input) {
   if (profile && profile.role !== "user") duplicateError("This identity cannot be used for customer registration", "IDENTITY_ROLE_CONFLICT", 403);
 
   if (!profile) {
+    await assertLease();
     profile = await base44.asServiceRole.entities.CustomerProfile.create({
       customer_number: await uniqueCustomerNumber(base44),
       auth_user_id: user.id,
@@ -92,6 +93,20 @@ export async function reconcileRegistrationGraph(base44, input) {
     profileCreated = true;
   }
 
+  await assertLease();
+  const candidates = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
+  if (candidates.length > 1) {
+    const ordered = [...candidates].sort((left, right) => `${left.created_date || ""}:${left.id}`.localeCompare(`${right.created_date || ""}:${right.id}`));
+    profile = ordered[0];
+    for (const duplicate of ordered.slice(1)) {
+      const linked = await base44.asServiceRole.entities.MarketAccessApplication.filter({ customer_id: duplicate.id });
+      if (!linked.length && duplicate.registration_state !== "completed") await base44.asServiceRole.entities.CustomerProfile.delete(duplicate.id);
+    }
+    const remaining = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
+    if (remaining.length !== 1) duplicateError("Duplicate customer profile requires owner review", "DUPLICATE_CUSTOMER_PROFILE");
+    profile = remaining[0];
+  }
+
   const canonical = profileCreated ? values : {
     ...values,
     email: profile.email_normalized,
@@ -101,10 +116,16 @@ export async function reconcileRegistrationGraph(base44, input) {
     language: profile.preferred_language,
   };
 
-  let applications = await base44.asServiceRole.entities.MarketAccessApplication.filter({ customer_id: profile.id });
+  const applicationQuery = {
+    customer_id: profile.id,
+    trading_platform_id: platform.id,
+    market_code: canonical.marketCode,
+  };
+  let applications = await base44.asServiceRole.entities.MarketAccessApplication.filter(applicationQuery);
   let application = applications[0] || null;
   let applicationCreated = false;
   if (!application) {
+    await assertLease();
     application = await base44.asServiceRole.entities.MarketAccessApplication.create({
       unique_reference: await allocateReference(base44, canonical.marketCode),
       customer_id: profile.id,
@@ -126,6 +147,22 @@ export async function reconcileRegistrationGraph(base44, input) {
     });
     applications = [application];
     applicationCreated = true;
+  }
+
+  await assertLease();
+  const applicationCandidates = await base44.asServiceRole.entities.MarketAccessApplication.filter(applicationQuery);
+  if (applicationCandidates.length > 1 && profile.registration_state !== "completed") {
+    const ordered = [...applicationCandidates].sort((left, right) => `${left.created_date || ""}:${left.id}`.localeCompare(`${right.created_date || ""}:${right.id}`));
+    application = ordered[0];
+    for (const duplicate of ordered.slice(1)) {
+      if (duplicate.status === "pending") await base44.asServiceRole.entities.MarketAccessApplication.delete(duplicate.id);
+    }
+    applications = await base44.asServiceRole.entities.MarketAccessApplication.filter(applicationQuery);
+    if (applications.length !== 1) duplicateError("Duplicate initial application requires owner review", "DUPLICATE_INITIAL_APPLICATION");
+    application = applications[0];
+  } else {
+    applications = applicationCandidates;
+    application = applications[0] || application;
   }
 
   await ensureConsent(base44, profile.id, "email", "service_and_marketing", {
