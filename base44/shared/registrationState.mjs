@@ -47,6 +47,33 @@ async function ensureOwnerMessage(base44, owner, profile, application) {
   return current;
 }
 
+async function confirmedRegistrationGraph(base44, owner, profile, application) {
+  const [confirmedProfile, confirmedApplication, messages, consents, preferences] = await Promise.all([
+    base44.asServiceRole.entities.CustomerProfile.get(profile.id),
+    base44.asServiceRole.entities.MarketAccessApplication.get(application.id),
+    base44.asServiceRole.entities.Message.filter({ dedupe_key: `registration:${application.id}` }),
+    base44.asServiceRole.entities.CustomerConsent.filter({ customer_id: profile.id }),
+    base44.asServiceRole.entities.NotificationPreference.filter({ customer_id: profile.id }),
+  ]);
+  const ownerMessage = messages.find((item) => item.recipient_auth_user_id === owner.auth_user_id && item.recipient_customer_id === owner.id);
+  const complete = Boolean(
+    confirmedProfile?.registration_state === "completed"
+    && confirmedProfile?.initial_application_id === confirmedApplication?.id
+    && confirmedApplication?.auth_user_id === confirmedProfile?.auth_user_id
+    && confirmedApplication?.unique_reference
+    && ownerMessage?.action_path === `/admin/customers?application=${confirmedApplication.id}`
+    && consents.filter((item) => item.status === "granted").length >= 2
+    && preferences.length === 1
+  );
+  if (!complete) {
+    throw Object.assign(new Error("Registration graph was not fully persisted"), {
+      code: "REGISTRATION_GRAPH_INCOMPLETE",
+      status: 503,
+    });
+  }
+  return { profile: confirmedProfile, application: confirmedApplication, ownerMessage };
+}
+
 export async function uniqueCustomerNumber(base44, year = new Date().getUTCFullYear()) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const candidate = `SI-${year}-${crypto.randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`;
@@ -185,11 +212,13 @@ export async function reconcileRegistrationGraph(base44, input) {
     last_seen_at: now,
   });
 
+  const confirmed = await confirmedRegistrationGraph(base44, owner, profile, application);
+
   return {
-    profile,
-    application,
+    profile: confirmed.profile,
+    application: confirmed.application,
     applications,
-    ownerMessage,
+    ownerMessage: confirmed.ownerMessage,
     created: { profile: profileCreated, application: applicationCreated },
   };
 }

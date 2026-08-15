@@ -37,9 +37,75 @@ const countries = { ar: [["SA", "السعودية"], ["AE", "الإمارات"],
 const markets = { ar: [["SA_MAIN", "السوق السعودية"], ["US_OPTIONS", "عقود الخيارات الأمريكية"], ["US_BENCHMARKS", "المؤشرات والصناديق الأمريكية"]], en: [["SA_MAIN", "Saudi Market"], ["US_OPTIONS", "U.S. Options"], ["US_BENCHMARKS", "U.S. Indices & ETFs"]] };
 
 const DRAFT_KEY = "smart_investor_registration_draft_v1";
-function apiError(error, fallback) { return error?.response?.data?.error || error?.message || fallback; }
-function isExistingUserError(error) { return /already exists|user.*exists|email.*exists/i.test(apiError(error, "")); }
-function isAlreadyVerifiedError(error) { return /already verified/i.test(apiError(error, "")); }
+function errorDetails(error) {
+  const data = error?.data || error?.response?.data || {};
+  const candidates = [error?.message, data?.message, data?.detail, data?.error, error?.response?.data?.error];
+  return {
+    code: String(error?.code || data?.code || "").trim().toUpperCase(),
+    message: candidates.find((value) => typeof value === "string" && value.trim())?.trim() || "",
+  };
+}
+function apiError(error, fallback, language = "ar") {
+  const { code, message } = errorDetails(error);
+  const localized = {
+    ar: {
+      USER_ALREADY_EXISTS: "هذا البريد مسجل بالفعل. أدخل كلمة المرور السابقة لإكمال الطلب نفسه.",
+      USER_ALREADY_VERIFIED: "تم تأكيد بريدك مسبقاً. سنكمل طلبك دون إنشاء حساب جديد.",
+      INVALID_CREDENTIALS: "كلمة المرور لا تطابق الحساب المسجل بهذا البريد.",
+      REGISTRATION_IN_PROGRESS: "طلبك قيد الإكمال الآن. انتظر لحظة ثم أعد المحاولة.",
+      OWNER_NOTIFICATION_TARGET_MISSING: "تعذر ربط الطلب بالإدارة حالياً. أعد المحاولة لاحقاً.",
+      REGISTRATION_GRAPH_INCOMPLETE: "لم يكتمل ربط الطلب بالإدارة. أعد المحاولة دون إنشاء حساب جديد.",
+      APPLE_RELAY_EMAIL_NOT_ALLOWED: "استخدم بريدك الحقيقي المباشر بدلاً من عنوان إخفاء البريد من آبل.",
+      FULL_NAME_REQUIRED: "اكتب اسمك الكامل كما يظهر في الهوية أو الإقامة أو جواز السفر.",
+      INVALID_FULL_NAME: "تحقق من كتابة الاسم الكامل بالحروف الصحيحة.",
+      INVALID_PHONE: "اكتب رقم الجوال بصيغة دولية صحيحة تبدأ بعلامة +.",
+      PHONE_COUNTRY_MISMATCH: "رقم الجوال لا يطابق الدولة المختارة.",
+      GCC_COUNTRY_REQUIRED: "اختر إحدى الدول المتاحة في النموذج.",
+      MARKET_REQUIRED: "اختر السوق المطلوب.",
+      COMMUNICATION_CONSENT_REQUIRED: "يلزم قبول التواصل لإرسال معلومات الحساب والتدريب.",
+      PHONE_ACCURACY_ACKNOWLEDGEMENT_REQUIRED: "أكد أن رقم الجوال المكتوب هو رقمك الحالي.",
+      REFERRAL_LINK_REQUIRED: "افتح رابط منصة التداول المختارة قبل إرسال الطلب.",
+      TRADING_PLATFORM_REQUIRED: "اختر منصة تداول متاحة للسوق المطلوب.",
+      IDENTITY_ROLE_CONFLICT: "هذا الحساب مخصص للإدارة ولا يمكن استخدامه كتسجيل عميل.",
+      INVALID_OTP: "رمز البريد غير صحيح أو انتهت صلاحيته. اطلب رمزاً جديداً.",
+    },
+    en: {
+      USER_ALREADY_EXISTS: "This email is already registered. Enter the existing password to complete the same request.",
+      USER_ALREADY_VERIFIED: "Your email is already verified. We will complete your request without creating another account.",
+      INVALID_CREDENTIALS: "The password does not match the account registered with this email.",
+      REGISTRATION_IN_PROGRESS: "Your request is being completed. Wait a moment and retry.",
+      OWNER_NOTIFICATION_TARGET_MISSING: "The request could not be linked to the administration right now. Please retry later.",
+      REGISTRATION_GRAPH_INCOMPLETE: "The request was not fully linked to the administration. Retry without creating another account.",
+      APPLE_RELAY_EMAIL_NOT_ALLOWED: "Use your direct email instead of an Apple private relay address.",
+      FULL_NAME_REQUIRED: "Enter your full name as shown on your ID, residence permit, or passport.",
+      INVALID_FULL_NAME: "Check that your full name contains valid letters.",
+      INVALID_PHONE: "Enter a valid international mobile number beginning with +.",
+      PHONE_COUNTRY_MISMATCH: "The mobile number does not match the selected country.",
+      GCC_COUNTRY_REQUIRED: "Select one of the available countries.",
+      MARKET_REQUIRED: "Select the requested market.",
+      COMMUNICATION_CONSENT_REQUIRED: "Communication consent is required for account and training messages.",
+      PHONE_ACCURACY_ACKNOWLEDGEMENT_REQUIRED: "Confirm that the mobile number is your current number.",
+      REFERRAL_LINK_REQUIRED: "Open the selected trading-platform link before submitting the request.",
+      TRADING_PLATFORM_REQUIRED: "Select a trading platform available for the requested market.",
+      IDENTITY_ROLE_CONFLICT: "This administration account cannot be used for customer registration.",
+      INVALID_OTP: "The email code is invalid or expired. Request a new code.",
+    },
+  };
+  if (localized[language]?.[code]) return localized[language][code];
+  if (language === "ar" && /already exists|user.*exists|email.*exists/i.test(message)) return localized.ar.USER_ALREADY_EXISTS;
+  if (language === "ar" && /already verified/i.test(message)) return localized.ar.USER_ALREADY_VERIFIED;
+  if (language === "ar" && /invalid|expired|incorrect/i.test(message) && /otp|code|verification/i.test(message)) return localized.ar.INVALID_OTP;
+  if (language === "ar" && /invalid.*(credential|password)|incorrect.*password|wrong.*password/i.test(message)) return localized.ar.INVALID_CREDENTIALS;
+  return language === "ar" ? fallback : (message || fallback);
+}
+function isExistingUserError(error) {
+  const { code, message } = errorDetails(error);
+  return ["USER_ALREADY_EXISTS", "EMAIL_ALREADY_EXISTS", "ALREADY_EXISTS"].includes(code) || /already exists|user.*exists|email.*exists/i.test(message);
+}
+function isAlreadyVerifiedError(error) {
+  const { code, message } = errorDetails(error);
+  return ["USER_ALREADY_VERIFIED", "EMAIL_ALREADY_VERIFIED", "ALREADY_VERIFIED"].includes(code) || /already\s+verified/i.test(message);
+}
 function safeDraft(form) {
   const { password: _password, confirm: _confirm, email_otp: _otp, ...draft } = form;
   return draft;
@@ -98,7 +164,7 @@ export default function Register() {
   useEffect(() => {
     Promise.resolve(base44.functions.invoke("registrationCatalog", {})).then((response) => setCatalog(response?.data || { platforms: [] })).catch((issue) => {
       setCatalog({ platforms: [] });
-      setError(apiError(issue, language === "ar" ? "تعذر تحميل منصات التداول. أعد المحاولة." : "Unable to load trading platforms. Please try again."));
+      setError(apiError(issue, language === "ar" ? "تعذر تحميل منصات التداول. أعد المحاولة." : "Unable to load trading platforms. Please try again.", language));
     });
   }, []);
   useEffect(() => {
@@ -129,9 +195,9 @@ export default function Register() {
           await signInAndComplete();
           return;
         } catch (resumeIssue) {
-          setError(apiError(resumeIssue, t.existingAccount));
+          setError(apiError(resumeIssue, t.existingAccount, language));
         }
-      } else setError(apiError(issue, language === "ar" ? "تعذر إنشاء الحساب" : "Unable to create account"));
+      } else setError(apiError(issue, language === "ar" ? "تعذر إنشاء الحساب" : "Unable to create account", language));
     }
     finally { setLoading(false); }
   }
@@ -161,7 +227,7 @@ export default function Register() {
       setStage("completion");
       await signInAndComplete();
     } catch (issue) {
-      setError(apiError(issue, language === "ar" ? "تعذر تأكيد البريد أو إرسال الطلب" : "Unable to verify email or submit the request"));
+      setError(apiError(issue, language === "ar" ? "تعذر تأكيد البريد أو إرسال الطلب" : "Unable to verify email or submit the request", language));
     }
     finally { setLoading(false); }
   }
@@ -169,7 +235,7 @@ export default function Register() {
   async function retryCompletion(event) {
     event.preventDefault(); setLoading(true); setError("");
     try { await signInAndComplete(); }
-    catch (issue) { setError(apiError(issue, language === "ar" ? "تعذر إكمال الطلب" : "Unable to complete the request")); }
+    catch (issue) { setError(apiError(issue, language === "ar" ? "تعذر إكمال الطلب" : "Unable to complete the request", language)); }
     finally { setLoading(false); }
   }
 
@@ -193,7 +259,7 @@ export default function Register() {
     </form>}
     {stage === "email" && <form onSubmit={verifyEmail} className="space-y-3"><Field label={t.emailOtp} name="email_otp" inputMode="numeric" maxLength={8} value={form.email_otp} onChange={change} /><Submit loading={loading} label={t.verifyEmail} loadingLabel={t.loading} /></form>}
     {stage === "completion" && <form onSubmit={retryCompletion} className="space-y-3"><p className="rounded-xl border border-sky-400/30 bg-sky-400/10 p-3 text-sm leading-6">{language === "ar" ? "تم تأكيد البريد. سنكمل الآن إنشاء ملف العميل وإرسال الطلب للمالك دون إعادة التأكيد." : "Your email is verified. We will now complete the customer profile and send the request to the owner without verifying again."}</p><Submit loading={loading} label={t.retryRequest} loadingLabel={t.loading} /></form>}
-    <DismissibleNotice message={error} tone="error" onDismiss={() => setError("")} />
+    <DismissibleNotice message={error} tone="error" timeoutMs={0} onDismiss={() => setError("")} />
   </AuthLayout>;
 }
 

@@ -44,6 +44,18 @@ function customerView(customer, full) {
   };
 }
 
+function incompleteRegistrationView(user, full) {
+  const email = String(user.email || "").trim().toLowerCase();
+  return {
+    auth_user_id: user.id,
+    full_name: String(user.full_name || "").trim() || email.split("@")[0] || "—",
+    email_normalized: full ? email : maskedEmail(email),
+    account_status: "pending_verification",
+    registration_state: "account_created",
+    created_date: user.created_date,
+  };
+}
+
 async function managedCustomer(base44, id) {
   const customer = await base44.asServiceRole.entities.CustomerProfile.get(String(id || ""));
   if (!customer || customer.role !== "user") bad("Customer not found", "CUSTOMER_NOT_FOUND", 404);
@@ -116,9 +128,17 @@ Deno.serve(async (req) => {
     if (!context.permissions.has("customers.masked.read") && !canReadFull) bad("Forbidden", "PERMISSION_DENIED", 403);
 
     if (body.action === "list") {
-      const rows = (await base44.asServiceRole.entities.CustomerProfile.list("-created_date", Math.min(Math.max(Number(body.limit) || 50, 1), 100)))
-        .filter((customer) => customer.role === "user");
-      return Response.json({ customers: rows.map((customer) => customerView(customer, canReadFull)), data_mode: canReadFull ? "full" : "masked" });
+      const limit = Math.min(Math.max(Number(body.limit) || 50, 1), 100);
+      const [profiles, users] = await Promise.all([
+        base44.asServiceRole.entities.CustomerProfile.list("-created_date", 500),
+        base44.asServiceRole.entities.User.list("-created_date", limit),
+      ]);
+      const rows = profiles.filter((customer) => customer.role === "user");
+      const linkedAuthUsers = new Set(profiles.map((profile) => profile.auth_user_id).filter(Boolean));
+      const incompleteRegistrations = users
+        .filter((user) => user.role === "user" && !linkedAuthUsers.has(user.id))
+        .map((user) => incompleteRegistrationView(user, canReadFull));
+      return Response.json({ customers: rows.map((customer) => customerView(customer, canReadFull)), incomplete_registrations: incompleteRegistrations, data_mode: canReadFull ? "full" : "masked" });
     }
 
     if (body.action === "detail") {

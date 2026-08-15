@@ -15,6 +15,9 @@ const adminAccess = read("base44/functions/adminAccess/entry.ts");
 const applicationSchema = JSON.parse(read("base44/entities/MarketAccessApplication.jsonc"));
 const report = read("base44/functions/customerReport/source.ts");
 const notice = read("src/components/DismissibleNotice.jsx");
+const notifications = read("src/components/NotificationCenter.jsx");
+const customersAdmin = read("src/pages/CustomersAdmin.jsx");
+const adminCustomers = read("base44/functions/adminCustomers/entry.ts");
 
 assert(catalog.includes("active: true"), "Public registration catalog must preserve active state");
 assert(!register.includes("item.active && item.supported_market_codes"), "Registration must not discard already-filtered active platforms");
@@ -24,6 +27,8 @@ assert(register.includes("referral_link_opened") && authRegistration.includes("R
 assert(!register.includes("بيانات صحيحة لوصول أسرع وأكثر أماناً") && !register.includes("Accurate details for faster, safer access"), "Removed registration subtitle must not return");
 assert(register.includes("loginViaEmailPassword") && register.includes('setStage("completion")'), "Verified registration must authenticate and enter a resumable completion stage");
 assert(register.includes("if (!authenticated)") && register.includes("await completeRegistration()"), "A verified active session must resume completion without requiring the discarded password again");
+assert(register.includes("errorDetails") && register.includes("USER_ALREADY_VERIFIED"), "Base44 authentication errors must be normalized before they reach the customer");
+assert(register.includes('timeoutMs={0}') && register.includes('language === "ar" ? fallback'), "Registration errors must remain visible and must not leak raw English messages into Arabic UI");
 assert(register.includes("application.referral_clicked_at") && authRegistration.includes("persistedApplication?.referral_clicked_at"), "a persisted referral click must survive a browser restart during registration completion");
 assert(authRegistration.includes("reconcileRegistrationGraph") && !authRegistration.includes('fail("Profile already exists"'), "Registration completion must reconcile partial profiles instead of rejecting them");
 
@@ -45,6 +50,9 @@ for (const sheet of ['worksheet("All Customers"', 'worksheet("Referrals"', 'work
 assert(report.includes('customer.role === "user"'), "Customer report must exclude service and owner profiles");
 assert(report.includes("starts_at") && report.includes("ends_at") && report.includes("unique_reference"), "Customer report must include subscription periods and referral references");
 assert(notice.includes("25_000") && notice.includes("onDismiss"), "Transient notices must auto-dismiss and support manual close");
+assert(notifications.includes("فتح الطلب") && notifications.includes("item.action_path"), "Owner notifications must open the exact linked request");
+assert(adminCustomers.includes("incomplete_registrations") && adminCustomers.includes("entities.User.list"), "Owner customer operations must expose auth accounts that have not completed registration");
+assert(customersAdmin.includes("حسابات تنتظر إكمال التسجيل") && customersAdmin.includes("incompleteRegistrations"), "Owner UI must display incomplete registrations separately from completed customer profiles");
 
 console.log(JSON.stringify({
   status: "verified",

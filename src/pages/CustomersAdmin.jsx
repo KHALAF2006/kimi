@@ -29,7 +29,7 @@ function currentSubscription(rows = []) { return rows.find((item) => item.status
 export default function CustomersAdmin() {
   const { can } = useAuthorization();
   const { isArabic, language } = usePreferences();
-  const [state, setState] = useState({ loading: true, customers: [], mode: "masked", error: "", status: "", busy: false });
+  const [state, setState] = useState({ loading: true, customers: [], incompleteRegistrations: [], mode: "masked", error: "", status: "", busy: false });
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
@@ -43,7 +43,7 @@ export default function CustomersAdmin() {
     activate: "تفعيل", suspend: "تعليق", ban: "حظر", restore: "استعادة", revoke: "إخراج الأجهزة", message: "رسالة", access: "إدارة الأسواق", subscription: "الاشتراك", oneDevice: "قيد الجهاز الواحد", oneDeviceHelp: "الجلسات النشطة محكومة بسياسة جهاز واحد.", activeSessions: "جلسة نشطة",
     referrals: "منصات الإحالة وأرقام الطلبات", notes: "ملاحظات الإدارة", addNote: "إضافة ملاحظة", cancel: "إلغاء", confirm: "تأكيد الإجراء", reason: "سبب الإجراء", body: "نص الرسالة", subject: "عنوان الرسالة", noResults: "لا توجد نتائج مطابقة", full: "بيانات كاملة", masked: "بيانات مقنّعة", open: "فتح الملف",
     priority: "أهمية الرسالة", normalPriority: "عادية", importantPriority: "مهمة",
-    integrity: "سلامة ترابط التسجيل", integrityOk: "مكتمل ومترابط", integrityFailed: "يحتاج مراجعة",
+    integrity: "سلامة ترابط التسجيل", integrityOk: "مكتمل ومترابط", integrityFailed: "يحتاج مراجعة", incomplete: "حسابات تنتظر إكمال التسجيل", incompleteHelp: "أنشأ أصحاب هذه الحسابات بيانات الدخول، لكنهم لم يرسلوا طلب السوق بعد. تظهر هنا حتى لا يختفي أي تسجيل عن المالك.", awaitingCustomer: "بانتظار إكمال العميل",
   } : {
     title: "Customer Operations Center", description: "Customer identity, markets, subscription, and actions in one owner-only workspace.",
     all: "All", active: "Active", pending: "Pending", suspended: "Suspended", banned: "Banned", closed: "Closed",
@@ -52,7 +52,7 @@ export default function CustomersAdmin() {
     activate: "Activate", suspend: "Suspend", ban: "Ban", restore: "Restore", revoke: "Sign out devices", message: "Message", access: "Manage markets", subscription: "Subscription", oneDevice: "One-device restriction", oneDeviceHelp: "Active sessions are governed by the one-device policy.", activeSessions: "active session(s)",
     referrals: "Referral platforms & references", notes: "Admin notes", addNote: "Add note", cancel: "Cancel", confirm: "Confirm action", reason: "Action reason", body: "Message body", subject: "Message title", noResults: "No matching customers", full: "Full data", masked: "Masked data", open: "Open profile",
     priority: "Message priority", normalPriority: "Normal", importantPriority: "Important",
-    integrity: "Registration data integrity", integrityOk: "Complete and linked", integrityFailed: "Needs review",
+    integrity: "Registration data integrity", integrityOk: "Complete and linked", integrityFailed: "Needs review", incomplete: "Accounts awaiting registration completion", incompleteHelp: "These users created sign-in credentials but have not submitted a market request yet. They remain visible to the owner.", awaitingCustomer: "Awaiting customer completion",
   };
 
   async function load() {
@@ -62,7 +62,7 @@ export default function CustomersAdmin() {
       const data = await invokeAppFunction("adminCustomers", { action: "list", limit: 100 });
       const applicationId = new URLSearchParams(window.location.search).get("application");
       const linkedCustomer = applicationId ? await invokeAppFunction("adminCustomers", { action: "detail_application", application_id: applicationId }) : null;
-      setState((current) => ({ ...current, loading: false, customers: data.customers || [], mode: data.data_mode || "masked" }));
+      setState((current) => ({ ...current, loading: false, customers: data.customers || [], incompleteRegistrations: data.incomplete_registrations || [], mode: data.data_mode || "masked" }));
       if (linkedCustomer) setSelected(linkedCustomer);
     } catch (error) { setState((current) => ({ ...current, loading: false, error: failure(error, isArabic) })); }
   }
@@ -134,6 +134,7 @@ export default function CustomersAdmin() {
   return <>
     <PageHeader title={t.title} description={t.description} />
     <main className="mx-auto max-w-[1900px] space-y-4 px-4 pb-10">
+      {state.incompleteRegistrations.length > 0 && <section className="rounded-2xl border border-amber-300/70 bg-amber-400/5 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-black text-amber-700 dark:text-amber-300">{t.incomplete}</h2><p className="mt-1 max-w-4xl text-sm text-slate-500">{t.incompleteHelp}</p></div><span className="rounded-full bg-amber-500/15 px-3 py-1 text-sm font-black text-amber-700 dark:text-amber-300">{state.incompleteRegistrations.length}</span></div><div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{state.incompleteRegistrations.map((item) => <article key={item.auth_user_id} className="rounded-xl border border-amber-300/50 bg-white p-4 dark:bg-[#0d192a]"><b className="block">{item.full_name}</b><p className="mt-1 text-sm text-slate-500">{item.email_normalized}</p><div className="mt-3 flex items-center justify-between gap-2 text-xs"><span className="rounded-full bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-300">{t.awaitingCustomer}</span><time className="text-slate-400">{dateLabel(item.created_date, language)}</time></div></article>)}</div></section>}
       <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{FILTERS.map((key) => <button type="button" key={key} onClick={() => setFilter(key)} className={`rounded-2xl border p-4 text-start transition ${filter === key ? "border-sky-400 bg-sky-400/10 text-sky-700 dark:text-sky-300" : "border-slate-200 bg-white hover:border-sky-300 dark:border-slate-800 dark:bg-[#0d192a]"}`}><small className="text-slate-500">{t[key]}</small><b className="mt-2 block text-2xl">{counts[key]}</b></button>)}</section>
       <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-[#0d192a]"><label className="flex min-w-64 flex-1 items-center gap-2 rounded-xl border border-slate-200 px-3 dark:border-slate-700"><Search size={16} /><input className="h-11 flex-1 bg-transparent text-sm outline-none" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t.search} /></label><span className="rounded-full bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-slate-900">{state.mode === "full" ? t.full : t.masked}</span><button type="button" className="secondary-button" onClick={exportReport}><Download size={15} />{t.export}</button><button type="button" className="secondary-button" onClick={load}><RefreshCcw size={15} />{t.refresh}</button></section>
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(420px,.8fr)]">

@@ -33,6 +33,10 @@ function mockBase44({ failApplicationOnce = false } = {}) {
           rows[index] = { ...rows[index], ...structuredClone(patch) };
           return structuredClone(rows[index]);
         },
+        async get(id) {
+          const row = rows.find((item) => item.id === id);
+          return row ? structuredClone(row) : null;
+        },
         async delete(id) {
           const index = rows.findIndex((row) => row.id === id);
           if (index >= 0) rows.splice(index, 1);
