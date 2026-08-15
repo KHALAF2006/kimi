@@ -10,6 +10,7 @@ const REFERENCE_OWNER_PERMISSIONS = [
   "customers.full.read",
   "customers.status.manage",
   "customers.sessions.revoke",
+  "customers.notes.manage",
   "subscriptions.read",
   "subscriptions.manage",
   "plans.manage",

@@ -85,14 +85,20 @@ assert.equal(isBase44PreviewHost("neat-smart-ops-flow.base44.app"), false);
 assert.equal(safePreviewServerUrl(`https://${previewHost}/functions`, previewHost), `https://${previewHost}`);
 assert.equal(safePreviewServerUrl("https://malicious.example/functions", previewHost), "", "preview tokens must never be sent to an untrusted server_url");
 const previewContextSearch = `?functions_version=preview-functions-v3&server_url=${encodeURIComponent(`https://${previewHost}`)}&base44_data_env=preview-data&_b44_commit=commit-123`;
-const handedOffHref = previewSafeHref("/screener?timeframe=1wk", { hostname: previewHost, search: previewContextSearch });
+const previewExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+const sourcePreviewStorage = memoryStorage([
+  ["base44_access_token", "test-access-token"],
+  ["smart_investor_session_id", "test-session-id"],
+  ["smart_investor_session_expires_at", previewExpiry],
+]);
+const handedOffHref = previewSafeHref("/screener?timeframe=1wk", { hostname: previewHost, search: previewContextSearch, storage: sourcePreviewStorage });
 const handedOffUrl = new URL(`https://${previewHost}${handedOffHref}`);
 assert.equal(handedOffUrl.searchParams.get("functions_version"), "preview-functions-v3");
 assert.equal(handedOffUrl.searchParams.get("server_url"), `https://${previewHost}`);
 assert.equal(handedOffUrl.searchParams.get("base44_data_env"), "preview-data");
 assert.equal(handedOffUrl.searchParams.get("_b44_commit"), "commit-123");
-assert.equal(handedOffUrl.hash, "", "preview links must never carry credentials in the URL fragment");
-assert.equal(handedOffHref.includes("test-access-token"), false);
+assert.match(handedOffUrl.hash, /smart_investor_preview_auth=/, "preview modified-click links must carry an encoded one-time session handoff in the fragment");
+assert.equal(handedOffHref.includes("test-access-token"), false, "preview credentials must never appear as plaintext in the URL");
 const sharedPreviewStorage = memoryStorage();
 assert.equal(rememberPreviewContext({ location: { hostname: previewHost, search: previewContextSearch }, storage: sharedPreviewStorage }), true);
 const restoredContextHref = previewSafeHref("/dashboard?company=AMD&market=US_OPTIONS", { hostname: previewHost, search: "", storage: sharedPreviewStorage });
@@ -100,7 +106,7 @@ const restoredContextUrl = new URL(`https://${previewHost}${restoredContextHref}
 assert.equal(restoredContextUrl.searchParams.get("functions_version"), "preview-functions-v3", "a new same-origin tab must recover the preview backend version after SPA navigation removed it from the visible URL");
 assert.equal(restoredContextUrl.searchParams.get("server_url"), `https://${previewHost}`, "a new same-origin tab must recover only the validated preview server origin");
 assert.equal(restoredContextHref.includes("access_token"), false, "preview context storage must never place an access token in a link");
-assert.equal(previewSafeHref("/screener", { hostname: "neat-smart-ops-flow.base44.app" }), "/screener", "production links must never carry preview context or credentials");
+assert.equal(previewSafeHref("/screener", { hostname: "neat-smart-ops-flow.base44.app", storage: sourcePreviewStorage }), "/screener", "production links must never carry preview context or credentials");
 const targetPreviewStorage = memoryStorage();
 let cleanedPreviewUrl = "";
 const restored = consumePreviewAuthHandoff({
@@ -108,15 +114,16 @@ const restored = consumePreviewAuthHandoff({
     hostname: previewHost,
     pathname: "/screener",
     search: handedOffUrl.search,
-    hash: "#smart_investor_preview_auth=legacy-credential-payload",
+    hash: handedOffUrl.hash,
   },
   history: { replaceState: (_state, _title, url) => { cleanedPreviewUrl = url; } },
   storage: targetPreviewStorage,
 });
-assert.equal(restored, false);
-assert.equal(targetPreviewStorage.getItem("base44_access_token"), null);
-assert.equal(targetPreviewStorage.getItem("smart_investor_session_id"), null);
-assert.equal(cleanedPreviewUrl, `/screener${handedOffUrl.search}`, "legacy credential fragments must be removed without restoring them");
+assert.equal(restored, true);
+assert.equal(targetPreviewStorage.getItem("base44_access_token"), "test-access-token");
+assert.equal(targetPreviewStorage.getItem("smart_investor_session_id"), "test-session-id");
+assert.equal(targetPreviewStorage.getItem("smart_investor_session_expires_at"), previewExpiry);
+assert.equal(cleanedPreviewUrl, `/screener${handedOffUrl.search}`, "credential fragments must be consumed and removed before the page continues");
 let malformedCleanUrl = "";
 assert.doesNotThrow(() => {
   const malformedRestored = consumePreviewAuthHandoff({

@@ -562,8 +562,10 @@ assert.match(previewAuthHandoff, /rememberPreviewContext/, "new preview tabs mus
 assert.match(previewAuthHandoff, /url\.hostname === String\(hostname\)\.toLowerCase\(\)/, "preview server overrides must be restricted to the current Base44 preview origin");
 const previewAwareBase44Client = await readFile(new URL("../src/api/base44Client.js", import.meta.url), "utf8");
 assert.match(previewAwareBase44Client, /serverUrl,/, "the Base44 SDK must receive the validated preview backend URL");
-assert.match(previewAuthHandoff, /browserHistory\.replaceState/, "legacy preview credential fragments must be removed before the page continues");
-assert.doesNotMatch(previewAuthHandoff, /payload\?\.access_token|payload\?\.session_id/, "preview navigation must never restore credentials from a URL payload");
+assert.match(previewAuthHandoff, /browserHistory\.replaceState/, "preview credential fragments must be removed before the page continues");
+assert.match(previewAuthHandoff, /storage\.setItem\("base44_access_token"/, "a Base44 preview tab must restore the authenticated SDK session before client creation");
+assert.match(previewAuthHandoff, /storage\.setItem\("smart_investor_session_id"/, "a Base44 preview tab must restore the protected application session before route guards run");
+assert.match(previewAuthHandoff, /expiry <= Date\.now\(\)/, "expired preview handoffs must fail closed");
 assert.match(appParams, /persist:\s*false[\s\S]*useStored:\s*false/, "the one-shot clear_access_token flag must never be replayed from browser storage");
 assert.match(appParams, /allowUrlValue:\s*isBase44PreviewHost\(window\.location\.hostname\)/, "published pages must ignore access_token values supplied through the URL");
 const internalLinkFiles = [
@@ -753,6 +755,16 @@ for (const fileName of ["adminCustomers", "adminSubscriptions", "adminRoles", "i
   const deployed = await readFile(new URL(`../base44/functions/${fileName}/entry.ts`, import.meta.url), "utf8");
   assert.match(deployed, /authorizationContext|requirePermission/, `${fileName} must enforce the centralized backend authorization context`);
 }
+const adminCustomersFunction = await readFile(new URL("../base44/functions/adminCustomers/entry.ts", import.meta.url), "utf8");
+const customersAdminPage = await readFile(new URL("../src/pages/CustomersAdmin.jsx", import.meta.url), "utf8");
+assert.match(adminCustomersFunction, /context\.role !== "owner"/, "customer operations must remain owner-only at the backend boundary");
+assert.match(adminCustomersFunction, /MarketAccessApplication\.filter\(\{ customer_id: customer\.id \}\)/, "the customer profile must load the customer's market applications");
+assert.match(adminCustomersFunction, /customer\.message_sent/, "owner messages to customers must be audited");
+assert.match(adminCustomersFunction, /recipient_auth_user_id: customer\.auth_user_id/, "owner messages must be delivered to the selected customer's inbox identity");
+assert.match(customersAdminPage, /wa\.me/, "the owner customer profile must provide direct WhatsApp contact");
+assert.match(customersAdminPage, /revoke_sessions/, "the customer action grid must expose the working device sign-out action");
+assert.match(customersAdminPage, /\/admin\/access\?customer=/, "the customer profile must link to market access administration");
+assert.match(customersAdminPage, /\/admin\/subscriptions\?customer=/, "the customer profile must link to subscription administration");
 const adminSubscriptionsFunction = await readFile(new URL("../base44/functions/adminSubscriptions/entry.ts", import.meta.url), "utf8");
 assert.match(adminSubscriptionsFunction, /Array\.isArray\(body\.changes\)/, "plan entitlement updates must accept a bounded diff instead of requiring a destructive replacement");
 assert.match(adminSubscriptionsFunction, /ACCOUNT_MEMBERSHIP_REQUIRED/, "manual subscription activation must enforce account membership");

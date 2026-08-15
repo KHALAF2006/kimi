@@ -61,8 +61,9 @@ Deno.serve(async (req) => {
     if (body.action === "detail") {
       const customer = await base44.asServiceRole.entities.CustomerProfile.get(String(body.id || ""));
       if (!customer) bad("Customer not found", "CUSTOMER_NOT_FOUND", 404);
-      const [subscriptions, sessions, consents, notes, memberships, watchlists, alerts] = await Promise.all([
+      const [subscriptions, applications, sessions, consents, notes, memberships, watchlists, alerts] = await Promise.all([
         base44.asServiceRole.entities.Subscription.filter({ customer_id: customer.id }),
+        base44.asServiceRole.entities.MarketAccessApplication.filter({ customer_id: customer.id }),
         base44.asServiceRole.entities.ActiveDeviceSession.filter({ customer_id: customer.id }),
         base44.asServiceRole.entities.CustomerConsent.filter({ customer_id: customer.id }),
         base44.asServiceRole.entities.CustomerNote.filter({ customer_id: customer.id }),
@@ -73,6 +74,7 @@ Deno.serve(async (req) => {
       return Response.json({
         customer: customerView(customer, canReadFull),
         subscriptions,
+        applications,
         sessions: sessions.map((session) => ({ id: session.id, remember_me: session.remember_me, expires_at: session.expires_at, revoked_at: session.revoked_at, last_seen_at: session.last_seen_at })),
         consents,
         notes: notes.filter((note) => !note.deleted_at),
@@ -120,6 +122,32 @@ Deno.serve(async (req) => {
       const note = await base44.asServiceRole.entities.CustomerNote.create({ customer_id: customer.id, author_user_id: context.user.id, body: text, visibility });
       await audit(base44, context.user.id, "customer.note_added", "CustomerNote", note.id, "success", reason, {}, { customer_id: customer.id, visibility });
       return Response.json({ note });
+    }
+
+    if (body.action === "message") {
+      await requirePermission(base44, body.session_id, "customers.notes.manage");
+      const reason = reasonFrom(body.reason);
+      const customer = await base44.asServiceRole.entities.CustomerProfile.get(String(body.id || ""));
+      if (!customer) bad("Customer not found", "CUSTOMER_NOT_FOUND", 404);
+      const text = String(body.message || "").trim();
+      if (text.length < 3 || text.length > 1200) bad("A message between 3 and 1200 characters is required", "MESSAGE_REQUIRED");
+      const title = String(body.title || "").trim() || "رسالة من إدارة المستثمر الذكي";
+      if (title.length > 160) bad("Message title is too long", "MESSAGE_TITLE_TOO_LONG");
+      const notification = await base44.asServiceRole.entities.Message.create({
+        recipient_auth_user_id: customer.auth_user_id,
+        recipient_customer_id: customer.id,
+        message_type: "account",
+        priority: body.priority === "important" ? "important" : "normal",
+        title_ar: title,
+        title_en: "A message from Smart Investor",
+        body_ar: text,
+        body_en: text,
+        action_path: "/profile",
+        feed_eligible: true,
+        dedupe_key: `owner-message:${customer.id}:${crypto.randomUUID()}`,
+      });
+      await audit(base44, context.user.id, "customer.message_sent", "Message", notification.id, "success", reason, {}, { customer_id: customer.id, priority: notification.priority });
+      return Response.json({ message_id: notification.id, delivered_to_inbox: true });
     }
 
     if (body.action === "audit") {

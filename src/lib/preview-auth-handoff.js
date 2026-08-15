@@ -1,4 +1,4 @@
-const LEGACY_HANDOFF_HASH_KEY = "smart_investor_preview_auth";
+const PREVIEW_HANDOFF_HASH_KEY = "smart_investor_preview_auth";
 const PREVIEW_CONTEXT_STORAGE_KEY = "smart_investor_preview_context";
 const PREVIEW_CONTEXT_KEYS = [
   "functions_version",
@@ -37,6 +37,32 @@ function safeStoredPreviewContext(hostname, storage) {
   } catch {
     return {};
   }
+}
+
+function encodeBase64Url(value) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+}
+
+function decodeBase64Url(value) {
+  const normalized = String(value || "").replaceAll("-", "+").replaceAll("_", "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  const binary = atob(padded);
+  return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+}
+
+function safePreviewAuthPayload(storage) {
+  if (!storage) return null;
+  const accessToken = String(storage.getItem("base44_access_token") || "");
+  const sessionId = String(storage.getItem("smart_investor_session_id") || "");
+  const expiresAt = String(storage.getItem("smart_investor_session_expires_at") || "");
+  const expiry = Date.parse(expiresAt);
+  if (!accessToken || accessToken.length > 8192 || /\s/u.test(accessToken)) return null;
+  if (!sessionId || sessionId.length > 512 || /\s/u.test(sessionId)) return null;
+  if (!Number.isFinite(expiry) || expiry <= Date.now()) return null;
+  return { v: 1, access_token: accessToken, session_id: sessionId, expires_at: new Date(expiry).toISOString() };
 }
 
 /** Preserve non-secret Base44 preview routing context for same-origin tabs. */
@@ -78,6 +104,12 @@ export function previewSafeHref(to, options = {}) {
     const value = currentSearch.get(key) || stored[key];
     if (value && !url.searchParams.has(key)) url.searchParams.set(key, value);
   }
+  const handoff = safePreviewAuthPayload(storage);
+  if (handoff) {
+    const hash = new URLSearchParams(String(url.hash || "").slice(1));
+    hash.set(PREVIEW_HANDOFF_HASH_KEY, encodeBase64Url(JSON.stringify(handoff)));
+    url.hash = hash.toString();
+  }
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
@@ -90,9 +122,24 @@ export function consumePreviewAuthHandoff(options = {}) {
   const browserHistory = history ?? (typeof window === "undefined" ? null : window.history);
   if (!browserLocation || !browserHistory || !isBase44PreviewHost(browserLocation.hostname)) return false;
   const hash = new URLSearchParams(String(browserLocation.hash || "").slice(1));
-  if (!hash.has(LEGACY_HANDOFF_HASH_KEY)) return false;
-  hash.delete(LEGACY_HANDOFF_HASH_KEY);
+  if (!hash.has(PREVIEW_HANDOFF_HASH_KEY)) return false;
+  const encoded = hash.get(PREVIEW_HANDOFF_HASH_KEY);
+  hash.delete(PREVIEW_HANDOFF_HASH_KEY);
   const cleanHash = hash.toString();
   browserHistory.replaceState({}, "", `${browserLocation.pathname}${browserLocation.search}${cleanHash ? `#${cleanHash}` : ""}`);
-  return false;
+  const storage = options.storage ?? (typeof window === "undefined" ? null : window.localStorage);
+  if (!storage) return false;
+  try {
+    const payload = JSON.parse(decodeBase64Url(encoded));
+    const expiry = Date.parse(payload?.expires_at || "");
+    if (payload?.v !== 1 || typeof payload?.access_token !== "string" || !payload.access_token || payload.access_token.length > 8192 || /\s/u.test(payload.access_token)) return false;
+    if (typeof payload?.session_id !== "string" || !payload.session_id || payload.session_id.length > 512 || /\s/u.test(payload.session_id)) return false;
+    if (!Number.isFinite(expiry) || expiry <= Date.now()) return false;
+    storage.setItem("base44_access_token", payload.access_token);
+    storage.setItem("smart_investor_session_id", payload.session_id);
+    storage.setItem("smart_investor_session_expires_at", new Date(expiry).toISOString());
+    return true;
+  } catch {
+    return false;
+  }
 }
