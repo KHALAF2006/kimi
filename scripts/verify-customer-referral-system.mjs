@@ -24,6 +24,7 @@ assert(register.includes("referral_link_opened") && authRegistration.includes("R
 assert(!register.includes("بيانات صحيحة لوصول أسرع وأكثر أماناً") && !register.includes("Accurate details for faster, safer access"), "Removed registration subtitle must not return");
 assert(register.includes("loginViaEmailPassword") && register.includes('setStage("completion")'), "Verified registration must authenticate and enter a resumable completion stage");
 assert(register.includes("if (!authenticated)") && register.includes("await completeRegistration()"), "A verified active session must resume completion without requiring the discarded password again");
+assert(register.includes("application.referral_clicked_at") && authRegistration.includes("persistedApplication?.referral_clicked_at"), "a persisted referral click must survive a browser restart during registration completion");
 assert(authRegistration.includes("reconcileRegistrationGraph") && !authRegistration.includes('fail("Profile already exists"'), "Registration completion must reconcile partial profiles instead of rejecting them");
 
 const properties = applicationSchema.properties;

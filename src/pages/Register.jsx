@@ -75,7 +75,23 @@ export default function Register() {
       try {
         const response = await base44.functions.invoke("authRegistration", { action: "status" });
         if (response?.data?.registered) window.location.replace("/application-status");
-        else if (response?.data?.needs_completion) setStage("completion");
+        else if (response?.data?.needs_completion) {
+          const profile = response.data.profile || {};
+          const application = response.data.applications?.[0] || {};
+          setForm((current) => ({
+            ...current,
+            full_name: profile.full_name || current.full_name,
+            email: profile.email_normalized || user?.email || current.email,
+            phone_e164: profile.phone_e164 || current.phone_e164,
+            country_code: profile.country_code || current.country_code,
+            market_code: application.market_code || current.market_code,
+            trading_platform_id: application.trading_platform_id || current.trading_platform_id,
+            consent: Boolean(profile.marketing_consent_at) || current.consent,
+            phone_accuracy_acknowledged: Boolean(profile.phone_accuracy_acknowledged_at) || current.phone_accuracy_acknowledged,
+            referral_link_opened: Boolean(application.referral_clicked_at) || current.referral_link_opened,
+          }));
+          setStage("completion");
+        }
       } catch { /* The form remains available to reconcile an incomplete registration. */ }
     }).catch(() => setAuthenticated(false));
   }, []);
@@ -86,6 +102,7 @@ export default function Register() {
     });
   }, []);
   useEffect(() => {
+    if (!catalog.platforms.length) return;
     if (!available.some((item) => item.id === form.trading_platform_id)) setForm((current) => ({ ...current, trading_platform_id: available[0]?.id || "", referral_link_opened: false }));
   }, [form.market_code, catalog.platforms]);
 

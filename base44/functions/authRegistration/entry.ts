@@ -83,6 +83,10 @@ Deno.serve(async (req) => {
     if (body.action !== "complete_registration") fail("Unsupported action", "UNSUPPORTED_ACTION");
 
     diagnosticStage = "validate_registration";
+    const persistedApplications = existingProfile
+      ? await base44.asServiceRole.entities.MarketAccessApplication.filter({ customer_id: existingProfile.id })
+      : [];
+    const persistedApplication = persistedApplications[0] || null;
     const email = cleanEmail(user.email);
     const country = String(body.country_code || "").toUpperCase();
     if (!GCC_COUNTRIES.has(country)) fail("Select a supported GCC country", "GCC_COUNTRY_REQUIRED");
@@ -92,7 +96,7 @@ Deno.serve(async (req) => {
     if (!MARKET_CODES.has(marketCode)) fail("Select a supported market", "MARKET_REQUIRED");
     if (body.marketing_consent !== true) fail("Communication consent is required to continue", "COMMUNICATION_CONSENT_REQUIRED");
     if (body.phone_accuracy_acknowledged !== true) fail("Confirm that the mobile number is your current contact number", "PHONE_ACCURACY_ACKNOWLEDGEMENT_REQUIRED");
-    if (body.referral_link_opened !== true) fail("Open the selected platform referral link before completing registration", "REFERRAL_LINK_REQUIRED");
+    if (body.referral_link_opened !== true && !persistedApplication?.referral_clicked_at) fail("Open the selected platform referral link before completing registration", "REFERRAL_LINK_REQUIRED");
 
     let platform = null;
     try { platform = await base44.asServiceRole.entities.TradingPlatform.get(String(body.trading_platform_id || "")); } catch { platform = null; }
