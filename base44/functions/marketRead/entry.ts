@@ -6174,7 +6174,15 @@ Deno.serve(async (req) => {
     for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
     const sectorSummaryRows = [];
     const indicatorsByInstrument = new Map();
+    const latestIndicatorByIdentity = new Map();
     for (const item of indicators) {
+      const identity = `${item.instrument_id}:${item.indicator_key}:${item.timeframe}`;
+      const current = latestIndicatorByIdentity.get(identity);
+      const itemTime = Date.parse(item.source_as_of || item.calculated_at || item.updated_date || item.created_date || "") || 0;
+      const currentTime = Date.parse(current?.source_as_of || current?.calculated_at || current?.updated_date || current?.created_date || "") || 0;
+      if (!current || itemTime > currentTime) latestIndicatorByIdentity.set(identity, item);
+    }
+    for (const item of latestIndicatorByIdentity.values()) {
       if (!indicatorsByInstrument.has(item.instrument_id)) indicatorsByInstrument.set(item.instrument_id, []);
       indicatorsByInstrument.get(item.instrument_id).push(item);
     }
@@ -6202,7 +6210,9 @@ Deno.serve(async (req) => {
     }).filter((item) => !query || `${item.symbol} ${item.name_ar} ${item.name_en} ${item.sector_ar} ${item.sector_en}`.toLocaleLowerCase("ar").includes(query)).filter((item) => !sector || item.sector_ar === sector || item.sector_en === sector);
     if (body.mode === "screener") {
       const timeframe = ["1d", "1wk", "1mo"].includes(String(body.timeframe)) ? String(body.timeframe) : "1d";
-      const signal = ["pin_bar_signal", "bullish_pin_bar", "bearish_pin_bar", "engulfing_signal", "bullish_engulfing", "bearish_engulfing", "zone_pin_bar", "bullish_zone_pin_bar", "bearish_zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"].includes(String(body.signal))
+      const supportedSignals = ["pin_bar_signal", "bullish_pin_bar", "bearish_pin_bar", "engulfing_signal", "bullish_engulfing", "bearish_engulfing", "zone_pin_bar", "bullish_zone_pin_bar", "bearish_zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"];
+      const primarySignals = ["bullish_pin_bar", "bearish_pin_bar", "bullish_engulfing", "bearish_engulfing", "bullish_zone_pin_bar", "bearish_zone_pin_bar", "price_cross_sma20", "price_cross_sma50", "sma20_cross_sma50"];
+      const signal = supportedSignals.includes(String(body.signal))
         ? String(body.signal)
         : "";
       rows = rows.flatMap((item) => {
@@ -6213,14 +6223,17 @@ Deno.serve(async (req) => {
           : [snapshot.values || {}];
         const match = signal
           ? storedWindow.find((values) => values?.[signal] === true)
-          : storedWindow[0];
+          : storedWindow.find((values) => primarySignals.some((key) => values?.[key] === true));
         if (!match) return [];
+        const primaryMatches = primarySignals.filter((key) => match?.[key] === true);
+        const matchedSignals = primaryMatches.length ? primaryMatches : [signal].filter(Boolean);
         return [{
           ...item,
           screener_match: {
             timeframe,
             signal: signal || null,
             candle_offset: Number(match.offset || 0),
+            matched_signals: matchedSignals,
             values: match,
           },
         }];
@@ -6249,8 +6262,8 @@ Deno.serve(async (req) => {
       signal_coverage: body.mode === "screener" ? {
         timeframe: ["1d", "1wk", "1mo"].includes(String(body.timeframe)) ? String(body.timeframe) : "1d",
         instrument_count: instruments.length,
-        snapshot_count: indicators.filter((item) => item.indicator_key === "technical_signals" && item.timeframe === (["1d", "1wk", "1mo"].includes(String(body.timeframe)) ? String(body.timeframe) : "1d")).length,
-        latest_calculated_at: indicators.map((item) => item.calculated_at).filter(Boolean).sort().at(-1) || null,
+        snapshot_count: [...latestIndicatorByIdentity.values()].filter((item) => item.indicator_key === "technical_signals" && item.timeframe === (["1d", "1wk", "1mo"].includes(String(body.timeframe)) ? String(body.timeframe) : "1d")).length,
+        latest_calculated_at: [...latestIndicatorByIdentity.values()].map((item) => item.calculated_at).filter(Boolean).sort().at(-1) || null,
       } : null
     });
   } catch (error) {

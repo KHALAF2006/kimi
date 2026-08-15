@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useAuthorization } from "@/lib/AuthorizationContext";
-import { resolveAvailableMarkets } from "@/lib/marketAccess";
+import { marketCodeFromSearch, resolveAvailableMarkets } from "@/lib/marketAccess";
 
 const MarketContext = createContext(null);
 const STORAGE_KEY = "smart_investor_market_code";
@@ -8,7 +8,7 @@ const STORAGE_KEY = "smart_investor_market_code";
 export function ActiveMarketProvider({ children }) {
   const { loading, context, error, refresh } = useAuthorization();
   const availableMarkets = useMemo(() => resolveAvailableMarkets(context), [context]);
-  const [marketCode, setMarketCodeState] = useState(() => localStorage.getItem(STORAGE_KEY) || "");
+  const [marketCode, setMarketCodeState] = useState(() => marketCodeFromSearch(window.location.search) || localStorage.getItem(STORAGE_KEY) || "");
 
   useEffect(() => {
     if (loading) return;

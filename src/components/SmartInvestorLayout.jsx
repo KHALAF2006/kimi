@@ -1,5 +1,5 @@
 import React from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet } from "react-router-dom";
 import { SessionNavLink } from "@/components/SessionLink";
 import { BarChart3, Bell, BookOpen, Eye, KeyRound, LogOut, Moon, Search, Settings, ShieldCheck, Sparkles, Sun } from "lucide-react";
 import MarketAccessSelect from "@/components/MarketAccessSelect";
@@ -11,7 +11,6 @@ import IdentityWatermark from "@/components/IdentityWatermark";
 import PageNavigation from "@/components/PageNavigation";
 
 export default function SmartInvestorLayout() {
-  const navigate = useNavigate();
   const { text, isArabic, theme, toggleLanguage, toggleTheme } = usePreferences();
   const { can } = useAuthorization();
   const links = [
@@ -32,7 +31,7 @@ export default function SmartInvestorLayout() {
         <SessionNavLink to="/dashboard" className="brand-lockup" aria-label={isArabic ? "المستثمر الذكي" : "Smart Investor"}><span className="brand-mark"><BarChart3 size={19} /></span><span>{isArabic ? "المستثمر الذكي" : "Smart Investor"}<small>SI</small></span></SessionNavLink>
         <nav className="app-nav">{links.map(([to, label, Icon]) => <SessionNavLink key={to} to={to} className={({ isActive }) => isActive ? "active" : ""}><Icon size={16} /><span>{label}</span></SessionNavLink>)}</nav>
         <div className="app-header-actions ms-auto flex items-center gap-1">
-          <MarketAccessSelect compact onMarketChange={() => navigate("/dashboard")} />
+          <MarketAccessSelect compact />
           <NotificationCenter />
           <button className="icon-button language-switch" onClick={toggleLanguage} title={isArabic ? "English" : "العربية"} aria-label={isArabic ? "Switch to English" : "التبديل إلى العربية"}>{isArabic ? "E" : "ع"}</button>
           <button className="icon-button" onClick={toggleTheme} title={isArabic ? "تغيير المظهر" : "Change theme"}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button>

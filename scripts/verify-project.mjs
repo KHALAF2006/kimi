@@ -472,7 +472,7 @@ const appErrorBoundary = await readFile(new URL("../src/components/AppErrorBound
 assert.match(companyPanel, /hasCurrentInstrument = state\.dataSymbol === symbol && Boolean\(state\.data\?\.instrument\)/, "opening a company must guard the first render before company data arrives");
 assert.match(companyPanel, /if \(!data\?\.instrument\) throw new Error\("company_payload_incomplete"\)/, "an incomplete company response must use the recoverable error path");
 assert.match(appShell, /<AppErrorBoundary><AuthenticatedApp \/><\/AppErrorBoundary>/, "a route render failure must not leave the application on a blank page");
-assert.match(appErrorBoundary, /window\.location\.assign\("\/dashboard"\)/, "the render fallback must provide a deterministic safe return to the dashboard");
+assert.match(appErrorBoundary, /<SessionLink[^>]+to="\/dashboard"/, "the render fallback must provide a real-link return to the dashboard");
 assert.match(dashboardPage, /SectorPanel/, "sector selection must open a sector profile, not only filter the table");
 assert.match(dashboardPage, /InstrumentSearchInput/, "the visible dashboard search must use the protected autocomplete instead of a cosmetic table filter");
 assert.match(dashboardPage, /MarketIndexPanel/, "TASI selection must open a dedicated market-index analysis panel");
@@ -502,6 +502,9 @@ assert.match(marketReadFunction, /technical_signals/, "market reads must expose 
 assert.match(marketReadFunction, /bullish_zone_pin_bar/, "the protected screener must filter bullish pin bars inside investor zones");
 assert.match(marketReadFunction, /bearish_zone_pin_bar/, "the protected screener must filter bearish pin bars inside investor zones");
 assert.match(marketReadFunction, /signal_window\.slice\(0, 3\)/, "the screener must search the current stored candle and the two candles before it");
+assert.match(marketReadFunction, /latestIndicatorByIdentity/, "the screener must select the latest snapshot per instrument, signal type, and timeframe");
+assert.match(marketReadFunction, /storedWindow\.find\(\(values\) => primarySignals\.some/, "all-strategies mode must return only an actual strategy match, not every calculated instrument");
+assert.match(marketReadFunction, /matched_signals: matchedSignals/, "each result must disclose the strategies that actually matched its candle");
 assert.match(marketReadFunction, /screener_match/, "each screener result must expose the exact matching candle as evidence");
 assert.doesNotMatch(marketReadFunction, /if \(bars\.length\) return \{ bars, chunks/, "chart storage must not stop at the first stale interval");
 assert.match(ingestion, /snapshot_version: provenance\.snapshotVersion/, "candle chunks must retain their ingestion snapshot provenance");
@@ -519,6 +522,8 @@ for (const signal of ["bullish_pin_bar", "bearish_pin_bar", "bullish_engulfing",
   assert.match(screenerPage, new RegExp(signal), `screener signal is missing: ${signal}`);
 }
 assert.match(screenerPage, /row\.screener_match\?\.timeframe === timeframe/, "the screener UI must render the backend-proven matching candle instead of re-filtering the complete signal snapshot");
+assert.match(screenerPage, /screener_match:[\s\S]*label:/, "strategy results must show the exact matched strategy label");
+assert.match(customerMarketTable, /row\.screener_match\?\.label/, "the actionable company list must display the proven matching strategy");
 assert.doesNotMatch(screenerPage, /\.filter\(\(row\) => row\.signals\?\.\[timeframe\]/, "the frontend must not discard valid backend screener results when full snapshots are omitted from transport");
 assert.doesNotMatch(screenerPage, /function SignalEvidence|screener-evidence/, "strategy results must not be duplicated as non-actionable evidence cards");
 assert.equal((screenerPage.match(/<MarketTable/g) || []).length, 1, "strategy results must have exactly one actionable company list");
@@ -566,6 +571,8 @@ const internalLinkFiles = [
   "../src/components/SmartInvestorLayout.jsx",
   "../src/components/market/MarketTable.jsx",
   "../src/components/market/MarketTicker.jsx",
+  "../src/components/AppErrorBoundary.jsx",
+  "../src/lib/PageNotFound.jsx",
   "../src/pages/AdminDashboard.jsx",
   "../src/pages/Alerts.jsx",
   "../src/pages/CompanyDetails.jsx",
@@ -611,7 +618,9 @@ const pageNavigation = await readFile(new URL("../src/components/PageNavigation.
 const marketAccessSelect = await readFile(new URL("../src/components/MarketAccessSelect.jsx", import.meta.url), "utf8");
 assert.match(pageNavigation, /smartInvestorFrom/, "protected pages must prefer the real in-app origin when returning");
 assert.match(pageNavigation, /aria-current="page"/, "the page trail must expose the current location accessibly");
-assert.match(marketAccessSelect, /aria-pressed=\{active\}/, "market choices must expose their selected state without a native dropdown");
+assert.match(pageNavigation, /<SessionLink to=\{backTarget\}/, "the return control must remain a real link that can open in a new tab");
+assert.match(marketAccessSelect, /aria-current=\{active \? "page"/, "market links must expose their selected state accessibly");
+assert.match(marketAccessSelect, /<SessionLink/, "permitted market choices must be real links instead of scripted buttons");
 assert.doesNotMatch(marketAccessSelect, /<select/, "the primary market switcher must use direct market choices instead of a dropdown");
 assert.match(operationsQualityFunction, /reconcile_recovered_issues/, "recovered quality issues must have a protected reconciliation path");
 assert.match(operationsQualityFunction, /data\.quality\.manage/, "quality reconciliation must require its backend permission");

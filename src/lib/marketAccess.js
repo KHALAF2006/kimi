@@ -21,6 +21,11 @@ export const OWNER_US_BENCHMARKS_MARKET = Object.freeze({
 
 export const SUPPORTED_MARKETS = Object.freeze([LEGACY_SAUDI_MARKET, OWNER_US_OPTIONS_MARKET, OWNER_US_BENCHMARKS_MARKET]);
 
+export function marketCodeFromSearch(search = "") {
+  const requested = new URLSearchParams(String(search || "")).get("market")?.trim().toUpperCase() || "";
+  return SUPPORTED_MARKETS.some((market) => market.market_code === requested) ? requested : "";
+}
+
 /**
  * Preserve the pre-multi-market identity contract without widening access.
  * An explicit market_access field remains authoritative, including an empty

@@ -1,4 +1,5 @@
 import React, { Component } from "react";
+import { SessionLink } from "@/components/SessionLink";
 
 export default class AppErrorBoundary extends Component {
   constructor(props) {
@@ -21,7 +22,7 @@ export default class AppErrorBoundary extends Component {
         <h1 className="text-2xl font-black text-slate-950 dark:text-white">تعذر عرض هذه الصفحة</h1>
         <p className="mt-3 leading-7 text-slate-600 dark:text-slate-300">تم إيقاف الجزء المتعطل بدل ترك الموقع في صفحة بيضاء. ارجع إلى لوحة السوق ثم أعد فتح الشركة.</p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <button type="button" className="primary-button" onClick={() => window.location.assign("/dashboard")}>العودة إلى لوحة السوق</button>
+          <SessionLink className="primary-button" to="/dashboard">العودة إلى لوحة السوق</SessionLink>
           <button type="button" className="secondary-button" onClick={() => window.location.reload()}>إعادة تحميل الصفحة</button>
         </div>
       </section>

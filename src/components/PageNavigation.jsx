@@ -1,6 +1,6 @@
 import React from "react";
 import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Home } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { SessionLink } from "@/components/SessionLink";
 import { usePreferences } from "@/lib/preferences";
 
@@ -32,7 +32,6 @@ function safeInternalPath(value) {
 
 export default function PageNavigation({ fallbackTo = "/dashboard", hideOnDashboard = true }) {
   const location = useLocation();
-  const navigate = useNavigate();
   const { isArabic } = usePreferences();
   if (hideOnDashboard && location.pathname === "/dashboard") return null;
 
@@ -44,10 +43,10 @@ export default function PageNavigation({ fallbackTo = "/dashboard", hideOnDashbo
   const Separator = isArabic ? ChevronLeft : ChevronRight;
 
   return <div className="page-navigation-shell">
-    <button type="button" className="page-back-button" onClick={() => navigate(backTarget)} aria-label={isArabic ? "الرجوع إلى الصفحة السابقة" : "Back to previous page"}>
+    <SessionLink to={backTarget} className="page-back-button" aria-label={isArabic ? "الرجوع إلى الصفحة السابقة" : "Back to previous page"}>
       <BackArrow size={17} />
       <span>{isArabic ? "رجوع" : "Back"}</span>
-    </button>
+    </SessionLink>
     <nav className="page-breadcrumb" aria-label={isArabic ? "مسار الصفحة" : "Breadcrumb"}>
       <SessionLink to="/dashboard"><Home size={14} /><span>{isArabic ? "الأسواق" : "Markets"}</span></SessionLink>
       {location.pathname.startsWith("/admin/") && <><Separator size={13} aria-hidden="true" /><SessionLink to="/admin">{isArabic ? "الإدارة" : "Administration"}</SessionLink></>}

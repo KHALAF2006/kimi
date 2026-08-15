@@ -263,9 +263,14 @@ assert.deepEqual(marketAccess.resolveAvailableMarkets({ market_access: [] }), []
 assert.equal(marketAccess.resolveAvailableMarkets({ identity: { user_id: "legacy-user" } })[0]?.market_code, "SA_MAIN", "a legacy authenticated identity response must retain Saudi access only");
 assert.deepEqual(marketAccess.resolveAvailableMarkets({ market_access: [{ market_code: "US_OPTIONS" }] }).map((market) => market.market_code), ["US_OPTIONS"], "an explicit U.S. entitlement must remain isolated");
 assert.deepEqual(marketAccess.resolveAvailableMarkets({ identity: { role: "owner" }, market_access: [] }).map((market) => market.market_code), ["SA_MAIN", "US_OPTIONS", "US_BENCHMARKS"], "the owner must retain every supported market even when the entitlement array is empty");
+assert.equal(marketAccess.marketCodeFromSearch("?market=US_OPTIONS"), "US_OPTIONS", "a new tab must restore its requested authorized market from the URL");
+assert.equal(marketAccess.marketCodeFromSearch("?market=UNSUPPORTED"), "", "an unsupported market URL must never widen access");
 const marketAccessSelect = await source("src/components/MarketAccessSelect.jsx");
 assert.match(marketAccessSelect, /SUPPORTED_MARKETS\.map/);
 assert.doesNotMatch(marketAccessSelect, /<select/);
+assert.match(marketAccessSelect, /<SessionLink/);
+assert.match(marketAccessSelect, /dashboard\?market=/, "each permitted market must have a real URL that supports a new tab");
+assert.match(marketAccessSelect, /event\.ctrlKey/, "modified clicks must remain native browser navigation");
 assert.ok(marketAccessSelect.indexOf("if (!allowed.has(nextCode))") < marketAccessSelect.indexOf("setMarketCode(nextCode)"), "a locked market must open subscription guidance before any active-market mutation");
 assert.match(marketAccessSelect, /setLockedMarket/);
 const dashboard = await source("src/pages/Dashboard.jsx");
@@ -279,6 +284,7 @@ assert.match(companyChart, /العودة إلى اليومي/);
 assert.doesNotMatch(companyChart, /className=\{candles\.length \? "chart-canvas-wrap" : "h-0"\}/, "a failed request must never collapse the chart controls and canvas to zero height");
 const layout = await source("src/components/SmartInvestorLayout.jsx");
 assert.match(layout, /<MarketAccessSelect compact/);
+assert.doesNotMatch(layout, /onMarketChange=\{\(\) => navigate/, "the global market links must not be downgraded to button navigation");
 
 const ingestionConfig = JSON.parse(await source("base44/functions/usOptionsMarketIngestion/function.jsonc"));
 const signalConfig = JSON.parse(await source("base44/functions/usOptionsSignalRefresh/function.jsonc"));

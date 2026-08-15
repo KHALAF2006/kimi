@@ -27,6 +27,8 @@ const timeframeOptions = [
   { value: "1mo", ar: "شهري", en: "Monthly" },
 ];
 
+const signalOptionByValue = new Map(signalOptions.filter((option) => option.value).map((option) => [option.value, option]));
+
 export default function Screener() {
   const { isArabic } = usePreferences();
   const { marketCode } = useActiveMarket();
@@ -46,7 +48,18 @@ export default function Screener() {
       const rows = (data.instruments || [])
         .filter((row) => row.screener_match?.timeframe === timeframe && row.screener_match?.values)
         .filter((row) => !normalizedQuery
-          || `${row.symbol} ${row.name_ar} ${row.name_en} ${row.sector_ar} ${row.sector_en}`.toLocaleLowerCase(isArabic ? "ar" : "en").includes(normalizedQuery));
+          || `${row.symbol} ${row.name_ar} ${row.name_en} ${row.sector_ar} ${row.sector_en}`.toLocaleLowerCase(isArabic ? "ar" : "en").includes(normalizedQuery))
+        .map((row) => {
+          const matched = row.screener_match.matched_signals || [];
+          const labels = matched.map((key) => signalOptionByValue.get(key)?.[isArabic ? "ar" : "en"]).filter(Boolean);
+          return {
+            ...row,
+            screener_match: {
+              ...row.screener_match,
+              label: labels.join(isArabic ? "، " : ", "),
+            },
+          };
+        });
       return <div className="space-y-4">
         <section className="surface-panel p-4">
           <div className="relative">
