@@ -169,7 +169,7 @@ assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh"
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
 const allEntityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc")).sort();
 const entityFiles = allEntityFiles.filter((name) => /^[A-Z][A-Za-z0-9]*\.jsonc$/.test(name));
-assert.equal(entityFiles.length, 56, "all 56 identity-preserving Base44 entity schemas must be present");
+assert.equal(entityFiles.length, 57, "all 57 identity-preserving Base44 entity schemas must be present");
 assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "duplicate or identity-changing entity schema files must not remain beside the Base44 schemas");
 const entityNames = new Set();
 for (const name of entityFiles) {
@@ -177,7 +177,15 @@ for (const name of entityFiles) {
   const source = await readFile(join(entityDirectory, name), "utf8");
   const schema = JSON.parse(source);
   assert.equal(schema.type, "object", `${name} must have an object schema`);
-  assert.match(schema.name, /^[A-Za-z0-9]+$/, `${name} has an invalid entity name`);
+  if (name === "User.jsonc") {
+    assert.equal(schema.name, undefined, "the built-in User schema must only extend custom fields");
+    assert.equal(schema.properties.email, undefined, "the built-in User email field must not be redefined");
+    assert.equal(schema.properties.role, undefined, "the built-in User role field must not be redefined");
+    assert.deepEqual(Object.keys(schema.properties).sort(), ["registration_lock_expires_at", "registration_lock_token"], "the User extension must remain limited to the registration concurrency lease");
+    continue;
+  } else {
+    assert.match(schema.name, /^[A-Za-z0-9]+$/, `${name} has an invalid entity name`);
+  }
   assert.ok(!entityNames.has(schema.name), `duplicate entity name: ${schema.name}`);
   entityNames.add(schema.name);
   for (const operation of ["create", "read", "update", "delete"]) {
@@ -252,6 +260,8 @@ const customerReportFunction = await readFile(new URL("../base44/functions/custo
 const customerReportWorkflow = JSON.parse(await readFile(new URL("../base44/workflows/CustomerReportDaily.jsonc", import.meta.url), "utf8"));
 const authLayout = await readFile(new URL("../src/components/AuthLayout.jsx", import.meta.url), "utf8");
 const siteStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
+const registrationState = await readFile(new URL("../base44/shared/registrationState.mjs", import.meta.url), "utf8");
+const registrationLease = await readFile(new URL("../base44/shared/registrationLease.mjs", import.meta.url), "utf8");
 assert.match(loginPage, /isAuthenticated\?t\.sendCode:t\.next/, "an already authenticated Base44 user must continue through SMART_INVESTOR email OTP");
 assert.match(registerPage, /marketing_consent:\s*form\.consent/, "registration must send the mandatory communication consent to the backend");
 assert.match(registerPage, /phone_accuracy_acknowledged/, "registration must require a clear mobile-number accuracy acknowledgement");
@@ -259,7 +269,9 @@ assert.doesNotMatch(registerPage, /phone_code|start_phone_verification/, "regist
 assert.doesNotMatch(authRegistrationFunction, /TWILIO|twilio|VerificationCheck|phone_verified/, "registration must not depend on phone verification services or claim the phone was verified");
 assert.match(authRegistrationFunction, /privaterelay\.appleid\.com/, "Apple private relay email addresses must be rejected");
 assert.match(authRegistrationFunction, /private\.icloud\.com/, "Apple shared private relay addresses must be rejected");
-assert.match(authRegistrationFunction, /account_status:\s*"pending_owner_approval"/, "new customers must remain pending until the owner decides");
+assert.match(registrationState, /account_status:\s*"pending_owner_approval"/, "new customers must remain pending until the owner decides");
+assert.match(authRegistrationFunction, /acquireRegistrationLease/, "registration completion must serialize concurrent requests for one authenticated user");
+assert.match(registrationLease, /entities\.User\.updateMany/, "the registration lease must use an atomic conditional database update");
 assert.match(adminAccessFunction, /context\.role !== "owner"/, "market application decisions must be owner-only");
 assert.match(adminAccessFunction, /10 \* 24 \* 60 \* 60 \* 1000/, "owner approval must create exactly ten free days");
 assert.match(adminAccessFunction, /market_code:\s*application\.market_code/, "each approved application must stay bound to one market");

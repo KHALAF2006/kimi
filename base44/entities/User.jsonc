@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "registration_lock_token": {
+      "type": "string"
+    },
+    "registration_lock_expires_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

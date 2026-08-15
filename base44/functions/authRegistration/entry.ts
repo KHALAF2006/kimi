@@ -1,6 +1,8 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.41";
 import { audit, profileFor, readJsonBody, replyError, requireUser } from "../../shared/security.ts";
 import { cooldownUntil, uniqueApplicationReference } from "../../shared/marketAccess.ts";
+import { reconcileRegistrationGraph } from "../../shared/registrationState.mjs";
+import { acquireRegistrationLease, releaseRegistrationLease } from "../../shared/registrationLease.mjs";
 
 const TERMS_VERSION = "2026-08-15";
 const RELAY_DOMAINS = new Set(["privaterelay.appleid.com", "private.icloud.com"]);
@@ -40,12 +42,9 @@ async function ownerProfile(base44) {
   return candidates.find((row) => row.role === "owner" && Array.isArray(row.tags) && row.tags.includes("owner")) || null;
 }
 
-async function createMessage(base44, payload) {
-  const duplicate = await base44.asServiceRole.entities.Message.filter({ dedupe_key: payload.dedupe_key });
-  return duplicate[0] || await base44.asServiceRole.entities.Message.create(payload);
-}
-
 Deno.serve(async (req) => {
+  let diagnosticStage = "request";
+  let releaseLease = null;
   try {
     const base44 = createClientFromRequest(req);
     const user = await requireUser(base44);
@@ -80,8 +79,8 @@ Deno.serve(async (req) => {
     }
 
     if (body.action !== "complete_registration") fail("Unsupported action", "UNSUPPORTED_ACTION");
-    if (existingProfile) fail("Profile already exists", "PROFILE_ALREADY_EXISTS", 409);
 
+    diagnosticStage = "validate_registration";
     const email = cleanEmail(user.email);
     const country = String(body.country_code || "").toUpperCase();
     if (!GCC_COUNTRIES.has(country)) fail("Select a supported GCC country", "GCC_COUNTRY_REQUIRED");
@@ -99,67 +98,56 @@ Deno.serve(async (req) => {
       fail("Select an active trading platform for this market", "TRADING_PLATFORM_REQUIRED");
     }
 
-    const now = new Date().toISOString();
-    const profile = await base44.asServiceRole.entities.CustomerProfile.create({
-      customer_number: `SI-${new Date().getUTCFullYear()}-${crypto.randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`,
-      auth_user_id: user.id,
-      email_normalized: email,
-      phone_e164: phone,
-      full_name: fullName,
-      country_code: country,
-      preferred_language: body.preferred_language === "en" ? "en" : "ar",
-      account_status: "pending_owner_approval",
-      role: "user",
-      tags: ["email_verified", "phone_provided_unverified", "owner_approval_required"],
-      email_verified_at: now,
-      phone_accuracy_acknowledged_at: now,
-      marketing_consent_at: now,
-      terms_version: TERMS_VERSION,
-      name_last_updated_at: now,
-      feed_enabled: true,
-      last_seen_at: now,
-    });
-    await base44.asServiceRole.entities.CustomerConsent.create({ customer_id: profile.id, channel: "email", purpose: "service_and_marketing", status: "granted", source: "registration_required_checkbox", captured_at: now });
-    await base44.asServiceRole.entities.CustomerConsent.create({ customer_id: profile.id, channel: "whatsapp", purpose: "training_and_account_contact", status: "granted", source: "customer_provided_mobile", captured_at: now });
-    const application = await base44.asServiceRole.entities.MarketAccessApplication.create({
-      unique_reference: await uniqueApplicationReference(base44, marketCode),
-      customer_id: profile.id,
-      auth_user_id: user.id,
-      trading_platform_id: platform.id,
-      market_code: marketCode,
-      status: "pending",
-      full_name_snapshot: fullName,
-      email_snapshot: email,
-      phone_snapshot: phone,
-      platform_name_ar_snapshot: platform.name_ar,
-      platform_name_en_snapshot: platform.name_en,
-      referral_url_snapshot: platform.referral_url,
-      referral_clicked_at: now,
-      referral_click_count: 1,
-      customer_confirmed_at: now,
-      cooldown_until: cooldownUntil(now)?.toISOString(),
-      revision: 1,
-    });
-    await base44.asServiceRole.entities.NotificationPreference.create({ customer_id: profile.id, auth_user_id: user.id, feed_enabled: true, messages_enabled: true, revision: 1 });
+    diagnosticStage = "resolve_owner";
     const owner = await ownerProfile(base44);
-    if (owner) {
-      await createMessage(base44, {
-        recipient_auth_user_id: owner.auth_user_id,
-        recipient_customer_id: owner.id,
-        message_type: "registration",
-        priority: "important",
-        title_ar: "تسجيل عميل جديد",
-        title_en: "New customer registration",
-        body_ar: `سجّل ${profile.full_name} وطلب الوصول إلى ${marketCode}.`,
-        body_en: `${profile.full_name} registered and requested access to ${marketCode}.`,
-        action_path: `/admin/customers?application=${application.id}`,
-        feed_eligible: true,
-        dedupe_key: `registration:${application.id}`,
-      });
+    const now = new Date().toISOString();
+    diagnosticStage = "acquire_registration_lease";
+    const lease = await acquireRegistrationLease(base44, user.id, new Date(now));
+    releaseLease = () => releaseRegistrationLease(base44, user.id, lease.token);
+    diagnosticStage = "reconcile_registration_graph";
+    const result = await reconcileRegistrationGraph(base44, {
+      user,
+      owner,
+      platform,
+      now,
+      allocateReference: uniqueApplicationReference,
+      values: {
+        email,
+        phone,
+        fullName,
+        country,
+        language: body.preferred_language === "en" ? "en" : "ar",
+        marketCode,
+        termsVersion: TERMS_VERSION,
+        cooldownUntil: cooldownUntil(now)?.toISOString(),
+      },
+    });
+    if (result.created.profile || result.created.application) {
+      await audit(base44, user.id, "customer.registered_pending_owner", "MarketAccessApplication", result.application.id, "success", "email verified; registration graph reconciled");
     }
-    await audit(base44, user.id, "customer.registered_pending_owner", "MarketAccessApplication", application.id, "success", "email verified; phone supplied and acknowledged without verification");
-    return Response.json({ profile, application, account_ready: false, owner_approval_required: true });
+    return Response.json({
+      profile: result.profile,
+      application: result.application,
+      unique_reference: result.application.unique_reference,
+      registration_state: result.profile.registration_state,
+      account_ready: false,
+      owner_approval_required: true,
+      owner_notified: Boolean(result.ownerMessage?.id),
+    });
   } catch (error) {
+    console.warn("SMART_INVESTOR registration flow rejected", {
+      stage: diagnosticStage,
+      code: error?.code || "REQUEST_FAILED",
+      status: Number(error?.status) || 500,
+    });
     return replyError(error);
+  } finally {
+    if (releaseLease) {
+      try {
+        await releaseLease();
+      } catch {
+        console.warn("SMART_INVESTOR registration lease release failed");
+      }
+    }
   }
 });

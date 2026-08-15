@@ -21,6 +21,9 @@ assert(!register.includes("item.active && item.supported_market_codes"), "Regist
 assert(register.includes('important: "هام جداً"') && register.includes('important: "IMPORTANT"'), "Critical identity and phone notices must be bilingual");
 assert(!register.includes("ولن نرسل رمز تحقق للجوال") && !register.includes("no mobile verification code will be sent"), "Removed phone-verification wording must not return");
 assert(register.includes("referral_link_opened") && authRegistration.includes("REFERRAL_LINK_REQUIRED"), "Initial registration must require the selected referral link");
+assert(!register.includes("بيانات صحيحة لوصول أسرع وأكثر أماناً") && !register.includes("Accurate details for faster, safer access"), "Removed registration subtitle must not return");
+assert(register.includes("loginViaEmailPassword") && register.includes('setStage("completion")'), "Verified registration must authenticate and enter a resumable completion stage");
+assert(authRegistration.includes("reconcileRegistrationGraph") && !authRegistration.includes('fail("Profile already exists"'), "Registration completion must reconcile partial profiles instead of rejecting them");
 
 const properties = applicationSchema.properties;
 for (const key of ["platform_name_ar_snapshot", "platform_name_en_snapshot", "referral_url_snapshot", "referral_clicked_at", "customer_confirmed_at", "cooldown_until"]) {
@@ -53,4 +56,5 @@ console.log(JSON.stringify({
   owner_manual_approval: true,
   professional_customer_report: true,
   dismissible_notices: true,
+  resumable_registration: true,
 }, null, 2));

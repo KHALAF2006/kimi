@@ -109,6 +109,20 @@
       "type": "string",
       "format": "date-time"
     },
+    "registration_state": {
+      "type": "string",
+      "enum": [
+        "profile_created",
+        "completed"
+      ]
+    },
+    "registration_completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "initial_application_id": {
+      "type": "string"
+    },
     "chart_preferences": {
       "type": "object",
       "properties": {

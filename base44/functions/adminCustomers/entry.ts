@@ -50,6 +50,62 @@ async function managedCustomer(base44, id) {
   return customer;
 }
 
+async function customerDetail(base44, customer, canReadFull) {
+  const applications = await base44.asServiceRole.entities.MarketAccessApplication.filter({ customer_id: customer.id });
+  const initialApplication = applications.find((item) => item.id === customer.initial_application_id) || applications[0] || null;
+  const [subscriptions, sessions, consents, notes, memberships, watchlists, alerts, preferences, registrationMessages, registrationAudits] = await Promise.all([
+    base44.asServiceRole.entities.Subscription.filter({ customer_id: customer.id }),
+    base44.asServiceRole.entities.ActiveDeviceSession.filter({ customer_id: customer.id }),
+    base44.asServiceRole.entities.CustomerConsent.filter({ customer_id: customer.id }),
+    base44.asServiceRole.entities.CustomerNote.filter({ customer_id: customer.id }),
+    base44.asServiceRole.entities.AccountMember.filter({ customer_id: customer.id }),
+    base44.asServiceRole.entities.Watchlist.filter({ customer_id: customer.id }),
+    base44.asServiceRole.entities.AlertRule.filter({ customer_id: customer.id }),
+    base44.asServiceRole.entities.NotificationPreference.filter({ customer_id: customer.id }),
+    initialApplication ? base44.asServiceRole.entities.Message.filter({ dedupe_key: `registration:${initialApplication.id}` }) : [],
+    initialApplication ? base44.asServiceRole.entities.AuditLog.filter({ entity_id: initialApplication.id, action: "customer.registered_pending_owner" }) : [],
+  ]);
+  const tradingPlatformIds = [...new Set(applications.map((item) => item.trading_platform_id).filter(Boolean))];
+  const platforms = {};
+  for (const platformId of tradingPlatformIds) {
+    try {
+      const platform = await base44.asServiceRole.entities.TradingPlatform.get(platformId);
+      platforms[platformId] = { id: platform.id, code: platform.code, name_ar: platform.name_ar, name_en: platform.name_en, active: platform.active };
+    } catch { /* snapshots on the application remain the fallback */ }
+  }
+  return {
+    customer: customerView(customer, canReadFull),
+    subscriptions,
+    applications,
+    platforms,
+    sessions: sessions.map((session) => ({ id: session.id, remember_me: session.remember_me, expires_at: session.expires_at, revoked_at: session.revoked_at, last_seen_at: session.last_seen_at })),
+    consents,
+    notes: notes.filter((note) => !note.deleted_at),
+    memberships,
+    resource_counts: { watchlists: watchlists.length, alerts: alerts.length },
+    registration_integrity: {
+      complete: Boolean(
+        customer.registration_state === "completed"
+        && initialApplication
+        && initialApplication.auth_user_id === customer.auth_user_id
+        && preferences.length === 1
+        && consents.filter((item) => item.status === "granted").length >= 2
+        && registrationMessages.length === 1
+        && registrationAudits.length >= 1
+      ),
+      profile_state: customer.registration_state || "legacy",
+      initial_application_id: initialApplication?.id || null,
+      unique_reference: initialApplication?.unique_reference || null,
+      auth_user_linked: Boolean(initialApplication && initialApplication.auth_user_id === customer.auth_user_id),
+      applications: applications.length,
+      granted_consents: consents.filter((item) => item.status === "granted").length,
+      notification_preferences: preferences.length,
+      owner_registration_messages: registrationMessages.length,
+      registration_audits: registrationAudits.length,
+    },
+  };
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -67,35 +123,14 @@ Deno.serve(async (req) => {
 
     if (body.action === "detail") {
       const customer = await managedCustomer(base44, body.id);
-      const [subscriptions, applications, sessions, consents, notes, memberships, watchlists, alerts] = await Promise.all([
-        base44.asServiceRole.entities.Subscription.filter({ customer_id: customer.id }),
-        base44.asServiceRole.entities.MarketAccessApplication.filter({ customer_id: customer.id }),
-        base44.asServiceRole.entities.ActiveDeviceSession.filter({ customer_id: customer.id }),
-        base44.asServiceRole.entities.CustomerConsent.filter({ customer_id: customer.id }),
-        base44.asServiceRole.entities.CustomerNote.filter({ customer_id: customer.id }),
-        base44.asServiceRole.entities.AccountMember.filter({ customer_id: customer.id }),
-        base44.asServiceRole.entities.Watchlist.filter({ customer_id: customer.id }),
-        base44.asServiceRole.entities.AlertRule.filter({ customer_id: customer.id }),
-      ]);
-      const tradingPlatformIds = [...new Set(applications.map((item) => item.trading_platform_id).filter(Boolean))];
-      const platforms = {};
-      for (const platformId of tradingPlatformIds) {
-        try {
-          const platform = await base44.asServiceRole.entities.TradingPlatform.get(platformId);
-          platforms[platformId] = { id: platform.id, code: platform.code, name_ar: platform.name_ar, name_en: platform.name_en, active: platform.active };
-        } catch { /* snapshots on the application remain the fallback */ }
-      }
-      return Response.json({
-        customer: customerView(customer, canReadFull),
-        subscriptions,
-        applications,
-        platforms,
-        sessions: sessions.map((session) => ({ id: session.id, remember_me: session.remember_me, expires_at: session.expires_at, revoked_at: session.revoked_at, last_seen_at: session.last_seen_at })),
-        consents,
-        notes: notes.filter((note) => !note.deleted_at),
-        memberships,
-        resource_counts: { watchlists: watchlists.length, alerts: alerts.length },
-      });
+      return Response.json(await customerDetail(base44, customer, canReadFull));
+    }
+
+    if (body.action === "detail_application") {
+      const application = await base44.asServiceRole.entities.MarketAccessApplication.get(String(body.application_id || ""));
+      if (!application) bad("Application not found", "APPLICATION_NOT_FOUND", 404);
+      const customer = await managedCustomer(base44, application.customer_id);
+      return Response.json(await customerDetail(base44, customer, canReadFull));
     }
 
     if (body.action === "status") {
