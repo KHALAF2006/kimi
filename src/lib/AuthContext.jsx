@@ -59,7 +59,10 @@ export const AuthProvider = ({ children }) => {
         headers: {
           'X-App-Id': appParams.appId
         },
-        token: appParams.token, // Include token if available
+        // Public application settings must not inherit a stale customer token.
+        // Authentication is checked separately through the SDK immediately
+        // afterwards, so a revoked token cannot redirect public pages.
+        token: null,
         interceptResponses: true
       });
       
