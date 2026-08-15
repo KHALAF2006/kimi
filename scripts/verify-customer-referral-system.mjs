@@ -23,6 +23,7 @@ assert(!register.includes("ولن نرسل رمز تحقق للجوال") && !re
 assert(register.includes("referral_link_opened") && authRegistration.includes("REFERRAL_LINK_REQUIRED"), "Initial registration must require the selected referral link");
 assert(!register.includes("بيانات صحيحة لوصول أسرع وأكثر أماناً") && !register.includes("Accurate details for faster, safer access"), "Removed registration subtitle must not return");
 assert(register.includes("loginViaEmailPassword") && register.includes('setStage("completion")'), "Verified registration must authenticate and enter a resumable completion stage");
+assert(register.includes("if (!authenticated)") && register.includes("await completeRegistration()"), "A verified active session must resume completion without requiring the discarded password again");
 assert(authRegistration.includes("reconcileRegistrationGraph") && !authRegistration.includes('fail("Profile already exists"'), "Registration completion must reconcile partial profiles instead of rejecting them");
 
 const properties = applicationSchema.properties;

@@ -127,9 +127,11 @@ export default function Register() {
   }
 
   async function signInAndComplete() {
-    const login = await base44.auth.loginViaEmailPassword(form.email, form.password);
-    if (login && typeof login === "object" && "access_token" in login && login.access_token) base44.auth.setToken(login.access_token, true);
-    setAuthenticated(true);
+    if (!authenticated) {
+      const login = await base44.auth.loginViaEmailPassword(form.email, form.password);
+      if (login && typeof login === "object" && "access_token" in login && login.access_token) base44.auth.setToken(login.access_token, true);
+      setAuthenticated(true);
+    }
     setStage("completion");
     await completeRegistration();
   }
