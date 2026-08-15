@@ -1,8 +1,7 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useAuthorization } from "@/lib/AuthorizationContext";
 import { marketCodeFromSearch, resolveAvailableMarkets } from "@/lib/marketAccess";
-
-const MarketContext = createContext(null);
+import MarketContext from "@/lib/market-context";
 const STORAGE_KEY = "smart_investor_market_code";
 
 export function ActiveMarketProvider({ children }) {
