@@ -104,6 +104,7 @@ assert.equal(repeated.application.id, resumed.application.id, "Repeated completi
 assert.equal(environment.collections.get("CustomerProfile").length, 1, "Repeated completion must not duplicate the customer");
 assert.equal(environment.collections.get("MarketAccessApplication").length, 1, "Repeated completion must not duplicate the application");
 assert.equal(environment.collections.get("Message").length, 1, "Repeated completion must not duplicate the owner notification");
+assert.match(environment.collections.get("Message")[0].body_ar, new RegExp(resumed.application.unique_reference), "The owner notification must display the exact application reference");
 assert.equal(environment.collections.get("CustomerConsent").length, 2, "Repeated completion must not duplicate consent records");
 assert.equal(environment.collections.get("NotificationPreference").length, 1, "Repeated completion must not duplicate notification preferences");
 

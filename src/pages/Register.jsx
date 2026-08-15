@@ -75,6 +75,7 @@ export default function Register() {
       try {
         const response = await base44.functions.invoke("authRegistration", { action: "status" });
         if (response?.data?.registered) window.location.replace("/application-status");
+        else if (response?.data?.needs_completion) setStage("completion");
       } catch { /* The form remains available to reconcile an incomplete registration. */ }
     }).catch(() => setAuthenticated(false));
   }, []);

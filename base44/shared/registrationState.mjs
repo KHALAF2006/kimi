@@ -26,7 +26,7 @@ async function ensureNotificationPreference(base44, customerId, authUserId) {
 async function ensureOwnerMessage(base44, owner, profile, application) {
   const dedupeKey = `registration:${application.id}`;
   const existing = await base44.asServiceRole.entities.Message.filter({ dedupe_key: dedupeKey });
-  return existing[0] || await base44.asServiceRole.entities.Message.create({
+  const values = {
     recipient_auth_user_id: owner.auth_user_id,
     recipient_customer_id: owner.id,
     message_type: "registration",
@@ -38,7 +38,13 @@ async function ensureOwnerMessage(base44, owner, profile, application) {
     action_path: `/admin/customers?application=${application.id}`,
     feed_eligible: true,
     dedupe_key: dedupeKey,
-  });
+  };
+  if (!existing[0]) return base44.asServiceRole.entities.Message.create(values);
+  const current = existing[0];
+  if (current.body_ar !== values.body_ar || current.body_en !== values.body_en || current.action_path !== values.action_path) {
+    return base44.asServiceRole.entities.Message.update(current.id, values);
+  }
+  return current;
 }
 
 export async function uniqueCustomerNumber(base44, year = new Date().getUTCFullYear()) {

@@ -62,7 +62,9 @@ Deno.serve(async (req) => {
           platforms[platformId] = { id: platform.id, name_ar: platform.name_ar, name_en: platform.name_en, referral_url: platform.referral_url };
         } catch { /* immutable application snapshots remain available */ }
       }
-      return Response.json({ registered: true, profile: existingProfile, applications, platforms });
+      const initialApplication = applications.find((item) => item.id === existingProfile.initial_application_id) || applications[0] || null;
+      const completed = existingProfile.registration_state === "completed" && Boolean(initialApplication?.unique_reference);
+      return Response.json({ registered: completed, needs_completion: !completed, profile: existingProfile, applications, platforms });
     }
 
     if (body.action === "update_pending_name") {
