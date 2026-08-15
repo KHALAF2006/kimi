@@ -77,10 +77,19 @@ Deno.serve(async (req) => {
         base44.asServiceRole.entities.Watchlist.filter({ customer_id: customer.id }),
         base44.asServiceRole.entities.AlertRule.filter({ customer_id: customer.id }),
       ]);
+      const tradingPlatformIds = [...new Set(applications.map((item) => item.trading_platform_id).filter(Boolean))];
+      const platforms = {};
+      for (const platformId of tradingPlatformIds) {
+        try {
+          const platform = await base44.asServiceRole.entities.TradingPlatform.get(platformId);
+          platforms[platformId] = { id: platform.id, code: platform.code, name_ar: platform.name_ar, name_en: platform.name_en, active: platform.active };
+        } catch { /* snapshots on the application remain the fallback */ }
+      }
       return Response.json({
         customer: customerView(customer, canReadFull),
         subscriptions,
         applications,
+        platforms,
         sessions: sessions.map((session) => ({ id: session.id, remember_me: session.remember_me, expires_at: session.expires_at, revoked_at: session.revoked_at, last_seen_at: session.last_seen_at })),
         consents,
         notes: notes.filter((note) => !note.deleted_at),

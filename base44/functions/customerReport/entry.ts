@@ -305,27 +305,200 @@ function escapeXml(value) {
   return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
 }
 function saudiDate(value) {
+  if (!value) return "";
   try {
     return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value)).replaceAll("/", "-");
   } catch {
-    return "unknown";
+    return "";
   }
 }
-var columns = ["Registration date", "Customer number", "Full name", "Email", "Mobile", "Country", "Status", "Preferred language", "Created at"];
-function worksheet(name, rows) {
-  const header = `<Row>${columns.map((item) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${escapeXml(item)}</Data></Cell>`).join("")}</Row>`;
-  const body = rows.map((row) => `<Row>${[saudiDate(row.created_date), row.customer_number, row.full_name, row.email_normalized, row.phone_e164, row.country_code, row.account_status, row.preferred_language, row.created_date].map((item) => `<Cell><Data ss:Type="String">${escapeXml(item)}</Data></Cell>`).join("")}</Row>`).join("");
-  return `<Worksheet ss:Name="${escapeXml(name.slice(0, 31))}"><Table>${header}${body}</Table><WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane></WorksheetOptions></Worksheet>`;
+function saudiDateTime(value) {
+  if (!value) return "";
+  try {
+    return new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
+  } catch {
+    return "";
+  }
 }
-function workbook(customers) {
+function newest(rows = []) {
+  return [...rows].sort((a, b) => new Date(b.created_date || b.starts_at || 0).getTime() - new Date(a.created_date || a.starts_at || 0).getTime());
+}
+function activeSubscription(rows = []) {
+  return rows.find((item) => item.status === "active") || newest(rows)[0] || null;
+}
+function styleForStatus(value) {
+  const status = String(value || "").toLowerCase();
+  if (["active", "approved"].includes(status)) return "StatusActive";
+  if (["pending", "pending_owner_approval", "pending_verification", "referral_opened"].includes(status)) return "StatusPending";
+  if (["suspended", "temporarily_blocked"].includes(status)) return "StatusSuspended";
+  if (["banned", "rejected", "closed", "expired"].includes(status)) return "StatusDanger";
+  return "Cell";
+}
+function cell(value, style = "Cell") {
+  return `<Cell ss:StyleID="${style}"><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`;
+}
+function row(values, statusIndex = -1, rowIndex = 0) {
+  return `<Row ss:StyleID="${rowIndex % 2 ? "AltRow" : "DataRow"}">${values.map((value, index) => cell(value, index === statusIndex ? styleForStatus(value) : "Cell")).join("")}</Row>`;
+}
+function worksheet(name, title, columns, rows, widths, statusIndex = -1) {
+  const safeName = String(name).replace(/[\\/?*\[\]:]/g, " ").slice(0, 31);
+  const titleRow = `<Row ss:Height="32"><Cell ss:StyleID="Title" ss:MergeAcross="${columns.length - 1}"><Data ss:Type="String">${escapeXml(title)}</Data></Cell></Row>`;
+  const metaRow = `<Row ss:Height="22"><Cell ss:StyleID="Meta" ss:MergeAcross="${columns.length - 1}"><Data ss:Type="String">${escapeXml(`Generated ${saudiDateTime(/* @__PURE__ */ new Date())} Asia/Riyadh \xB7 Rows: ${rows.length}`)}</Data></Cell></Row>`;
+  const header = `<Row ss:Height="30">${columns.map((item) => cell(item, "Header")).join("")}</Row>`;
+  const columnsXml = widths.map((width) => `<Column ss:AutoFitWidth="0" ss:Width="${width}"/>`).join("");
+  const body = rows.map((values, index) => row(values, statusIndex, index)).join("");
+  return `<Worksheet ss:Name="${escapeXml(safeName)}"><Table ss:DefaultRowHeight="20">${columnsXml}${titleRow}${metaRow}${header}${body}</Table><WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>3</SplitHorizontal><TopRowBottomPane>3</TopRowBottomPane><Selected/></WorksheetOptions></Worksheet>`;
+}
+function workbook(customers, applications, subscriptions, platforms) {
+  const appsByCustomer = /* @__PURE__ */ new Map();
+  const subscriptionsByCustomer = /* @__PURE__ */ new Map();
+  for (const application of applications) {
+    if (!appsByCustomer.has(application.customer_id)) appsByCustomer.set(application.customer_id, []);
+    appsByCustomer.get(application.customer_id).push(application);
+  }
+  for (const subscription of subscriptions) {
+    if (!subscriptionsByCustomer.has(subscription.customer_id)) subscriptionsByCustomer.set(subscription.customer_id, []);
+    subscriptionsByCustomer.get(subscription.customer_id).push(subscription);
+  }
+  const customerById = Object.fromEntries(customers.map((customer) => [customer.id, customer]));
+  const platformById = Object.fromEntries(platforms.map((platform) => [platform.id, platform]));
+  const masterColumns = [
+    "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u062A\u0633\u062C\u064A\u0644 | Registration",
+    "\u0631\u0642\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 | Customer #",
+    "\u0627\u0644\u0627\u0633\u0645 \u0627\u0644\u0643\u0627\u0645\u0644 | Full name",
+    "\u0627\u0644\u0628\u0631\u064A\u062F | Email",
+    "\u0627\u0644\u062C\u0648\u0627\u0644 | Mobile",
+    "\u0627\u0644\u062F\u0648\u0644\u0629 | Country",
+    "\u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u0633\u0627\u0628 | Account status",
+    "\u0627\u0644\u0644\u063A\u0629 | Language",
+    "\u0627\u0644\u0623\u0633\u0648\u0627\u0642 | Markets",
+    "\u062D\u0627\u0644\u0629 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643 | Subscription",
+    "\u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643 | Start",
+    "\u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643 | End",
+    "\u0645\u0646\u0635\u0627\u062A \u0627\u0644\u0625\u062D\u0627\u0644\u0629 | Platforms",
+    "\u0623\u0631\u0642\u0627\u0645 \u0627\u0644\u0637\u0644\u0628\u0627\u062A | References",
+    "\u0622\u062E\u0631 \u062A\u062D\u062F\u064A\u062B | Updated"
+  ];
+  const masterWidths = [90, 105, 180, 210, 120, 70, 110, 70, 170, 110, 105, 105, 180, 220, 125];
+  const customerRows = customers.map((customer) => {
+    const customerApps = newest(appsByCustomer.get(customer.id) || []);
+    const customerSubscriptions = newest(subscriptionsByCustomer.get(customer.id) || []);
+    const current = activeSubscription(customerSubscriptions);
+    const markets = [...new Set(customerSubscriptions.filter((item) => item.status === "active").map((item) => item.market_code))].join(", ");
+    const platformNames = [...new Set(customerApps.map((item) => platformById[item.trading_platform_id]?.name_ar || item.platform_name_ar_snapshot || item.trading_platform_id).filter(Boolean))].join(", ");
+    return [
+      saudiDate(customer.created_date),
+      customer.customer_number,
+      customer.full_name,
+      customer.email_normalized,
+      customer.phone_e164,
+      customer.country_code,
+      customer.account_status,
+      customer.preferred_language,
+      markets,
+      current?.status || "not_set",
+      saudiDate(current?.starts_at),
+      saudiDate(current?.ends_at),
+      platformNames,
+      customerApps.map((item) => item.unique_reference).join(", "),
+      saudiDateTime(customer.updated_date || customer.created_date)
+    ];
+  });
+  const referralColumns = [
+    "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0637\u0644\u0628 | Application date",
+    "\u0631\u0642\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 | Customer #",
+    "\u0627\u0644\u0639\u0645\u064A\u0644 | Customer",
+    "\u0627\u0644\u0645\u0646\u0635\u0629 | Platform",
+    "\u0627\u0644\u0633\u0648\u0642 | Market",
+    "\u0631\u0642\u0645 \u0627\u0644\u0637\u0644\u0628 \u0627\u0644\u0641\u0631\u064A\u062F | Unique reference",
+    "\u0627\u0644\u062D\u0627\u0644\u0629 | Status",
+    "\u0641\u062A\u062D \u0631\u0627\u0628\u0637 \u0627\u0644\u0625\u062D\u0627\u0644\u0629 | Referral opened",
+    "\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0639\u0645\u064A\u0644 | Customer confirmed",
+    "\u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u0627\u0646\u062A\u0638\u0627\u0631 | Cooldown until",
+    "\u0642\u0631\u0627\u0631 \u0627\u0644\u0645\u0627\u0644\u0643 | Owner decision",
+    "\u0633\u0628\u0628 \u0627\u0644\u0642\u0631\u0627\u0631 | Decision reason",
+    "\u0627\u0644\u0628\u0631\u064A\u062F | Email",
+    "\u0627\u0644\u062C\u0648\u0627\u0644 | Mobile"
+  ];
+  const referralRows = newest(applications).map((application) => {
+    const customer = customerById[application.customer_id] || {};
+    const platform = platformById[application.trading_platform_id] || {};
+    return [
+      saudiDate(application.created_date),
+      customer.customer_number,
+      customer.full_name || application.full_name_snapshot,
+      platform.name_ar || application.platform_name_ar_snapshot,
+      application.market_code,
+      application.unique_reference,
+      application.status,
+      saudiDateTime(application.referral_clicked_at),
+      saudiDateTime(application.customer_confirmed_at),
+      saudiDate(application.cooldown_until),
+      saudiDateTime(application.reviewed_at),
+      application.decision_reason,
+      application.email_snapshot,
+      application.phone_snapshot
+    ];
+  });
+  const subscriptionColumns = [
+    "\u0627\u0644\u0628\u062F\u0627\u064A\u0629 | Start",
+    "\u0627\u0644\u0646\u0647\u0627\u064A\u0629 | End",
+    "\u0631\u0642\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 | Customer #",
+    "\u0627\u0644\u0639\u0645\u064A\u0644 | Customer",
+    "\u0627\u0644\u0633\u0648\u0642 | Market",
+    "\u0627\u0644\u0645\u0646\u0635\u0629 | Platform",
+    "\u0631\u0642\u0645 \u0627\u0644\u0637\u0644\u0628 | Reference",
+    "\u0627\u0644\u062D\u0627\u0644\u0629 | Status",
+    "\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062A\u0641\u0639\u064A\u0644 | Activation",
+    "\u0627\u0644\u0633\u0628\u0628 | Reason",
+    "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0625\u0646\u0634\u0627\u0621 | Created"
+  ];
+  const subscriptionRows = newest(subscriptions).map((subscription) => {
+    const customer = customerById[subscription.customer_id] || {};
+    const platform = platformById[subscription.trading_platform_id] || {};
+    return [
+      saudiDate(subscription.starts_at),
+      saudiDate(subscription.ends_at),
+      customer.customer_number,
+      customer.full_name,
+      subscription.market_code,
+      platform.name_ar || platform.name_en || subscription.trading_platform_id,
+      subscription.unique_reference,
+      subscription.status,
+      subscription.activation_method,
+      subscription.reason,
+      saudiDateTime(subscription.created_date)
+    ];
+  });
   const groups = /* @__PURE__ */ new Map();
   for (const customer of customers) {
-    const date = saudiDate(customer.created_date);
+    const date = saudiDate(customer.created_date) || "unknown";
     if (!groups.has(date)) groups.set(date, []);
     groups.get(date).push(customer);
   }
-  const sheets = [worksheet("All Customers", customers), ...[...groups.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([date, rows]) => worksheet(date, rows))];
-  return `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="Default"><Alignment ss:Vertical="Center"/><Font ss:FontName="Arial"/></Style><Style ss:ID="Header"><Font ss:Bold="1"/><Interior ss:Color="#38BDF8" ss:Pattern="Solid"/></Style></Styles>${sheets.join("")}</Workbook>`;
+  const dailySheets = [...groups.entries()].sort(([left], [right]) => right.localeCompare(left)).map(([date, rows]) => {
+    const ids = new Set(rows.map((item) => item.id));
+    return worksheet(date, `\u0627\u0644\u0645\u0633\u062C\u0644\u0648\u0646 \u0641\u064A ${date} | Registrations on ${date}`, masterColumns, customerRows.filter((_, index) => ids.has(customers[index].id)), masterWidths, 6);
+  });
+  const sheets = [
+    worksheet("All Customers", "\u0627\u0644\u0645\u0633\u062A\u062B\u0645\u0631 \u0627\u0644\u0630\u0643\u064A \u2014 \u062C\u0645\u064A\u0639 \u0627\u0644\u0639\u0645\u0644\u0627\u0621 | Smart Investor \u2014 All Customers", masterColumns, customerRows, masterWidths, 6),
+    worksheet("Referrals", "\u0645\u0646\u0635\u0627\u062A \u0627\u0644\u0625\u062D\u0627\u0644\u0629 \u0648\u0637\u0644\u0628\u0627\u062A \u0627\u0644\u0623\u0633\u0648\u0627\u0642 | Referral & Market Applications", referralColumns, referralRows, [95, 105, 175, 155, 115, 210, 105, 135, 135, 105, 130, 190, 200, 120], 6),
+    worksheet("Subscriptions", "\u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643\u0627\u062A \u0648\u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0627\u062A | Subscriptions & Entitlements", subscriptionColumns, subscriptionRows, [95, 95, 105, 175, 115, 160, 210, 105, 105, 190, 130], 7),
+    ...dailySheets
+  ];
+  return `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles>
+    <Style ss:ID="Default"><Alignment ss:Vertical="Center"/><Font ss:FontName="Arial" ss:Size="10"/></Style>
+    <Style ss:ID="Title"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:FontName="Arial" ss:Size="15" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F172A" ss:Pattern="Solid"/></Style>
+    <Style ss:ID="Meta"><Alignment ss:Horizontal="Center"/><Font ss:Color="#475569" ss:Italic="1"/><Interior ss:Color="#E0F2FE" ss:Pattern="Solid"/></Style>
+    <Style ss:ID="Header"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0284C7" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#075985"/></Borders></Style>
+    <Style ss:ID="Cell"><Alignment ss:Vertical="Center" ss:WrapText="1"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
+    <Style ss:ID="DataRow"/>
+    <Style ss:ID="AltRow"><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/></Style>
+    <Style ss:ID="StatusActive"><Alignment ss:Horizontal="Center"/><Font ss:Bold="1" ss:Color="#047857"/><Interior ss:Color="#D1FAE5" ss:Pattern="Solid"/></Style>
+    <Style ss:ID="StatusPending"><Alignment ss:Horizontal="Center"/><Font ss:Bold="1" ss:Color="#92400E"/><Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/></Style>
+    <Style ss:ID="StatusSuspended"><Alignment ss:Horizontal="Center"/><Font ss:Bold="1" ss:Color="#C2410C"/><Interior ss:Color="#FFEDD5" ss:Pattern="Solid"/></Style>
+    <Style ss:ID="StatusDanger"><Alignment ss:Horizontal="Center"/><Font ss:Bold="1" ss:Color="#B91C1C"/><Interior ss:Color="#FEE2E2" ss:Pattern="Solid"/></Style>
+  </Styles>${sheets.join("")}</Workbook>`;
 }
 async function owner(base44) {
   const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ acquisition_source: "platform_owner_bootstrap" });
@@ -349,8 +522,17 @@ Deno.serve(async (req) => {
     const reportDate = saudiDate(/* @__PURE__ */ new Date());
     const snapshots = await base44.asServiceRole.entities.CustomerReportSnapshot.filter({ report_key: "customers_master" });
     if (scheduled && snapshots[0]?.report_date === reportDate) return Response.json({ skipped: true, reason: "daily_report_already_generated" });
-    const customers = await base44.asServiceRole.entities.CustomerProfile.list("-created_date", 1e4);
-    const xml = workbook(customers);
+    const [profileRows, applications, subscriptions, platforms] = await Promise.all([
+      base44.asServiceRole.entities.CustomerProfile.list("-created_date", 1e4),
+      base44.asServiceRole.entities.MarketAccessApplication.list("-created_date", 1e4),
+      base44.asServiceRole.entities.Subscription.list("-created_date", 1e4),
+      base44.asServiceRole.entities.TradingPlatform.list("display_order", 100)
+    ]);
+    const customers = profileRows.filter((customer) => customer.role === "user");
+    const customerIds = new Set(customers.map((customer) => customer.id));
+    const customerApplications = applications.filter((item) => customerIds.has(item.customer_id));
+    const customerSubscriptions = subscriptions.filter((item) => customerIds.has(item.customer_id));
+    const xml = workbook(customers, customerApplications, customerSubscriptions, platforms);
     const file = new File([xml], `smart-investor-customers-${reportDate}.xls`, { type: "application/vnd.ms-excel" });
     const uploaded = await base44.asServiceRole.integrations.Core.UploadPrivateFile({ file });
     const fileUri = uploaded.file_uri || uploaded.file_url || uploaded.url;
@@ -363,14 +545,18 @@ Deno.serve(async (req) => {
     const ownerProfile = await owner(base44);
     if (scheduled && ownerProfile?.email_normalized && downloadUrl) {
       try {
-        await base44.asServiceRole.integrations.Core.SendEmail({ to: ownerProfile.email_normalized, subject: `\u062A\u0642\u0631\u064A\u0631 \u0639\u0645\u0644\u0627\u0621 \u0627\u0644\u0645\u0633\u062A\u062B\u0645\u0631 \u0627\u0644\u0630\u0643\u064A \u2014 ${reportDate}`, body: `\u062A\u0645 \u062A\u062D\u062F\u064A\u062B \u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0627\u0644\u064A\u0648\u0645\u064A. \u0627\u0644\u0639\u062F\u062F: ${customers.length}
+        await base44.asServiceRole.integrations.Core.SendEmail({
+          to: ownerProfile.email_normalized,
+          subject: `\u062A\u0642\u0631\u064A\u0631 \u0639\u0645\u0644\u0627\u0621 \u0627\u0644\u0645\u0633\u062A\u062B\u0645\u0631 \u0627\u0644\u0630\u0643\u064A \u2014 ${reportDate}`,
+          body: `\u062A\u0645 \u062A\u062D\u062F\u064A\u062B \u0627\u0644\u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u064A\u0648\u0645\u064A \u0627\u0644\u0645\u062A\u0643\u0627\u0645\u0644. \u0627\u0644\u0639\u0645\u0644\u0627\u0621: ${customers.length}\u060C \u0637\u0644\u0628\u0627\u062A \u0627\u0644\u0625\u062D\u0627\u0644\u0629: ${customerApplications.length}\u060C \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643\u0627\u062A: ${customerSubscriptions.length}.
 \u0631\u0627\u0628\u0637 \u0627\u0644\u062A\u062D\u0645\u064A\u0644 \u0635\u0627\u0644\u062D \u0644\u0645\u062F\u0629 24 \u0633\u0627\u0639\u0629:
-${downloadUrl}` });
+${downloadUrl}`
+        });
       } catch {
       }
     }
-    if (!scheduled) await audit(base44, actor, "customer_report.generated", "CustomerReportSnapshot", snapshot.id, "success", "owner request", {}, { report_date: reportDate, customer_count: customers.length });
-    return Response.json(scheduled ? { snapshot: { id: snapshot.id, report_date: snapshot.report_date, customer_count: snapshot.customer_count } } : { snapshot, download_url: downloadUrl });
+    if (!scheduled) await audit(base44, actor, "customer_report.generated", "CustomerReportSnapshot", snapshot.id, "success", "owner request", {}, { report_date: reportDate, customer_count: customers.length, application_count: customerApplications.length, subscription_count: customerSubscriptions.length });
+    return Response.json(scheduled ? { snapshot: { id: snapshot.id, report_date: snapshot.report_date, customer_count: snapshot.customer_count } } : { snapshot, download_url: downloadUrl, counts: { customers: customers.length, applications: customerApplications.length, subscriptions: customerSubscriptions.length } });
   } catch (error) {
     return replyError(error);
   }

@@ -17,6 +17,14 @@ function text(value, max = 300) {
   return result;
 }
 
+function referralUrl(value) {
+  const result = text(value, 1000);
+  let parsed;
+  try { parsed = new URL(result); } catch { fail("Enter a valid referral URL", "INVALID_REFERRAL_URL"); }
+  if (!["https:", "http:"].includes(parsed.protocol)) fail("Referral URL must use HTTPS or HTTP", "INVALID_REFERRAL_URL");
+  return parsed.toString();
+}
+
 async function ownerContext(base44, sessionId) {
   const context = await authorizationContext(base44, sessionId);
   if (context.role !== "owner") fail("Owner access required", "OWNER_ONLY", 403);
@@ -68,17 +76,28 @@ Deno.serve(async (req) => {
         code: text(body.code, 60).toLowerCase().replace(/[^a-z0-9_-]/g, "-"),
         name_ar: text(body.name_ar, 120),
         name_en: text(body.name_en, 120),
-        referral_url: text(body.referral_url, 1000),
+        referral_url: referralUrl(body.referral_url),
         supported_market_codes: supported,
         active: body.active !== false,
         display_order: Math.max(0, Number(body.display_order) || 0),
         revision: Math.max(1, Number(body.revision) || 1),
       };
+      let existing = [];
+      if (!body.id) {
+        existing = await base44.asServiceRole.entities.TradingPlatform.list("display_order", 101);
+        if (existing.length >= 100) fail("The platform limit of 100 has been reached", "PLATFORM_LIMIT_REACHED", 409);
+      }
+      const codeMatches = await base44.asServiceRole.entities.TradingPlatform.filter({ code: payload.code });
+      if (codeMatches.some((item) => item.id !== String(body.id || ""))) fail("This platform code is already in use", "DUPLICATE_PLATFORM_CODE", 409);
+      const urlMatches = await base44.asServiceRole.entities.TradingPlatform.filter({ referral_url: payload.referral_url });
+      if (urlMatches.some((item) => item.id !== String(body.id || ""))) fail("This referral link is already assigned to another platform", "DUPLICATE_REFERRAL_URL", 409);
       let platform;
       if (body.id) platform = await base44.asServiceRole.entities.TradingPlatform.update(String(body.id), { ...payload, revision: payload.revision + 1 });
       else platform = await base44.asServiceRole.entities.TradingPlatform.create(payload);
+      const confirmed = await base44.asServiceRole.entities.TradingPlatform.get(platform.id);
+      if (!confirmed || confirmed.code !== payload.code || confirmed.referral_url !== payload.referral_url) fail("Platform save could not be confirmed", "PLATFORM_SAVE_NOT_CONFIRMED", 500);
       await audit(base44, context.user.id, "trading_platform.saved", "TradingPlatform", platform.id, "success", "owner action", {}, payload);
-      return Response.json({ platform });
+      return Response.json({ platform: confirmed, created: !body.id });
     }
 
     if (body.action === "list_applications") {

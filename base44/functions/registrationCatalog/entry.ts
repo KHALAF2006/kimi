@@ -14,6 +14,7 @@ Deno.serve(async (req) => {
       referral_url: row.referral_url,
       supported_market_codes: row.supported_market_codes || [],
       display_order: row.display_order,
+      active: true,
     }));
     return Response.json({
       platforms,

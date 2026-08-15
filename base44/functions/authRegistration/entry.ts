@@ -1,5 +1,6 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.41";
 import { audit, profileFor, readJsonBody, replyError, requireUser } from "../../shared/security.ts";
+import { cooldownUntil, uniqueApplicationReference } from "../../shared/marketAccess.ts";
 
 const TERMS_VERSION = "2026-08-15";
 const RELAY_DOMAINS = new Set(["privaterelay.appleid.com", "private.icloud.com"]);
@@ -44,10 +45,6 @@ async function createMessage(base44, payload) {
   return duplicate[0] || await base44.asServiceRole.entities.Message.create(payload);
 }
 
-function applicationReference(marketCode) {
-  return `SI-${marketCode}-${crypto.randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
-}
-
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -58,7 +55,15 @@ Deno.serve(async (req) => {
     if (body.action === "status") {
       if (!existingProfile) return Response.json({ registered: false });
       const applications = await base44.asServiceRole.entities.MarketAccessApplication.filter({ customer_id: existingProfile.id });
-      return Response.json({ registered: true, profile: existingProfile, applications });
+      const platformIds = [...new Set(applications.map((item) => item.trading_platform_id).filter(Boolean))];
+      const platforms = {};
+      for (const platformId of platformIds) {
+        try {
+          const platform = await base44.asServiceRole.entities.TradingPlatform.get(platformId);
+          platforms[platformId] = { id: platform.id, name_ar: platform.name_ar, name_en: platform.name_en, referral_url: platform.referral_url };
+        } catch { /* immutable application snapshots remain available */ }
+      }
+      return Response.json({ registered: true, profile: existingProfile, applications, platforms });
     }
 
     if (body.action === "update_pending_name") {
@@ -86,6 +91,7 @@ Deno.serve(async (req) => {
     if (!MARKET_CODES.has(marketCode)) fail("Select a supported market", "MARKET_REQUIRED");
     if (body.marketing_consent !== true) fail("Communication consent is required to continue", "COMMUNICATION_CONSENT_REQUIRED");
     if (body.phone_accuracy_acknowledged !== true) fail("Confirm that the mobile number is your current contact number", "PHONE_ACCURACY_ACKNOWLEDGEMENT_REQUIRED");
+    if (body.referral_link_opened !== true) fail("Open the selected platform referral link before completing registration", "REFERRAL_LINK_REQUIRED");
 
     let platform = null;
     try { platform = await base44.asServiceRole.entities.TradingPlatform.get(String(body.trading_platform_id || "")); } catch { platform = null; }
@@ -116,7 +122,7 @@ Deno.serve(async (req) => {
     await base44.asServiceRole.entities.CustomerConsent.create({ customer_id: profile.id, channel: "email", purpose: "service_and_marketing", status: "granted", source: "registration_required_checkbox", captured_at: now });
     await base44.asServiceRole.entities.CustomerConsent.create({ customer_id: profile.id, channel: "whatsapp", purpose: "training_and_account_contact", status: "granted", source: "customer_provided_mobile", captured_at: now });
     const application = await base44.asServiceRole.entities.MarketAccessApplication.create({
-      unique_reference: applicationReference(marketCode),
+      unique_reference: await uniqueApplicationReference(base44, marketCode),
       customer_id: profile.id,
       auth_user_id: user.id,
       trading_platform_id: platform.id,
@@ -125,6 +131,13 @@ Deno.serve(async (req) => {
       full_name_snapshot: fullName,
       email_snapshot: email,
       phone_snapshot: phone,
+      platform_name_ar_snapshot: platform.name_ar,
+      platform_name_en_snapshot: platform.name_en,
+      referral_url_snapshot: platform.referral_url,
+      referral_clicked_at: now,
+      referral_click_count: 1,
+      customer_confirmed_at: now,
+      cooldown_until: cooldownUntil(now)?.toISOString(),
       revision: 1,
     });
     await base44.asServiceRole.entities.NotificationPreference.create({ customer_id: profile.id, auth_user_id: user.id, feed_enabled: true, messages_enabled: true, revision: 1 });
