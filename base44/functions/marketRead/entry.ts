@@ -5959,7 +5959,8 @@ async function sectorChartResponse(base44, body, { refreshSnapshot = false } = {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
   const lookbackDays = Math.min(30, Math.max(6, Math.round(Number(body.lookback_days) || 20)));
-  const snapshotKey = sectorChartSnapshotKey(requestedMarket, sector, interval);
+  const canonicalSector = String(instruments[0]?.sector_ar || instruments[0]?.sector_en || sector);
+  const snapshotKey = sectorChartSnapshotKey(requestedMarket, canonicalSector, interval);
   const snapshotRows = await readSectorChartSnapshots(base44, snapshotKey);
   const storedSnapshot = snapshotRows.find((item) => item?.payload);
   if (!refreshSnapshot) {
