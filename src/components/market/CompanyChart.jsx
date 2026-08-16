@@ -190,6 +190,16 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const hoverFrameRef = useRef(0);
   const hoveredRef = useRef(null);
   const pendingHoveredRef = useRef(null);
+  const hoverStripRef = useRef(null);
+  const hoverTimeRef = useRef(null);
+  const hoverHaRef = useRef(null);
+  const hoverOpenRef = useRef(null);
+  const hoverHighRef = useRef(null);
+  const hoverLowRef = useRef(null);
+  const hoverCloseRef = useRef(null);
+  const hoverVolumeRef = useRef(null);
+  const hoverRsiRef = useRef(null);
+  const hoverPresentationRef = useRef({ isArabic: true, interval: "1d", candleType: "candles" });
   const replayModeRef = useRef("idle");
   const replayStartTimeRef = useRef(null);
   const replayTimerRef = useRef(0);
@@ -210,7 +220,6 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const [error, setError] = useState("");
   const [recoveryNotice, setRecoveryNotice] = useState("");
   const [retryKey, setRetryKey] = useState(0);
-  const [hovered, setHovered] = useState(null);
   const [showMomentum, setShowMomentum] = useState(() => localStorage.getItem("smart_investor_show_momentum") !== "false");
   const [showMomentumCard, setShowMomentumCard] = useState(() => localStorage.getItem("smart_investor_show_momentum_card") !== "false");
   const [showVolume, setShowVolume] = useState(() => localStorage.getItem("smart_investor_show_volume") !== "false");
@@ -344,6 +353,31 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const anyIndicatorVisible = showVolume || showMomentum || showRsi || showSma20 || showSma50;
   const anyReversalVisible = chartPreferences.reversal.pinBar.enabled || chartPreferences.reversal.engulfing.enabled;
   const onDrawingVisibilityChange = useCallback((visible) => setDrawingsVisible(visible), []);
+  hoverPresentationRef.current = { isArabic, interval, candleType: chartPreferences.candleType };
+
+  const updateHoverStrip = (next) => {
+    const strip = hoverStripRef.current;
+    if (!strip) return;
+    const visible = Boolean(next);
+    strip.classList.toggle("invisible", !visible);
+    strip.setAttribute("aria-hidden", String(!visible));
+    if (!next) return;
+    const presentation = hoverPresentationRef.current;
+    if (hoverTimeRef.current) hoverTimeRef.current.textContent = formatChartDate(next.time, presentation.isArabic ? "ar-SA" : "en-GB", ["15m", "1h", "2h", "3h", "4h"].includes(presentation.interval));
+    if (hoverHaRef.current) hoverHaRef.current.hidden = presentation.candleType !== "heikin_ashi";
+    if (hoverOpenRef.current) hoverOpenRef.current.textContent = `O ${formatNumber(next.open, "en")}`;
+    if (hoverHighRef.current) hoverHighRef.current.textContent = `H ${formatNumber(next.high, "en")}`;
+    if (hoverLowRef.current) hoverLowRef.current.textContent = `L ${formatNumber(next.low, "en")}`;
+    if (hoverCloseRef.current) hoverCloseRef.current.textContent = `C ${formatNumber(next.close, "en")}`;
+    if (hoverVolumeRef.current) {
+      hoverVolumeRef.current.hidden = !Number.isFinite(Number(next.volume));
+      hoverVolumeRef.current.textContent = Number.isFinite(Number(next.volume)) ? `VOL ${formatNumber(next.volume, "en", 0)}` : "";
+    }
+    if (hoverRsiRef.current) {
+      hoverRsiRef.current.hidden = !Number.isFinite(Number(next.rsi));
+      hoverRsiRef.current.textContent = Number.isFinite(Number(next.rsi)) ? `RSI ${formatNumber(next.rsi, "en")}` : "";
+    }
+  };
 
   useEffect(() => {
     const timer = window.setTimeout(() => setRequestedPeakLookbackDays(momentumSettings.peakLookbackDays), 250);
@@ -354,7 +388,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     dispatchChartControl({ type: "close-all" });
     pendingHoveredRef.current = null;
     hoveredRef.current = null;
-    setHovered(null);
+    updateHoverStrip(null);
   }, [chartTarget, interval, range, dispatchChartControl]);
 
   useEffect(() => {
@@ -701,7 +735,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         const next = pendingHoveredRef.current;
         if (sameHoveredCandle(hoveredRef.current, next)) return;
         hoveredRef.current = next;
-        setHovered(next);
+        updateHoverStrip(next);
       });
       scheduleOverlayUpdate();
     });
@@ -1324,7 +1358,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       })}</div>
     </section>}
 
-    <div className={"ohlc-strip " + (hovered ? "" : "invisible")} dir="ltr" aria-hidden={!hovered}>{hovered ? <><time>{formatChartDate(hovered.time, isArabic ? "ar-SA" : "en-GB", interval === "15m" || interval === "1h")}</time>{chartPreferences.candleType === "heikin_ashi" && <b>HA</b>}<span>O {formatNumber(hovered.open, "en")}</span><span>H {formatNumber(hovered.high, "en")}</span><span>L {formatNumber(hovered.low, "en")}</span><span>C {formatNumber(hovered.close, "en")}</span>{Number.isFinite(Number(hovered.volume)) && <span>VOL {formatNumber(hovered.volume, "en", 0)}</span>}{Number.isFinite(Number(hovered.rsi)) && <span>RSI {formatNumber(hovered.rsi, "en")}</span>}</> : <span>&nbsp;</span>}</div>
+    <div ref={hoverStripRef} className="ohlc-strip invisible" dir="ltr" aria-hidden="true"><time ref={hoverTimeRef} /><b ref={hoverHaRef} hidden>HA</b><span ref={hoverOpenRef} /><span ref={hoverHighRef} /><span ref={hoverLowRef} /><span ref={hoverCloseRef} /><span ref={hoverVolumeRef} hidden /><span ref={hoverRsiRef} hidden /></div>
     {loading && <div className="chart-message">{isArabic ? "جارٍ التحميل…" : "Loading…"}</div>}
     {(error || recoveryNotice) && <div className="chart-message chart-recovery-message text-red-600" role="alert">
       <span>{recoveryNotice || (isArabic

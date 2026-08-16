@@ -404,11 +404,13 @@ assert.doesNotMatch(companyChart, /persistChartPreferences\(next\)/, "quick char
 assert.match(companyChart, /axisLabelVisible:\s*false,\s*title:\s*""/, "investor-zone boundaries must not crowd the price axis with repeated labels");
 assert.match(companyChart, /rsiSettings\.lineColor/);
 assert.match(companyChart, /momentumSettings\.zones/);
-assert.match(companyChart, /className=\{["']ohlc-strip ["'] \+ \(hovered \? ["']["'] : ["']invisible["']\)\}/, "the OHLC strip must reserve its height so pane hover cannot shake the chart");
+assert.match(companyChart, /ref=\{hoverStripRef\} className=["']ohlc-strip invisible["']/, "the OHLC strip must reserve its height so pane hover cannot shake the chart");
 assert.match(companyChart, /new InvestorZonePrimitive\(\)/, "investor zones must render through the chart primitive lifecycle instead of a React DOM overlay");
 assert.match(companyChart, /candlesSeries\.attachPrimitive\(investorZonePrimitive\)/, "investor zones must be attached to the price series so zoom and scale use price coordinates");
 assert.doesNotMatch(companyChart, /setZoneGeometry/, "chart navigation must not trigger React state updates for zone geometry");
 assert.match(companyChart, /sameHoveredCandle\(hoveredRef\.current, next\)/, "crosshair state must skip React renders while the hovered candle is unchanged");
+assert.match(companyChart, /updateHoverStrip\(next\)/, "crosshair hover must update the reserved OHLC strip directly");
+assert.doesNotMatch(companyChart, /setHovered\(/, "crosshair hover must not rerender the full chart component");
 assert.match(companyChart, /kineticScroll:\s*\{\s*mouse:\s*true,\s*touch:\s*true\s*\}/, "mouse and touch panning must retain kinetic scrolling");
 assert.match(companyChart, /fittedDataScopeRef\.current !== dataScope/, "routine quote refreshes must preserve the user's pan and zoom instead of fitting the chart again");
 assert.match(companyChart, /nextMeta\?\.range_complete === false/, "partial stored history must never be persisted as a successful full-range selection");
