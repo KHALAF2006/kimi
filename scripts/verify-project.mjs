@@ -124,12 +124,21 @@ assert.doesNotMatch(signalRefresh, /asServiceRole\.functions\.invoke\("marketSig
 assert.doesNotMatch(signalRefresh, /Base44-Service-Authorization/, "signal refresh must not trust a client-supplied service header");
 
 const marketRead = await readFile(new URL("../base44/functions/marketRead/entry.ts", import.meta.url), "utf8");
+const sectorChartRefresh = await readFile(new URL("../base44/functions/sectorChartRefresh/source.ts", import.meta.url), "utf8");
+const centralSectorChartWorkflow = JSON.parse(await readFile(new URL("../base44/workflows/CentralSectorChartSnapshots.jsonc", import.meta.url), "utf8"));
 assert.match(marketRead, /official_main_market_catalog_2026_07_21_default\.companies/, "deployed reads must contain the bundled verified catalog");
 assert.match(marketRead, /MAIN_MARKET_SYMBOLS\.has\(item\.symbol\)/, "market reads must exclude non-main-market records");
 assert.match(marketRead, /optionalRows/, "optional source metadata must not take down the market catalog");
 assert.match(marketRead, /Main-market catalog mismatch/, "an incomplete verified catalog must fail closed");
 assert.match(marketRead, /CHART_DATA_NOT_AVAILABLE/, "chart reads must fail clearly when licensed stored candles are unavailable");
 assert.doesNotMatch(marketRead, /query1\.finance\.yahoo\.com|YAHOO_CHART/, "market reads must never fetch Yahoo");
+assert.match(marketRead, /body\.action === "sector_chart_refresh"[\s\S]*?requireTrustedOwner\(base44\)/, "only the trusted owner workflow may rebuild central sector charts");
+assert.match(marketRead, /if \(!refreshSnapshot\)[\s\S]*?sectorChartPayloadForRange[\s\S]*?SECTOR_CHART_SNAPSHOT_NOT_READY[\s\S]*?const quotes =/, "customer sector reads must return the stored central snapshot or fail before constituent aggregation");
+assert.match(sectorChartRefresh, /SectorChartSnapshot\.(filter|update|create)/, "the background projector must persist reusable sector chart snapshots");
+assert.match(sectorChartRefresh, /const INTERVALS = \["15m", "1h", "2h", "3h", "4h", "1d", "1wk", "1mo"\]/, "the central sector store must cover every supported chart interval");
+assert.match(sectorChartRefresh, /requireTrustedOwner\(base44\)/, "scheduled sector projection must require the trusted owner context");
+assert.equal(centralSectorChartWorkflow.trigger.config.cron_expression, "35 10-15 * * 0-4", "central sector charts must refresh after each Saudi ingestion cycle");
+assert.equal(centralSectorChartWorkflow.trigger.config.timezone, "Asia/Riyadh", "central sector projection must use Riyadh market time");
 
 const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIngestion/function.jsonc", import.meta.url), "utf8"));
 assert.equal(schedule.name, "marketIngestion");
@@ -235,7 +244,8 @@ assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh"
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
 const allEntityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc")).sort();
 const entityFiles = allEntityFiles.filter((name) => /^[A-Z][A-Za-z0-9]*\.jsonc$/.test(name));
-assert.equal(entityFiles.length, 61, "all 61 identity-preserving Base44 entity schemas must be present");
+assert.equal(entityFiles.length, 62, "all 62 identity-preserving Base44 entity schemas must be present");
+assert.ok(entityFiles.includes("SectorChartSnapshot.jsonc"), "central sector charts must have one backend-only reusable snapshot entity");
 assert.ok(entityFiles.includes("CourseAccessGrant.jsonc"), "independent ten-day course access grants must have a canonical entity");
 assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "duplicate or identity-changing entity schema files must not remain beside the Base44 schemas");
 const entityNames = new Set();
