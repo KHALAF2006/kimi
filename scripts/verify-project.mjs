@@ -74,7 +74,7 @@ assert.match(ingestion, /SUSPENDED_INSTRUMENTS = new Map\(\[/, "officially suspe
 assert.match(ingestion, /\["2210", \{ since: "2026-04-30"/, "Nama Chemicals suspension must retain the official effective date");
 assert.match(ingestion, /quality_status: "stale"/, "a suspended instrument reference price must never be presented as current");
 assert.match(ingestion, /instrument\.status !== "suspended"/, "suspended instruments must be excluded from live-feed coverage");
-assert.match(ingestion, /symbol === "TASI" \? "\^TASI\.SR"/, "TASI must use the provider's actual chart symbol");
+assert.match(ingestion, /normalized === "TASI" \? "\^TASI\.SR"/, "TASI must use the provider's actual chart symbol");
 assert.match(ingestion, /providerInstruments\.map\(\(instrument\) => instrument\.symbol\)/, "public chart ingestion must include the market index alongside tradable companies");
 
 const deliveryEventSchema = JSON.parse(await readFile(new URL("../base44/entities/DeliveryEvent.jsonc", import.meta.url), "utf8"));
@@ -927,7 +927,6 @@ assert.match(marketIngestionFunction, /row\.instrument_id\s*\|\|\s*row\.symbol\s
 assert.match(marketIngestionFunction, /bulkUpdateUnique\(base44\.asServiceRole\.entities\.DataQualityIssue,\s*updates\)/, "quality issue updates must send every entity ID at most once");
 assert.match(marketIngestionFunction, /bulkUpdateUnique\(base44\.asServiceRole\.entities\.QuoteLatest,\s*updates\)/, "stale quote updates must send every entity ID at most once");
 assert.match(marketIngestionFunction, /\.filter\(isSupportedPublicSaudiSymbol\)/, "the Saudi public-source queue must use the canonical symbol allowlist");
-assert.match(marketIngestionFunction, /normalized === "TASI" \? "\^TASI\.SR"/, "the Saudi market index must retain its provider-specific symbol in the deployed ingestion bundle");
 const legacySchemaBridge = await readFile(new URL("../base44/functions/legacySchemaBridge/entry.ts", import.meta.url), "utf8");
 assert.match(legacySchemaBridge, /requireTrustedOwner/, "the additive legacy bridge must be restricted to the centralized trusted owner policy");
 assert.doesNotMatch(legacySchemaBridge, /PLATFORM_OWNER_USER_ID/, "owner authorization must not depend on a hard-coded user identifier");
