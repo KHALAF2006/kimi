@@ -54,6 +54,10 @@ assert.match(ingestion, /var MAIN_MARKET_SYMBOLS = new Set/, "deployed ingestion
 assert.match(ingestion, /name_ar:\s*row\.nameAr/);
 assert.match(ingestion, /name_en:\s*row\.nameEn/);
 assert.match(ingestion, /upsertMany\(base44,\s*["']Instrument["']/);
+assert.doesNotMatch(ingestion, /entities\[entity\]\.list\("-updated_date",\s*5e3\)/, "bounded upserts must not scan an entire entity table on every ingestion cycle");
+assert.match(ingestion, /entities\[entity\]\.filter\(filter, "-updated_date", readLimit\)/, "bounded upserts must read only the incoming identity set");
+assert.match(ingestion, /upsertValueChanged/, "static catalog rows must not be rewritten when their values are unchanged");
+assert.match(ingestion, /INVALID_UPSERT_KEY/, "bounded upserts must fail closed when an identity key is missing");
 assert.match(ingestion, /requireTrustedOwner\(base44\)/, "scheduled market ingestion must require the centralized trusted-owner policy");
 assert.match(ingestion, /requireDataIngestionPermission\(base44, body\.session_id, body\.device_id\)/, "manual market ingestion must require an opaque session, its registered device, and the dedicated server permission");
 assert.match(ingestion, /identityContext/, "manual market ingestion must resolve identity and entitlements on the server");
