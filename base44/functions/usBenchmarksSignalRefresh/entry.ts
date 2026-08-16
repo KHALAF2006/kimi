@@ -952,7 +952,7 @@ async function projectBatch(base44, instruments, sessionDate, sourceId, runId) {
   const ids = instruments.map((item2) => item2.id);
   const idQuery = { $in: ids };
   const [candleRows, snapshotRows] = await Promise.all([
-    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE }, "start_time", 2e3),
+    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE }, "-start_time", 2e3),
     base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE }, "-source_as_of", 500)
   ]);
   const chunks = rows(candleRows).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));

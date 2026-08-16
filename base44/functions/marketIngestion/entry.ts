@@ -6063,10 +6063,13 @@ async function recordQualityIssues(base44, sourceId, runId, snapshotVersion, iss
   if (creates.length) await base44.asServiceRole.entities.DataQualityIssue.bulkCreate(creates);
   await bulkUpdateUnique(base44.asServiceRole.entities.DataQualityIssue, updates);
 }
-async function markMissingQuotesStale(base44, instrumentIds, acceptedQuotes) {
+async function markMissingQuotesStale(base44, instrumentIds, acceptedQuotes, marketCode) {
   const acceptedIds = new Set(acceptedQuotes.map((quote) => quote.instrument_id));
   const expectedIds = new Set(instrumentIds);
-  const existing = await base44.asServiceRole.entities.QuoteLatest.list("-quote_time", 500);
+  const existing = await base44.asServiceRole.entities.QuoteLatest.filter({
+    instrument_id: { $in: instrumentIds },
+    market_code: marketCode
+  }, "-quote_time", instrumentIds.length);
   const updates = existing.filter((quote) => expectedIds.has(quote.instrument_id) && !acceptedIds.has(quote.instrument_id)).map((quote) => ({
     id: quote.id,
     freshness_status: "stale",
@@ -6079,7 +6082,10 @@ async function loadCurrentCandleState(base44, sessionDate, instrumentIds, market
   const belongsToRequestedMarket = (chunk) => expectedInstrumentIds.has(chunk.instrument_id)
     && (!chunk.market_code || chunk.market_code === marketCode);
   const [quotes, exactChunks] = await Promise.all([
-    base44.asServiceRole.entities.QuoteLatest.list("-updated_date", 500),
+    base44.asServiceRole.entities.QuoteLatest.filter({
+      instrument_id: { $in: instrumentIds },
+      market_code: marketCode
+    }, "-updated_date", instrumentIds.length),
     base44.asServiceRole.entities.CandleChunk.filter({ interval: "15m", session_date: sessionDate })
   ]);
   const chunksByKey = new Map((Array.isArray(exactChunks) ? exactChunks : [])
@@ -6139,6 +6145,32 @@ async function providerCandleChunks(payload, mappings, instruments, sourceId, se
 }
 function ingestionFailure(message, code = "MARKET_INGESTION_FAILED", status = 503) {
   return Object.assign(new Error(message), { code, status });
+}
+const INGESTION_LEASE_MS = 4 * 60 * 1e3;
+function ingestionRunOrder(left, right) {
+  const started = Date.parse(left?.started_at || left?.created_date || 0) - Date.parse(right?.started_at || right?.created_date || 0);
+  return started || String(left?.id || "").localeCompare(String(right?.id || ""), "en");
+}
+async function renewOwnedIngestionLease(base44, run) {
+  const now = Date.now();
+  const contenders = (await base44.asServiceRole.entities.IngestionRun.filter({
+    slot_key: run.slot_key,
+    status: "running"
+  }, "started_at", 20)).filter((candidate) => Date.parse(candidate.lease_expires_at || 0) > now).sort(ingestionRunOrder);
+  const owner = contenders[0] || null;
+  if (!owner || owner.id !== run.id) {
+    await base44.asServiceRole.entities.IngestionRun.update(run.id, {
+      status: "failed",
+      finished_at: new Date(now).toISOString(),
+      failure_code: "SLOT_LEASE_SUPERSEDED",
+      notes: JSON.stringify({ reason: "slot_lease_superseded", owner_run_id: owner?.id || null })
+    });
+    return false;
+  }
+  const leaseExpiresAt = new Date(now + INGESTION_LEASE_MS).toISOString();
+  await base44.asServiceRole.entities.IngestionRun.update(run.id, { lease_expires_at: leaseExpiresAt });
+  run.lease_expires_at = leaseExpiresAt;
+  return true;
 }
 Deno.serve(async (req) => {
   let base44 = null;
@@ -6251,7 +6283,7 @@ Deno.serve(async (req) => {
       slot_kind: slotKind,
       scheduled_for: now.toISOString(),
       started_at: now.toISOString(),
-      lease_expires_at: new Date(now.getTime() + 3 * 60 * 1e3).toISOString(),
+      lease_expires_at: new Date(now.getTime() + INGESTION_LEASE_MS).toISOString(),
       total_records: EXPECTED_INSTRUMENT_COUNT,
       success_count: 0,
       failed_count: EXPECTED_INSTRUMENT_COUNT,
@@ -6265,6 +6297,9 @@ Deno.serve(async (req) => {
         mapping_count: mappings.length
       })
     });
+    if (!await renewOwnedIngestionLease(base44, run)) {
+      return Response.json({ status: "skipped", reason: "slot_lease_superseded", slot_key: slotKey });
+    }
     if (useLicensedProvider && (!providerUrl || !providerToken)) {
       await recordQualityIssues(base44, provider.id, run.id, "", [{
         issue_type: "provider_not_configured",
@@ -6344,6 +6379,9 @@ Deno.serve(async (req) => {
       }]);
       throw ingestionFailure(error?.message || "Market-data source request failed", "PROVIDER_REQUEST_FAILED");
     }
+    if (!await renewOwnedIngestionLease(base44, run)) {
+      return Response.json({ status: "skipped", reason: "slot_lease_superseded", slot_key: slotKey });
+    }
     const providerAsOf = String(payload?.data?.provider_as_of || payload?.provider_as_of || payload?.data?.as_of || payload?.as_of || "");
     const snapshotVersion = await stableSnapshotVersion({ marketCode, providerCode, providerAsOf, slotKey });
     stage = "snapshot_normalization";
@@ -6360,6 +6398,9 @@ Deno.serve(async (req) => {
       validationMode: useLicensedProvider ? "licensed_t15" : "experimental_public"
     });
     const coverage = coverageStatus(normalized.accepted.length, EXPECTED_INSTRUMENT_COUNT);
+    if (!await renewOwnedIngestionLease(base44, run)) {
+      return Response.json({ status: "skipped", reason: "slot_lease_superseded", slot_key: slotKey });
+    }
     stage = "quote_observation_create";
     if (normalized.accepted.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(normalized.accepted);
     const publicSourceIssues = Array.isArray(payload?.rejected) ? payload.rejected : [];
@@ -6374,7 +6415,7 @@ Deno.serve(async (req) => {
     stage = "quote_latest_upsert";
     await upsertMany(base44, "QuoteLatest", normalized.accepted, ["instrument_id"]);
     stage = "missing_quote_mark_stale";
-    await markMissingQuotesStale(base44, instruments.map((instrument) => instrument.id), normalized.accepted);
+    await markMissingQuotesStale(base44, instruments.map((instrument) => instrument.id), normalized.accepted, marketCode);
     stage = "candle_chunk_upsert";
     const candleChunks = await providerCandleChunks(payload, mappings, instruments, provider.id, schedule.clock.date, {
       runId: run.id,
@@ -6385,6 +6426,9 @@ Deno.serve(async (req) => {
       isFinal: normalized.isFinal
     }, candleState.chunks);
     const candlePersistence = await persistIncrementalCandleChunks(base44, candleChunks, candleState.chunks);
+    if (!await renewOwnedIngestionLease(base44, run)) {
+      return Response.json({ status: "skipped", reason: "slot_lease_superseded", slot_key: slotKey });
+    }
     stage = "drawing_alert_evaluation";
     const drawingAlerts = await evaluateDrawingAlerts(base44, normalized.accepted);
     stage = "price_alert_evaluation";

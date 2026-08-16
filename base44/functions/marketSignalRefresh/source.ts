@@ -223,7 +223,7 @@ async function projectInstrumentBatch(
     base44.asServiceRole.entities.CandleChunk.filter({
       instrument_id: idQuery,
       interval: "1d",
-    }, "start_time", 1200),
+    }, "-start_time", 1200),
     base44.asServiceRole.entities.CandleChunk.filter({
       instrument_id: idQuery,
       interval: { $in: ["1wk", "1mo"] },

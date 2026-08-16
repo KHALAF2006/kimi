@@ -60,6 +60,11 @@ assert.match(ingestion, /query1\.finance\.yahoo\.com/, "experimental public sour
 assert.doesNotMatch(ingestion, /from\s+["']\.\.\/\.\.\/shared\//, "scheduled market ingestion must be self-contained because Base44 rejects imports outside the function directory");
 assert.match(ingestion, /async function readJsonBody\(/, "scheduled market ingestion must enforce its self-contained request boundary");
 assert.match(ingestion, /acquisition_source === "platform_owner_bootstrap"/, "scheduled market ingestion must enforce the trusted owner marker locally");
+assert.match(ingestion, /async function renewOwnedIngestionLease/, "Saudi ingestion must elect and renew one deterministic lease owner before promotion");
+assert.ok((ingestion.match(/renewOwnedIngestionLease\(base44, run\)/g) || []).length >= 4, "Saudi ingestion must recheck lease ownership before and during provider promotion");
+assert.match(ingestion, /failure_code:\s*"SLOT_LEASE_SUPERSEDED"/, "a concurrent losing ingestion run must terminate visibly without promoting data");
+assert.match(ingestion, /QuoteLatest\.filter\(\{\s*instrument_id:\s*\{ \$in: instrumentIds \},\s*market_code: marketCode/s, "previous-quote and stale-quote reads must be scoped by both market and instrument identity");
+assert.doesNotMatch(ingestion, /QuoteLatest\.list\("-updated_date", 500\)/, "Saudi candle context must not derive previous close from a global quote list");
 
 const historicalBackfill = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
 assert.match(historicalBackfill, /requireAdminUser\(base44\)/, "historical backfill must require a verified admin identity");
@@ -142,6 +147,7 @@ for (let index = 0; index < saudiSignalSteps.length; index += 1) {
   assert.equal(saudiSignalSteps[index].step.then, saudiSignalSteps[index + 1]?.key || "end", "Saudi projection steps must never branch or run concurrently");
 }
 const marketSignalRefreshSource = await readFile(new URL("../base44/functions/marketSignalRefresh/source.ts", import.meta.url), "utf8");
+assert.match(marketSignalRefreshSource, /}, "-start_time", 1200\)/, "Saudi projection must fetch the newest bounded daily candle window before chronological normalization");
 assert.match(marketSignalRefreshSource, /session_date:\s*sessionDate/, "signal projection must read only the current 15-minute session for daily finalization");
 assert.match(marketSignalRefreshSource, /chunk\.is_final === true/, "daily finalization must use only a finalized 15-minute session chunk");
 assert.match(marketSignalRefreshSource, /chunk\.completeness_status === ["']complete["']/, "daily finalization must reject incomplete intraday sessions");

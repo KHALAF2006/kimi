@@ -227,6 +227,7 @@ assert.match(adminMarketData, /refresh_company_intelligence/);
 assert.match(adminMarketData, /runsPerDay: 17, monthlyRuns: 390/);
 
 const signals = await source("base44/functions/usOptionsSignalRefresh/source.ts");
+assert.match(signals, /interval: "1d" \}, "-start_time", 1000\)/, "U.S. options projection must include the newest bounded daily history before chronological normalization");
 assert.match(signals, /dedupeDailyBars/);
 assert.match(signals, /const PROJECTION_BATCH_SIZE = 16/);
 assert.match(signals, /PROJECTION_BATCH_COUNT = Math\.ceil/);

@@ -46,6 +46,7 @@ assert.match(ingestion, /LEASE_EXPIRED/, "stale benchmark runs must be closed de
 assert.match(ingestion, /Math\.min\(8,/, "archive repair must use bounded batches that fit the backend execution limit");
 
 const signals = await source("base44/functions/usBenchmarksSignalRefresh/source.ts");
+assert.match(signals, /US_BENCHMARKS_MARKET_CODE \}, "-start_time", 2000\)/, "benchmark projection must include the newest bounded candle window before chronological normalization");
 for (const token of ["technical_signals", "momentum_zones", '"1wk"', '"1mo"', "market_code: US_BENCHMARKS_MARKET_CODE"]) assert.match(signals, new RegExp(token));
 assert.doesNotMatch(signals, /deleteMany|functions\.invoke\("usBenchmarksSignalRefresh"/, "signal projection must neither erase another market nor recurse through the service API");
 const signalConfig = JSON.parse(await source("base44/functions/usBenchmarksSignalRefresh/function.jsonc"));
