@@ -5,6 +5,7 @@ export const PERMISSION_CATALOG = [
   { code: "customers.status.manage", group_code: "customers", name_ar: "إدارة حالة العميل", name_en: "Manage customer status", sensitive: true, owner_only: true },
   { code: "customers.sessions.revoke", group_code: "customers", name_ar: "إلغاء جلسات العملاء", name_en: "Revoke customer sessions", sensitive: true, owner_only: true },
   { code: "customers.notes.manage", group_code: "customers", name_ar: "إدارة ملاحظات العملاء", name_en: "Manage customer notes", sensitive: true, owner_only: true },
+  { code: "messages.manage", group_code: "customers", name_ar: "إدارة محادثات العملاء", name_en: "Manage customer conversations", sensitive: true, owner_only: false },
   { code: "subscriptions.read", group_code: "subscriptions", name_ar: "عرض الاشتراكات", name_en: "View subscriptions", sensitive: false, owner_only: false },
   { code: "subscriptions.manage", group_code: "subscriptions", name_ar: "إدارة الاشتراكات", name_en: "Manage subscriptions", sensitive: true, owner_only: false },
   { code: "plans.manage", group_code: "subscriptions", name_ar: "إدارة الخطط والحدود", name_en: "Manage plans and entitlements", sensitive: true, owner_only: true },
@@ -22,7 +23,7 @@ export const PERMISSION_CATALOG = [
 export const PERMISSION_CODES = new Set(PERMISSION_CATALOG.map((permission) => permission.code));
 
 export const LEGACY_ROLE_PERMISSIONS = {
-  support: ["dashboard.owner.read"],
+  support: ["dashboard.owner.read", "messages.manage"],
   admin: [
     "dashboard.owner.read",
     "subscriptions.read",
@@ -33,11 +34,12 @@ export const LEGACY_ROLE_PERMISSIONS = {
     "alerts.operations.read",
     "alerts.operations.manage",
     "audit.read",
+    "messages.manage",
   ],
 };
 
 export const RESERVED_ROLE_TEMPLATES = [
-  { code: "support_agent", name_ar: "موظف الدعم", name_en: "Support Agent", permissions: ["dashboard.owner.read"] },
+  { code: "support_agent", name_ar: "موظف الدعم", name_en: "Support Agent", permissions: ["dashboard.owner.read", "messages.manage"] },
   { code: "subscription_manager", name_ar: "مدير الاشتراكات", name_en: "Subscription Manager", permissions: ["dashboard.owner.read", "subscriptions.read", "subscriptions.manage"] },
   { code: "data_operator", name_ar: "مشغل بيانات السوق", name_en: "Market Data Operator", permissions: ["dashboard.owner.read", "data.operations.read", "data.ingestion.run", "data.quality.manage", "alerts.operations.read"] },
   { code: "compliance_auditor", name_ar: "مراقب الامتثال", name_en: "Compliance Auditor", permissions: ["dashboard.owner.read", "subscriptions.read", "audit.read"] },

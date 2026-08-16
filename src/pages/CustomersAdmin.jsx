@@ -7,6 +7,7 @@ import { invokeAppFunction, isReferencePreview } from "@/services/marketService"
 import { useAuthorization } from "@/lib/AuthorizationContext";
 import { usePreferences } from "@/lib/preferences";
 import DismissibleNotice from "@/components/DismissibleNotice";
+import { useNavigate } from "react-router-dom";
 
 const MARKET_META = {
   SA_MAIN: { ar: "السوق السعودي", en: "Saudi Market", mark: "🇸🇦" },
@@ -27,6 +28,7 @@ function statusLabel(value, language) { return STATUS_LABELS[language === "ar" ?
 function currentSubscription(rows = []) { return rows.find((item) => item.status === "active") || [...rows].sort((a, b) => new Date(b.ends_at || 0).getTime() - new Date(a.ends_at || 0).getTime())[0] || null; }
 
 export default function CustomersAdmin() {
+  const navigate = useNavigate();
   const { can } = useAuthorization();
   const { isArabic, language } = usePreferences();
   const [state, setState] = useState({ loading: true, customers: [], incompleteRegistrations: [], mode: "masked", error: "", status: "", busy: false });
@@ -34,24 +36,22 @@ export default function CustomersAdmin() {
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(null);
   const [action, setAction] = useState(null);
-  const [form, setForm] = useState({ reason: "", message: "", title: "", priority: "normal" });
+  const [form, setForm] = useState({ reason: "", message: "" });
   const t = isArabic ? {
     title: "مركز إدارة العملاء", description: "كل معلومات العميل وأسواقه واشتراكه وإجراءاته في مكان واحد — للمالك فقط.",
     all: "الكل", active: "النشطون", pending: "بانتظار الموافقة", suspended: "الموقوفون", banned: "المحظورون", closed: "المغلقون",
     search: "ابحث بالاسم أو البريد أو الجوال أو رقم العميل", refresh: "تحديث", export: "تصدير Excel", customer: "العميل", contact: "التواصل", status: "الحالة", joined: "التسجيل", actions: "الإجراءات",
     choose: "اختر عميلاً لعرض ملفه وأسواقه واشتراكه وإجراءاته.", markets: "الأسواق المفعلة", notActive: "غير مفعّل", period: "فترة التجربة / الاشتراك", start: "البداية", end: "النهاية", noSubscription: "لا يوجد اشتراك",
-    activate: "تفعيل", suspend: "تعليق", ban: "حظر", restore: "استعادة", revoke: "إخراج الأجهزة", message: "رسالة", access: "إدارة الأسواق", subscription: "الاشتراك", oneDevice: "قيد الجهاز الواحد", oneDeviceHelp: "الجلسات النشطة محكومة بسياسة جهاز واحد.", activeSessions: "جلسة نشطة",
-    referrals: "منصات الإحالة وأرقام الطلبات", notes: "ملاحظات الإدارة", addNote: "إضافة ملاحظة", cancel: "إلغاء", confirm: "تأكيد الإجراء", reason: "سبب الإجراء", body: "نص الرسالة", subject: "عنوان الرسالة", noResults: "لا توجد نتائج مطابقة", full: "بيانات كاملة", masked: "بيانات مقنّعة", open: "فتح الملف",
-    priority: "أهمية الرسالة", normalPriority: "عادية", importantPriority: "مهمة",
+    activate: "تفعيل", suspend: "تعليق", ban: "حظر", restore: "استعادة", revoke: "إخراج الأجهزة", message: "مركز الرسائل", access: "إدارة الأسواق", subscription: "الاشتراك", oneDevice: "قيد الجهاز الواحد", oneDeviceHelp: "الجلسات النشطة محكومة بسياسة جهاز واحد.", activeSessions: "جلسة نشطة",
+    referrals: "منصات الإحالة وأرقام الطلبات", notes: "ملاحظات الإدارة", addNote: "إضافة ملاحظة", cancel: "إلغاء", confirm: "تأكيد الإجراء", reason: "سبب الإجراء", body: "نص الملاحظة", noResults: "لا توجد نتائج مطابقة", full: "بيانات كاملة", masked: "بيانات مقنّعة", open: "فتح الملف",
     integrity: "سلامة ترابط التسجيل", integrityOk: "مكتمل ومترابط", integrityFailed: "يحتاج مراجعة", incomplete: "حسابات تنتظر إكمال التسجيل", incompleteHelp: "أنشأ أصحاب هذه الحسابات بيانات الدخول، لكنهم لم يرسلوا طلب السوق بعد. تظهر هنا حتى لا يختفي أي تسجيل عن المالك.", awaitingCustomer: "بانتظار إكمال العميل",
   } : {
     title: "Customer Operations Center", description: "Customer identity, markets, subscription, and actions in one owner-only workspace.",
     all: "All", active: "Active", pending: "Pending", suspended: "Suspended", banned: "Banned", closed: "Closed",
     search: "Search by name, email, phone, or customer number", refresh: "Refresh", export: "Export Excel", customer: "Customer", contact: "Contact", status: "Status", joined: "Joined", actions: "Actions",
     choose: "Select a customer to view their profile, markets, subscription, and actions.", markets: "Enabled markets", notActive: "Not active", period: "Trial / subscription period", start: "Start", end: "End", noSubscription: "No subscription",
-    activate: "Activate", suspend: "Suspend", ban: "Ban", restore: "Restore", revoke: "Sign out devices", message: "Message", access: "Manage markets", subscription: "Subscription", oneDevice: "One-device restriction", oneDeviceHelp: "Active sessions are governed by the one-device policy.", activeSessions: "active session(s)",
-    referrals: "Referral platforms & references", notes: "Admin notes", addNote: "Add note", cancel: "Cancel", confirm: "Confirm action", reason: "Action reason", body: "Message body", subject: "Message title", noResults: "No matching customers", full: "Full data", masked: "Masked data", open: "Open profile",
-    priority: "Message priority", normalPriority: "Normal", importantPriority: "Important",
+    activate: "Activate", suspend: "Suspend", ban: "Ban", restore: "Restore", revoke: "Sign out devices", message: "Message center", access: "Manage markets", subscription: "Subscription", oneDevice: "One-device restriction", oneDeviceHelp: "Active sessions are governed by the one-device policy.", activeSessions: "active session(s)",
+    referrals: "Referral platforms & references", notes: "Admin notes", addNote: "Add note", cancel: "Cancel", confirm: "Confirm action", reason: "Action reason", body: "Note body", noResults: "No matching customers", full: "Full data", masked: "Masked data", open: "Open profile",
     integrity: "Registration data integrity", integrityOk: "Complete and linked", integrityFailed: "Needs review", incomplete: "Accounts awaiting registration completion", incompleteHelp: "These users created sign-in credentials but have not submitted a market request yet. They remain visible to the owner.", awaitingCustomer: "Awaiting customer completion",
   };
 
@@ -81,13 +81,12 @@ export default function CustomersAdmin() {
     const payload = { action: action.kind, id: selected.customer.id, reason: form.reason.trim() };
     if (action.kind === "status") payload.status = action.status;
     if (action.kind === "add_note") payload.note = form.message.trim();
-    if (action.kind === "message") Object.assign(payload, { message: form.message.trim(), title: form.title.trim(), priority: form.priority });
     try {
       setState((current) => ({ ...current, busy: true, error: "", status: "" }));
       await invokeAppFunction("adminCustomers", payload);
       setSelected(await invokeAppFunction("adminCustomers", { action: "detail", id: selected.customer.id }));
       setAction(null);
-      setForm({ reason: "", message: "", title: "", priority: "normal" });
+      setForm({ reason: "", message: "" });
       await load();
       setState((current) => ({ ...current, busy: false, status: isArabic ? "تم تنفيذ الإجراء وتأكيده من الخادم." : "The action was completed and confirmed by the server." }));
     } catch (error) { setState((current) => ({ ...current, busy: false, error: failure(error, isArabic) })); }
@@ -121,14 +120,14 @@ export default function CustomersAdmin() {
     for (const row of selected?.subscriptions || []) if (row.status === "active") values[row.market_code] = "active";
     return values;
   }, [selected]);
-  function openAction(kind, status = "") { setForm({ reason: "", message: "", title: "", priority: "normal" }); setAction({ kind, status }); }
+  function openAction(kind, status = "") { setForm({ reason: "", message: "" }); setAction({ kind, status }); }
   const actionTiles = selected ? [
     { label: t.activate, icon: Zap, tone: "bg-emerald-600", show: can("customers.status.manage") && selected.customer.account_status !== "active", run: () => openAction("status", "active") },
     { label: t.suspend, icon: Smartphone, tone: "bg-amber-600", show: can("customers.status.manage") && selected.customer.account_status === "active", run: () => openAction("status", "suspended") },
     { label: t.ban, icon: Ban, tone: "bg-red-700", show: can("customers.status.manage") && selected.customer.account_status !== "banned", run: () => openAction("status", "banned") },
     { label: t.restore, icon: RefreshCcw, tone: "bg-sky-600", show: can("customers.status.manage") && ["suspended", "banned", "temporarily_blocked"].includes(selected.customer.account_status), run: () => openAction("status", "active") },
     { label: t.revoke, icon: WifiOff, tone: "bg-violet-600", show: can("customers.sessions.revoke"), run: () => openAction("revoke_sessions") },
-    { label: t.message, icon: MessageCircle, tone: "bg-blue-700", show: can("customers.notes.manage"), run: () => openAction("message") },
+    { label: t.message, icon: MessageCircle, tone: "bg-blue-700", show: can("messages.manage"), run: () => navigate(`/messages?customer=${encodeURIComponent(selected.customer.id)}`) },
   ].filter((item) => item.show) : [];
 
   return <>
@@ -151,7 +150,7 @@ export default function CustomersAdmin() {
         </div>}</aside>
       </div>
     </main>
-    {action && <div className="fixed inset-0 z-[120] grid place-items-center bg-slate-950/70 p-4" role="dialog" aria-modal="true"><section className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl dark:bg-[#0d192a]"><div className="flex items-center justify-between"><h2 className="text-lg font-black">{action.kind === "message" ? t.message : action.kind === "add_note" ? t.addNote : t.confirm}</h2><button type="button" className="icon-button" onClick={() => setAction(null)}><X size={16} /></button></div><div className="mt-5 grid gap-4">{action.kind === "message" && <><label className="grid gap-2 text-sm font-bold"><span>{t.subject}</span><input className="form-input" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} /></label><label className="grid gap-2 text-sm font-bold"><span>{t.priority}</span><select className="form-input" value={form.priority} onChange={(event) => setForm((current) => ({ ...current, priority: event.target.value }))}><option value="normal">{t.normalPriority}</option><option value="important">{t.importantPriority}</option></select></label></>}{["message", "add_note"].includes(action.kind) && <label className="grid gap-2 text-sm font-bold"><span>{t.body}</span><textarea className="form-input min-h-28" value={form.message} onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))} /></label>}<label className="grid gap-2 text-sm font-bold"><span>{t.reason}</span><textarea className="form-input min-h-20" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} /></label><div className="flex justify-end gap-2"><button type="button" className="secondary-button" onClick={() => setAction(null)}>{t.cancel}</button><button type="button" className="primary-button" disabled={state.busy || form.reason.trim().length < 3 || (["message", "add_note"].includes(action.kind) && form.message.trim().length < 3)} onClick={runAction}>{state.busy ? "…" : t.confirm}</button></div></div></section></div>}
+    {action && <div className="fixed inset-0 z-[120] grid place-items-center bg-slate-950/70 p-4" role="dialog" aria-modal="true"><section className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl dark:bg-[#0d192a]"><div className="flex items-center justify-between"><h2 className="text-lg font-black">{action.kind === "add_note" ? t.addNote : t.confirm}</h2><button type="button" className="icon-button" onClick={() => setAction(null)}><X size={16} /></button></div><div className="mt-5 grid gap-4">{action.kind === "add_note" && <label className="grid gap-2 text-sm font-bold"><span>{t.body}</span><textarea className="form-input min-h-28" value={form.message} onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))} /></label>}<label className="grid gap-2 text-sm font-bold"><span>{t.reason}</span><textarea className="form-input min-h-20" value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} /></label><div className="flex justify-end gap-2"><button type="button" className="secondary-button" onClick={() => setAction(null)}>{t.cancel}</button><button type="button" className="primary-button" disabled={state.busy || form.reason.trim().length < 3 || (action.kind === "add_note" && form.message.trim().length < 3)} onClick={runAction}>{state.busy ? "…" : t.confirm}</button></div></div></section></div>}
     <DismissibleNotice message={state.error} tone="error" onDismiss={() => setState((current) => ({ ...current, error: "" }))} />
     <DismissibleNotice message={state.status} onDismiss={() => setState((current) => ({ ...current, status: "" }))} />
   </>;

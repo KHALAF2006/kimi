@@ -32,6 +32,7 @@ const Alerts = lazy(() => import('@/pages/Alerts'));
 const Destinations = lazy(() => import('@/pages/Destinations'));
 const Profile = lazy(() => import('@/pages/Profile'));
 const MarketApplications = lazy(() => import('@/pages/MarketApplications'));
+const MessageCenter = lazy(() => import('@/pages/MessageCenter'));
 const AdminDashboard = lazy(() => import('@/pages/AdminDashboard'));
 const SubscriptionsAdmin = lazy(() => import('@/pages/SubscriptionsAdmin'));
 const CustomersAdmin = lazy(() => import('@/pages/CustomersAdmin'));
@@ -76,6 +77,7 @@ const AppRoutes = () => {
           <Route path="/destinations" element={<Destinations />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/market-applications" element={<MarketApplications />} />
+          <Route path="/messages" element={<MessageCenter />} />
           <Route path="/admin" element={<PermissionGate permission="dashboard.owner.read"><AdminDashboard /></PermissionGate>} />
           <Route path="/admin/subscriptions" element={<PermissionGate permission="subscriptions.read"><SubscriptionsAdmin /></PermissionGate>} />
           <Route path="/admin/customers" element={<PermissionGate permission="customers.masked.read" ownerOnly><CustomersAdmin /></PermissionGate>} />

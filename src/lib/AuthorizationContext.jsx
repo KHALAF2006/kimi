@@ -11,6 +11,7 @@ const REFERENCE_OWNER_PERMISSIONS = [
   "customers.status.manage",
   "customers.sessions.revoke",
   "customers.notes.manage",
+  "messages.manage",
   "subscriptions.read",
   "subscriptions.manage",
   "plans.manage",

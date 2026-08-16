@@ -40,13 +40,12 @@ export default function MarketAccessSelect({ compact = false, onMarketChange }) 
           {!permitted && <LockKeyhole size={12} aria-hidden="true" />}
         </>;
         const common = {
-          key: market.market_code,
           className: `market-tab market-tab-${visual.tone}${active ? " active" : ""}${permitted ? "" : " locked"}`,
           "aria-label": `${isArabic ? market.name_ar : market.name_en}${permitted ? "" : isArabic ? "، يتطلب اشتراكاً" : ", subscription required"}`,
         };
         return permitted
-          ? <SessionLink {...common} to={`/dashboard?market=${encodeURIComponent(market.market_code)}`} onClick={(event) => selectMarket(event, market.market_code)} aria-current={active ? "page" : undefined}>{content}</SessionLink>
-          : <button {...common} type="button" onClick={(event) => selectMarket(event, market.market_code)} disabled={loading} aria-pressed={false}>{content}</button>;
+          ? <SessionLink key={market.market_code} {...common} to={`/dashboard?market=${encodeURIComponent(market.market_code)}`} onClick={(event) => selectMarket(event, market.market_code)} aria-current={active ? "page" : undefined}>{content}</SessionLink>
+          : <button key={market.market_code} {...common} type="button" onClick={(event) => selectMarket(event, market.market_code)} disabled={loading} aria-pressed={false}>{content}</button>;
       })}
     </nav>
     <Dialog open={Boolean(lockedMarket)} onOpenChange={(open) => !open && setLockedMarket(null)}>

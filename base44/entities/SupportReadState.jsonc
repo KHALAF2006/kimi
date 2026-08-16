@@ -1,0 +1,15 @@
+{
+  "name": "SupportReadState",
+  "type": "object",
+  "properties": {
+    "conversation_id": { "type": "string" },
+    "viewer_auth_user_id": { "type": "string" },
+    "viewer_customer_id": { "type": "string" },
+    "viewer_role": { "type": "string", "enum": ["customer", "staff"] },
+    "last_read_message_id": { "type": "string" },
+    "last_read_at": { "type": "string", "format": "date-time" },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["conversation_id", "viewer_auth_user_id", "viewer_role", "last_read_at", "revision"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

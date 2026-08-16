@@ -4,7 +4,7 @@
   "properties": {
     "recipient_auth_user_id": { "type": "string" },
     "recipient_customer_id": { "type": "string" },
-    "message_type": { "type": "string", "enum": ["registration", "application", "account", "course", "security", "report", "system"] },
+    "message_type": { "type": "string", "enum": ["registration", "application", "account", "course", "security", "report", "system", "support"] },
     "priority": { "type": "string", "enum": ["normal", "important", "critical"], "default": "normal" },
     "title_ar": { "type": "string" },
     "title_en": { "type": "string" },

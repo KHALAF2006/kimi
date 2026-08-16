@@ -169,7 +169,7 @@ assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh"
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
 const allEntityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc")).sort();
 const entityFiles = allEntityFiles.filter((name) => /^[A-Z][A-Za-z0-9]*\.jsonc$/.test(name));
-assert.equal(entityFiles.length, 58, "all 58 identity-preserving Base44 entity schemas must be present");
+assert.equal(entityFiles.length, 61, "all 61 identity-preserving Base44 entity schemas must be present");
 assert.ok(entityFiles.includes("CourseAccessGrant.jsonc"), "independent ten-day course access grants must have a canonical entity");
 assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "duplicate or identity-changing entity schema files must not remain beside the Base44 schemas");
 const entityNames = new Set();
@@ -196,7 +196,7 @@ for (const name of entityFiles) {
 }
 assert.ok(entityNames.has("User"), "the Base44 User extension must be present without redefining built-in fields or permissions");
 const entityNamesLower = new Set([...entityNames].map((name) => name.toLowerCase()));
-for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "QuoteObservation", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "UsageCounter", "Market", "InstrumentAlias", "ProviderInstrumentMap", "TradingPlatform", "MarketAccessApplication", "Message", "NotificationPreference", "Course", "CourseLesson", "PlaybackLease", "ContentSecurityEvent", "CustomerReportSnapshot"]) {
+for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "QuoteObservation", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "UsageCounter", "Market", "InstrumentAlias", "ProviderInstrumentMap", "TradingPlatform", "MarketAccessApplication", "Message", "NotificationPreference", "SupportConversation", "SupportMessage", "SupportReadState", "Course", "CourseLesson", "PlaybackLease", "ContentSecurityEvent", "CustomerReportSnapshot"]) {
   assert.ok(entityNamesLower.has(required.toLowerCase()), `required entity is missing: ${required}`);
 }
 const customerProfile = JSON.parse(await readFile(new URL("../base44/entities/CustomerProfile.jsonc", import.meta.url), "utf8"));
@@ -205,7 +205,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 36, "all 36 backend functions must be present");
+assert.equal(functionNames.length, 37, "all 37 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -790,12 +790,24 @@ for (const fileName of ["adminCustomers", "adminSubscriptions", "adminRoles", "i
 }
 const adminCustomersFunction = await readFile(new URL("../base44/functions/adminCustomers/entry.ts", import.meta.url), "utf8");
 const customersAdminPage = await readFile(new URL("../src/pages/CustomersAdmin.jsx", import.meta.url), "utf8");
+const messageCenterFunction = await readFile(new URL("../base44/functions/messageCenter/entry.ts", import.meta.url), "utf8");
+const messageCenterPage = await readFile(new URL("../src/pages/MessageCenter.jsx", import.meta.url), "utf8");
 assert.match(adminCustomersFunction, /context\.role !== "owner"/, "customer operations must remain owner-only at the backend boundary");
 assert.match(adminCustomersFunction, /customer\.role !== "user"/, "service, staff, and owner profiles must never be managed as customers");
 assert.match(adminCustomersFunction, /filter\(\(customer\) => customer\.role === "user"\)/, "the customer directory must contain actual customer accounts only");
 assert.match(adminCustomersFunction, /MarketAccessApplication\.filter\(\{ customer_id: customer\.id \}\)/, "the customer profile must load the customer's market applications");
-assert.match(adminCustomersFunction, /customer\.message_sent/, "owner messages to customers must be audited");
-assert.match(adminCustomersFunction, /recipient_auth_user_id: customer\.auth_user_id/, "owner messages must be delivered to the selected customer's inbox identity");
+assert.doesNotMatch(adminCustomersFunction, /body\.action === ["']message["']/, "customer operations must not retain a second one-way message sender outside the message center");
+assert.match(customersAdminPage, /\/messages\?customer=/, "the customer profile must open the canonical message center for the selected customer");
+assert.match(messageCenterFunction, /authorizationContext/, "message-center reads and writes must require the centralized authenticated application session");
+assert.match(messageCenterFunction, /conversation\?\.customer_id === context\.profile\.id/, "customer access must be restricted to conversations owned by that customer");
+assert.match(messageCenterFunction, /context\.permissions\.has\(STAFF_PERMISSION\)/, "staff access must require the dedicated backend permission");
+assert.match(messageCenterFunction, /client_message_id/, "message retries must use a persistent idempotency key");
+assert.match(messageCenterFunction, /SupportReadState/, "each customer or staff viewer must have an independent read state");
+assert.match(messageCenterFunction, /support\.customer_replied|support\.staff_replied/, "customer and staff replies must be written to the audit log");
+assert.match(messageCenterFunction, /feed_eligible: false/, "support replies must link to the message center without exposing the message as a floating popup");
+assert.match(messageCenterPage, /role="log"/, "the conversation history must expose sequential updates as an accessible log");
+assert.match(messageCenterPage, /list_conversations/, "the customer and staff page must load the backend-authorized shared inbox");
+assert.match(appRouter, /path="\/messages"/, "the protected application must expose the message-center route");
 assert.match(customersAdminPage, /wa\.me/, "the owner customer profile must provide direct WhatsApp contact");
 assert.match(customersAdminPage, /revoke_sessions/, "the customer action grid must expose the working device sign-out action");
 assert.match(customersAdminPage, /\/admin\/access\?customer=/, "the customer profile must link to market access administration");
@@ -829,7 +841,7 @@ const boundedBodyFunctions = [
   "adminCustomers", "adminMarketData", "adminRoles", "adminSubscriptions", "alertEvaluation",
   "authLogin", "authRegistration", "chartDrawings", "companyIntelligence", "customerSelfService",
   "historicalCandleBackfill", "identityContext", "indicatorEngine", "legacySchemaBridge", "marketIngestion",
-  "marketRead", "marketSignalRefresh", "marketSignalProjectionWorker", "operationsQuality", "screeningWatchlists", "telegramDelivery", "usBenchmarksMarketIngestion", "usBenchmarksSignalRefresh", "usOptionsCompanyIntelligence", "whatsappDelivery",
+  "marketRead", "marketSignalRefresh", "marketSignalProjectionWorker", "messageCenter", "operationsQuality", "screeningWatchlists", "telegramDelivery", "usBenchmarksMarketIngestion", "usBenchmarksSignalRefresh", "usOptionsCompanyIntelligence", "whatsappDelivery",
 ];
 for (const functionName of boundedBodyFunctions) {
   const functionSource = await readFile(new URL(`../base44/functions/${functionName}/entry.ts`, import.meta.url), "utf8");

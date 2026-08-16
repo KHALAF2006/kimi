@@ -191,31 +191,6 @@ Deno.serve(async (req) => {
       return Response.json({ note });
     }
 
-    if (body.action === "message") {
-      await requirePermission(base44, body.session_id, "customers.notes.manage");
-      const reason = reasonFrom(body.reason);
-      const customer = await managedCustomer(base44, body.id);
-      const text = String(body.message || "").trim();
-      if (text.length < 3 || text.length > 1200) bad("A message between 3 and 1200 characters is required", "MESSAGE_REQUIRED");
-      const title = String(body.title || "").trim() || "رسالة من إدارة المستثمر الذكي";
-      if (title.length > 160) bad("Message title is too long", "MESSAGE_TITLE_TOO_LONG");
-      const notification = await base44.asServiceRole.entities.Message.create({
-        recipient_auth_user_id: customer.auth_user_id,
-        recipient_customer_id: customer.id,
-        message_type: "account",
-        priority: body.priority === "important" ? "important" : "normal",
-        title_ar: title,
-        title_en: "A message from Smart Investor",
-        body_ar: text,
-        body_en: text,
-        action_path: "/profile",
-        feed_eligible: true,
-        dedupe_key: `owner-message:${customer.id}:${crypto.randomUUID()}`,
-      });
-      await audit(base44, context.user.id, "customer.message_sent", "Message", notification.id, "success", reason, {}, { customer_id: customer.id, priority: notification.priority });
-      return Response.json({ message_id: notification.id, delivered_to_inbox: true });
-    }
-
     if (body.action === "audit") {
       await requirePermission(base44, body.session_id, "audit.read");
       const logs = await base44.asServiceRole.entities.AuditLog.list("-created_date", Math.min(Math.max(Number(body.limit) || 50, 1), 200));

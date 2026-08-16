@@ -1,7 +1,7 @@
 import React from "react";
 import { Outlet } from "react-router-dom";
 import { SessionNavLink } from "@/components/SessionLink";
-import { BarChart3, Bell, BookOpen, Eye, KeyRound, LogOut, Moon, Search, Settings, ShieldCheck, Sparkles, Sun } from "lucide-react";
+import { BarChart3, Bell, BookOpen, Eye, KeyRound, LogOut, MessageCircleMore, Moon, Search, Settings, ShieldCheck, Sparkles, Sun } from "lucide-react";
 import MarketAccessSelect from "@/components/MarketAccessSelect";
 import { base44 } from "@/api/base44Client";
 import { usePreferences } from "@/lib/preferences";
@@ -20,6 +20,7 @@ export default function SmartInvestorLayout() {
     ["/watchlists", text.watchlists, Eye],
     ["/alerts", text.alerts, Bell],
     ["/profile", text.account, Settings],
+    ["/messages", isArabic ? "الرسائل" : "Messages", MessageCircleMore],
     ["/market-applications", isArabic ? "طلبات الأسواق" : "Market access", KeyRound],
     ["/courses", isArabic ? "الدورات" : "Courses", BookOpen],
   ];

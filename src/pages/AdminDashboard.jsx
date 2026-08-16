@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { SessionLink } from "@/components/SessionLink";
-import { Activity, BellRing, Database, FileClock, ShieldCheck, UserRoundCog, UsersRound, WalletCards } from "lucide-react";
+import { Activity, BellRing, Database, FileClock, MessageCircleMore, ShieldCheck, UserRoundCog, UsersRound, WalletCards } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import StatusPanel from "@/components/StatusPanel";
 import { invokeAppFunction, isReferencePreview } from "@/services/marketService";
@@ -8,6 +8,7 @@ import { useAuthorization } from "@/lib/AuthorizationContext";
 
 const navigation = [
   { to: "/admin/customers", label: "العملاء", description: "الملف الشامل والحالة والجلسات والملاحظات", permission: "customers.masked.read", icon: UsersRound },
+  { to: "/messages", label: "مركز الرسائل", description: "محادثات العملاء وصندوق الفريق المشترك", permission: "messages.manage", icon: MessageCircleMore },
   { to: "/admin/access", label: "طلبات الوصول والمنصات", description: "قبول العملاء وربط كل منصة بسوق واحد", permission: "customers.full.read", icon: ShieldCheck },
   { to: "/admin/courses", label: "الدورات والفيديو", description: "رفع المقاطع ونشر الدورات العامة والخاصة", permission: "settings.manage", icon: FileClock },
   { to: "/admin/subscriptions", label: "الاشتراكات والخطط", description: "التفعيل اليدوي والحدود ودورة الحياة", permission: "subscriptions.read", icon: WalletCards },

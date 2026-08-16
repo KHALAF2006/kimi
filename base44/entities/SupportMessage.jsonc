@@ -1,0 +1,15 @@
+{
+  "name": "SupportMessage",
+  "type": "object",
+  "properties": {
+    "conversation_id": { "type": "string" },
+    "sender_auth_user_id": { "type": "string" },
+    "sender_customer_id": { "type": "string" },
+    "sender_role": { "type": "string", "enum": ["customer", "staff", "system"] },
+    "sender_name": { "type": "string" },
+    "body": { "type": "string" },
+    "client_message_id": { "type": "string" }
+  },
+  "required": ["conversation_id", "sender_auth_user_id", "sender_role", "sender_name", "body", "client_message_id"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

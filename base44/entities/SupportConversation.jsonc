@@ -1,0 +1,24 @@
+{
+  "name": "SupportConversation",
+  "type": "object",
+  "properties": {
+    "customer_id": { "type": "string" },
+    "customer_auth_user_id": { "type": "string" },
+    "customer_name": { "type": "string" },
+    "customer_number": { "type": "string" },
+    "subject": { "type": "string" },
+    "category": { "type": "string", "enum": ["general", "account", "subscription", "market_access", "technical"], "default": "general" },
+    "status": { "type": "string", "enum": ["open", "pending_customer", "pending_staff", "resolved", "closed"], "default": "open" },
+    "priority": { "type": "string", "enum": ["normal", "important", "urgent"], "default": "normal" },
+    "assigned_staff_auth_user_id": { "type": "string" },
+    "last_message_at": { "type": "string", "format": "date-time" },
+    "last_message_preview": { "type": "string" },
+    "last_sender_auth_user_id": { "type": "string" },
+    "last_sender_role": { "type": "string", "enum": ["customer", "staff", "system"] },
+    "resolved_at": { "type": "string", "format": "date-time" },
+    "closed_at": { "type": "string", "format": "date-time" },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["customer_id", "customer_auth_user_id", "customer_name", "subject", "category", "status", "priority", "last_message_at", "last_message_preview", "last_sender_auth_user_id", "last_sender_role", "revision"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

@@ -14,6 +14,7 @@ const ROUTES = {
   "/destinations": ["قنوات التنبيه", "Alert channels"],
   "/profile": ["الحساب", "Account"],
   "/market-applications": ["طلبات الأسواق", "Market access"],
+  "/messages": ["مركز الرسائل", "Message center"],
   "/courses": ["الدورات والتدريب", "Courses and training"],
   "/admin": ["الإدارة", "Administration"],
   "/admin/subscriptions": ["الاشتراكات والخطط", "Subscriptions and plans"],
