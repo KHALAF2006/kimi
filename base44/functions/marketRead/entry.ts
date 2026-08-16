@@ -5893,9 +5893,8 @@ async function sectorResponse(base44, body, sourceById) {
     constituents
   };
 }
-const SECTOR_CHART_SNAPSHOT_TTL_MS = 60 * 1000;
-function sectorChartSnapshotKey(marketCode, sector, interval, range, lookbackDays) {
-  return [normalizedMarketCode(marketCode), String(sector || "").trim(), interval, range, lookbackDays].join("|");
+function sectorChartSnapshotKey(marketCode, sector, interval) {
+  return [normalizedMarketCode(marketCode), String(sector || "").trim(), interval].join("|");
 }
 async function readSectorChartSnapshots(base44, snapshotKey) {
   return optionalRows(
@@ -5904,19 +5903,55 @@ async function readSectorChartSnapshots(base44, snapshotKey) {
   );
 }
 async function persistSectorChartSnapshot(base44, row, existingRows) {
-  try {
-    const current = existingRows[0] || null;
-    if (current?.id) await base44.asServiceRole.entities.SectorChartSnapshot.update(current.id, row);
-    else await base44.asServiceRole.entities.SectorChartSnapshot.create(row);
-    const duplicateIds = existingRows.slice(1).map((item) => item.id).filter(Boolean);
-    if (duplicateIds.length) {
-      await Promise.allSettled(duplicateIds.map((id) => base44.asServiceRole.entities.SectorChartSnapshot.delete(id)));
-    }
-  } catch (error) {
-    console.warn("sector_chart_snapshot_write_failed", error?.message || error);
+  const current = existingRows[0] || null;
+  if (current?.id) await base44.asServiceRole.entities.SectorChartSnapshot.update(current.id, row);
+  else await base44.asServiceRole.entities.SectorChartSnapshot.create(row);
+  const duplicateIds = existingRows.slice(1).map((item) => item.id).filter(Boolean);
+  if (duplicateIds.length) {
+    await Promise.allSettled(duplicateIds.map((id) => base44.asServiceRole.entities.SectorChartSnapshot.delete(id)));
   }
 }
-async function sectorChartResponse(base44, body) {
+function sectorChartPayloadForRange(payload, interval, range, lookbackDays) {
+  const storedCandles = Array.isArray(payload?.candles) ? payload.candles : [];
+  const latestTime = Math.max(...storedCandles.map((bar) => new Date(bar.time).getTime()).filter(Number.isFinite));
+  if (!Number.isFinite(latestTime)) {
+    throw Object.assign(new Error("Sector chart snapshot is not ready"), { status: 503, code: "SECTOR_CHART_SNAPSHOT_NOT_READY" });
+  }
+  const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : latestTime - RANGE_MILLISECONDS[range];
+  const candles = storedCandles.filter((bar) => new Date(bar.time).getTime() >= cutoff);
+  if (candles.length < 2) {
+    throw Object.assign(new Error("Sector chart snapshot does not cover the requested range"), { status: 503, code: "SECTOR_CHART_RANGE_NOT_READY" });
+  }
+  const rangeMetadata = candleRangeMetadata(storedCandles, interval, range, range === "max");
+  const calculatedAt = payload.calculated_at || new Date().toISOString();
+  const momentumIndicator = calculateMomentumZones(candles, lookbackDays, Number.POSITIVE_INFINITY, interval);
+  return {
+    ...payload,
+    candles,
+    momentum_indicator: momentumIndicator ? {
+      indicator_key: "momentum_zones",
+      timeframe: interval,
+      values: momentumIndicator,
+      source_as_of: candles.at(-1)?.time || null,
+      calculated_at: calculatedAt,
+      formula_version: MOMENTUM_FORMULA_VERSION,
+    } : null,
+    as_of: candles.at(-1)?.time || null,
+    data_meta: {
+      requested_interval: interval,
+      requested_range: range,
+      requested_from: rangeMetadata.requestedFrom,
+      available_from: rangeMetadata.availableFrom,
+      available_to: rangeMetadata.availableTo,
+      available_ranges: rangeMetadata.availableRanges,
+      range_complete: rangeMetadata.complete,
+      returned_bar_count: candles.length,
+      stored_bar_count: storedCandles.length,
+      storage_mode: "central_sector_snapshot",
+    },
+  };
+}
+async function sectorChartResponse(base44, body, { refreshSnapshot = false } = {}) {
   const { requestedMarket, sector, instruments } = await sectorInstruments(base44, body);
   const interval = String(body.interval || "1d");
   const range = String(body.range || "3mo");
@@ -5924,13 +5959,13 @@ async function sectorChartResponse(base44, body) {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
   const lookbackDays = Math.min(30, Math.max(6, Math.round(Number(body.lookback_days) || 20)));
-  const snapshotKey = sectorChartSnapshotKey(requestedMarket, sector, interval, range, lookbackDays);
+  const snapshotKey = sectorChartSnapshotKey(requestedMarket, sector, interval);
   const snapshotRows = await readSectorChartSnapshots(base44, snapshotKey);
-  const freshSnapshot = snapshotRows.find((item) =>
-    item?.payload
-    && new Date(item.expires_at).getTime() > Date.now()
-  );
-  if (freshSnapshot) return freshSnapshot.payload;
+  const storedSnapshot = snapshotRows.find((item) => item?.payload);
+  if (!refreshSnapshot) {
+    if (storedSnapshot) return sectorChartPayloadForRange(storedSnapshot.payload, interval, range, lookbackDays);
+    throw Object.assign(new Error("Sector chart snapshot is not ready"), { status: 503, code: "SECTOR_CHART_SNAPSHOT_NOT_READY" });
+  }
   const quotes = entityRows(await entityReadWithRetry(() => base44.asServiceRole.entities.QuoteLatest.filter({ market_code: requestedMarket, instrument_id: { $in: instruments.map((instrument) => instrument.id) } }, "-quote_time", 1000)));
   const quoteByInstrument = new Map();
   for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
@@ -6006,19 +6041,24 @@ async function sectorChartResponse(base44, body) {
       stored_bar_count: coverageTimeline.length
     }
   };
+  const storedPayload = {
+    ...payload,
+    calculated_at: calculatedAt,
+    data_meta: {
+      ...payload.data_meta,
+      storage_mode: "central_sector_snapshot",
+    },
+  };
   await persistSectorChartSnapshot(base44, {
     snapshot_key: snapshotKey,
     market_code: requestedMarket,
     sector,
     interval,
-    range,
-    lookback_days: lookbackDays,
-    payload,
+    payload: storedPayload,
     source_as_of: payload.as_of,
     calculated_at: calculatedAt,
-    expires_at: new Date(Date.now() + SECTOR_CHART_SNAPSHOT_TTL_MS).toISOString(),
   }, snapshotRows);
-  return payload;
+  return storedPayload;
 }
 Deno.serve(async (req) => {
   let requestDetails = {};
