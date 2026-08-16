@@ -25,6 +25,12 @@ function cspInlineScriptHashes() {
 
 // https://vite.dev/config/
 export default defineConfig({
+  resolve: {
+    // Base44's development plugin can traverse its own dependency graph.
+    // Force every hook and renderer import back to the application's React
+    // instance so local/preview testing cannot fail with duplicate dispatchers.
+    dedupe: ['react', 'react-dom'],
+  },
   server: {
     proxy: {
       '/reference-api': {

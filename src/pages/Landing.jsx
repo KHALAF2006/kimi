@@ -46,7 +46,7 @@ export default function Landing() {
 
   useEffect(() => {
     let activeRequest = true;
-    Promise.resolve(base44.functions.invoke("trainingContent", { action: "public_list" }))
+    Promise.resolve().then(() => base44.functions.invoke("trainingContent", { action: "public_list" }))
       .then((response) => {
         if (activeRequest) setTraining({ loading: false, courses: response.data?.courses || [], lessons: response.data?.lessons || {} });
       })

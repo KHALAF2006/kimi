@@ -307,6 +307,9 @@ const authLayout = await readFile(new URL("../src/components/AuthLayout.jsx", im
 const siteStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
 const registrationState = await readFile(new URL("../base44/shared/registrationState.mjs", import.meta.url), "utf8");
 const registrationLease = await readFile(new URL("../base44/shared/registrationLease.mjs", import.meta.url), "utf8");
+assert.match(landingCoursesPage, /Promise\.resolve\(\)\.then\(\(\) => base44\.functions\.invoke\(["']trainingContent["']/, "public training discovery must turn synchronous SDK failures into the existing recoverable loading state");
+assert.match(loginPage, /Promise\.resolve\(\)\.then\(\(\) => base44\.functions\.invoke\(["']authRegistration["']/, "login status discovery must catch synchronous SDK failures instead of crashing the page");
+assert.match(registerPage, /Promise\.resolve\(\)\.then\(\(\) => base44\.functions\.invoke\(["']registrationCatalog["']/, "registration catalog discovery must catch synchronous SDK failures instead of crashing the page");
 assert.match(loginPage, /awaitingApproval \?/, "a pending owner application must be separated from the active-customer OTP journey");
 assert.match(loginPage, /No sign-in code or market access will be issued before approval/, "pending login copy must describe the real approval state without promising an email");
 assert.doesNotMatch(accessAdminPage, /window\.prompt|window\.alert/, "owner decisions must use the accessible in-app dialog instead of browser prompts");
@@ -1039,6 +1042,7 @@ assert.equal(frontendBroken.zones[0].role, "resistance", "the compatibility calc
 assert.equal(frontendBroken.zones[0].displayStop, null, "frontend normalization must not revive a removed stop");
 
 const viteConfig = await readFile(new URL("../vite.config.js", import.meta.url), "utf8");
+assert.match(viteConfig, /dedupe:\s*\[['"]react['"],\s*['"]react-dom['"]\]/, "local and preview builds must resolve every React hook through one dispatcher");
 assert.match(viteConfig, /path\.replace\(\/\^\\\/reference-api\/,\s*['\"]['\"]\)/, "reference proxy must only strip its prefix");
 assert.doesNotMatch(viteConfig, /path\.replace\(\/\^\\\/reference-api\/,\s*['\"]\/api['\"]\)/, "reference proxy must not duplicate the /api prefix");
 

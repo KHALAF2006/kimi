@@ -162,7 +162,7 @@ export default function Register() {
     }).catch(() => setAuthenticated(false));
   }, []);
   useEffect(() => {
-    Promise.resolve(base44.functions.invoke("registrationCatalog", {})).then((response) => setCatalog(response?.data || { platforms: [] })).catch((issue) => {
+    Promise.resolve().then(() => base44.functions.invoke("registrationCatalog", {})).then((response) => setCatalog(response?.data || { platforms: [] })).catch((issue) => {
       setCatalog({ platforms: [] });
       setError(apiError(issue, language === "ar" ? "تعذر تحميل منصات التداول. أعد المحاولة." : "Unable to load trading platforms. Please try again.", language));
     });

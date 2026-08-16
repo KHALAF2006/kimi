@@ -40,7 +40,7 @@ export default function Login() {
     if (!appAuthenticated) { setRegistration(null); return; }
     let active = true;
     setCheckingStatus(true);
-    Promise.resolve(base44.functions.invoke("authRegistration", { action: "status" }))
+    Promise.resolve().then(() => base44.functions.invoke("authRegistration", { action: "status" }))
       .then((response) => { if (active) setRegistration(response.data || null); })
       .catch((issue) => { if (active) setError(localizedAccessError(issue, language, t.error)); })
       .finally(() => { if (active) setCheckingStatus(false); });
