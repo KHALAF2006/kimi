@@ -13,6 +13,12 @@ export const PROVIDER_FRESHNESS_GRACE_SECONDS = MARKET_REFRESH_CADENCE_SECONDS
 export const EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
 export const PUBLIC_CANDLE_OVERLAP_MILLISECONDS = 15 * 60 * 1000;
 export const PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS = 8 * 24 * 60 * 60 * 1000;
+const SAUDI_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Riyadh",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
 export function historicalProviderDateTime(value) {
   const date = String(value || "").slice(0, 10);
@@ -26,12 +32,7 @@ export function yahooHistoricalDateTime(value) {
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
   const instant = new Date(seconds * 1000);
   if (!Number.isFinite(instant.getTime())) return null;
-  const date = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Riyadh",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(instant);
+  const date = SAUDI_DATE_FORMATTER.format(instant);
   return historicalProviderDateTime(date);
 }
 
@@ -165,6 +166,17 @@ export const MARKET_AUTOMATION_SPECS = Object.freeze([
 ]);
 
 const RIYADH_TIMEZONE = "Asia/Riyadh";
+const RIYADH_CLOCK_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: RIYADH_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
 const TRADING_WEEKDAYS = new Set(["Sun", "Mon", "Tue", "Wed", "Thu"]);
 
 export function groupRowsByKey(rows, keyFor) {
@@ -183,17 +195,26 @@ export function groupRowsByKey(rows, keyFor) {
 }
 
 const SAUDI_CANDLE_OPTIONS = Object.freeze({ timeZone: "Asia/Riyadh", sessionStartMinutes: 600, weekStartsOn: 0 });
+const MARKET_CLOCK_FORMATTERS = new Map();
+
+function marketClockFormatter(timeZone) {
+  const key = String(timeZone || SAUDI_CANDLE_OPTIONS.timeZone);
+  if (!MARKET_CLOCK_FORMATTERS.has(key)) {
+    MARKET_CLOCK_FORMATTERS.set(key, new Intl.DateTimeFormat("en-CA", {
+      timeZone: key,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }));
+  }
+  return MARKET_CLOCK_FORMATTERS.get(key);
+}
 
 function marketClockParts(value, timeZone) {
-  return Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(value).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return Object.fromEntries(marketClockFormatter(timeZone).formatToParts(value).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
 }
 
 function candleBucket(value, interval, options = SAUDI_CANDLE_OPTIONS) {
@@ -380,17 +401,7 @@ function isoTime(value, fieldName) {
 }
 
 export function riyadhClock(now = new Date()) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
-    timeZone: RIYADH_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  const parts = Object.fromEntries(RIYADH_CLOCK_FORMATTER.formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
   return {
     date: `${parts.year}-${parts.month}-${parts.day}`,
     weekday: parts.weekday,

@@ -57,6 +57,17 @@ var EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
 var PUBLIC_CANDLE_OVERLAP_MILLISECONDS = 15 * 60 * 1e3;
 var PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS = 8 * 24 * 60 * 60 * 1e3;
 var RIYADH_TIMEZONE = "Asia/Riyadh";
+var RIYADH_CLOCK_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: RIYADH_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23"
+});
 var TRADING_WEEKDAYS = /* @__PURE__ */ new Set(["Sun", "Mon", "Tue", "Wed", "Thu"]);
 function groupRowsByKey(rows, keyFor) {
   const grouped = /* @__PURE__ */ new Map();
@@ -91,17 +102,7 @@ function isoTime(value, fieldName) {
   return new Date(milliseconds).toISOString();
 }
 function riyadhClock(now = /* @__PURE__ */ new Date()) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
-    timeZone: RIYADH_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23"
-  }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  const parts = Object.fromEntries(RIYADH_CLOCK_FORMATTER.formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
   return {
     date: `${parts.year}-${parts.month}-${parts.day}`,
     weekday: parts.weekday,

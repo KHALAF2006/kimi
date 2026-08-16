@@ -315,6 +315,12 @@ var PROVIDER_FRESHNESS_GRACE_SECONDS = MARKET_REFRESH_CADENCE_SECONDS + INGESTIO
 var EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
 var PUBLIC_CANDLE_OVERLAP_MILLISECONDS = 15 * 60 * 1e3;
 var PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS = 8 * 24 * 60 * 60 * 1e3;
+var SAUDI_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Riyadh",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit"
+});
 function historicalProviderDateTime(value) {
   const date = String(value || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
@@ -326,12 +332,7 @@ function yahooHistoricalDateTime(value) {
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
   const instant = new Date(seconds * 1e3);
   if (!Number.isFinite(instant.getTime())) return null;
-  const date = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Riyadh",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(instant);
+  const date = SAUDI_DATE_FORMATTER.format(instant);
   return historicalProviderDateTime(date);
 }
 function normalizeYahooHistoricalBars(payload, requestedFrom, requestedTo) {
@@ -407,6 +408,18 @@ var MARKET_AUTOMATION_SPECS = Object.freeze([
   { name: "saudi_close_price_1526_riyadh", cron: "26 12 * * 0-4", slotKind: "close_price", active: false },
   { name: "saudi_session_final_1536_riyadh", cron: "36 12 * * 0-4", slotKind: "session_final", active: false }
 ]);
+var RIYADH_TIMEZONE = "Asia/Riyadh";
+var RIYADH_CLOCK_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: RIYADH_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23"
+});
 var SAUDI_CANDLE_OPTIONS = Object.freeze({ timeZone: "Asia/Riyadh", sessionStartMinutes: 600, weekStartsOn: 0 });
 var QUARTER_HOUR_MILLISECONDS = 15 * 60 * 1e3;
 

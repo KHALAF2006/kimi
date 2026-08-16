@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { build } from "esbuild";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 async function importTypeScriptModule(relativePath) {
@@ -18,6 +19,10 @@ async function importTypeScriptModule(relativePath) {
 }
 
 const marketDataModule = await importTypeScriptModule("./base44/shared/market-data.ts");
+const marketDataSource = await readFile(path.resolve("./base44/shared/market-data.ts"), "utf8");
+assert.match(marketDataSource, /const MARKET_CLOCK_FORMATTERS = new Map\(\)/, "market clock formatters must be reused instead of reconstructed per candle");
+assert.match(marketDataSource, /RIYADH_CLOCK_FORMATTER\.formatToParts\(now\)/, "the ingestion clock must reuse its Riyadh formatter");
+assert.doesNotMatch(marketDataSource, /function marketClockParts[\s\S]{0,120}new Intl\.DateTimeFormat/, "candle aggregation must not allocate an Intl formatter for each bar");
 const technicalSignalsModule = await importTypeScriptModule("./base44/shared/technical-signals.ts");
 const momentumModule = await importTypeScriptModule("./base44/shared/momentum.ts");
 
