@@ -70,6 +70,12 @@ assert.match(ingestion, /trigger_observed_at:/, "Saudi alert events must persist
 assert.match(ingestion, /AlertRule\.filter\(\{ market_code: "SA_MAIN", enabled: true \}/, "Saudi alert evaluation must read only active rules for its own market");
 assert.match(ingestion, /DeliveryEvent\.bulkCreate\(missing\)/, "Saudi alert delivery deduplication must create missing events in one bounded batch");
 assert.match(ingestion, /\["telegram", "whatsapp"\]\.includes\(item\.channel\)/, "scheduled alert delivery must not queue email campaigns into channel delivery");
+assert.match(ingestion, /SUSPENDED_INSTRUMENTS = new Map\(\[/, "officially suspended Saudi instruments must have an explicit canonical state");
+assert.match(ingestion, /\["2210", \{ since: "2026-04-30"/, "Nama Chemicals suspension must retain the official effective date");
+assert.match(ingestion, /quality_status: "stale"/, "a suspended instrument reference price must never be presented as current");
+assert.match(ingestion, /instrument\.status !== "suspended"/, "suspended instruments must be excluded from live-feed coverage");
+assert.match(ingestion, /symbol === "TASI" \? "\^TASI\.SR"/, "TASI must use the provider's actual chart symbol");
+assert.match(ingestion, /providerInstruments\.map\(\(instrument\) => instrument\.symbol\)/, "public chart ingestion must include the market index alongside tradable companies");
 
 const deliveryEventSchema = JSON.parse(await readFile(new URL("../base44/entities/DeliveryEvent.jsonc", import.meta.url), "utf8"));
 assert.equal(deliveryEventSchema.properties.trigger_price.type, "number", "delivery events must own an immutable trigger-price snapshot");

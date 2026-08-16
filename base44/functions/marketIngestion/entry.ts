@@ -433,7 +433,7 @@ function normalizePublicDelayedCharts(chartResults, contextsBySymbol = /* @__PUR
     const low = Math.min(...currentBars.map((bar) => bar.low));
     const volume = currentBars.reduce((sum, bar) => sum + nonNegativeNumber(bar.volume), 0);
     const changePercent = (last.close - previousClose) / previousClose * 100;
-    const providerSymbol = `${symbol}.SR`;
+    const providerSymbol = publicProviderSymbol(symbol);
     const metaTradeTime = new Date(Number(item?.result?.meta?.regularMarketTime) * 1e3);
     const lastTradeTime = Number.isFinite(metaTradeTime.getTime()) && riyadhClock(metaTradeTime).date === sessionDate && metaTradeTime.getTime() >= new Date(last.time).getTime() ? metaTradeTime.toISOString() : last.time;
     quotes.push({
@@ -486,7 +486,7 @@ async function fetchPublicDelayedCharts({
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMilliseconds);
       try {
-        const providerSymbol = `${symbol}.SR`;
+        const providerSymbol = publicProviderSymbol(symbol);
         const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(providerSymbol)}`);
         url.searchParams.set("interval", "15m");
         const context = contextForSymbol(contextsBySymbol, symbol);
@@ -5804,6 +5804,13 @@ function replyError(error) {
 }
 var SAUDI_PROFILE = "https://www.saudiexchange.sa/wps/portal/saudiexchange/hidden/company-profile-main?companySymbol=";
 var MAIN_MARKET_SYMBOLS = new Set(official_main_market_catalog_2026_07_21_default.companies.map((company) => company.symbol));
+// Saudi Exchange announced that 2210 trading was suspended from 2026-04-30
+// after the issuer missed its statutory financial-results deadline. Keep this
+// separate from the immutable official catalog snapshot so an absent live bar
+// is represented as a suspension, never as provider failure or a fake candle.
+var SUSPENDED_INSTRUMENTS = new Map([
+  ["2210", { since: "2026-04-30", official_url: "https://www.saudiexchange.sa/wps/portal/saudiexchange/newsandreports/issuer-news/issuer-announcements/issuer-announcements-details/?anCat=1&anId=95249&cs=2210&locale=en" }]
+]);
 var TASI_INSTRUMENT = {
   symbol: "TASI",
   market_code: "SA_MAIN",
@@ -5868,9 +5875,63 @@ function exactInstrument(row) {
     sector_en: row.sectorEn,
     market: "Saudi Main Market",
     currency: "SAR",
-    status: "active",
+    status: SUSPENDED_INSTRUMENTS.has(row.symbol) ? "suspended" : "active",
     official_url: SAUDI_PROFILE + row.symbol
   };
+}
+function publicProviderSymbol(symbol) {
+  return symbol === "TASI" ? "^TASI.SR" : `${symbol}.SR`;
+}
+async function reconcileInstrumentTradingStatuses(base44, instruments) {
+  const updates = [];
+  for (const instrument of instruments) {
+    const expected = SUSPENDED_INSTRUMENTS.has(instrument.symbol) ? "suspended" : "active";
+    if (instrument.status !== expected) updates.push({ id: instrument.id, status: expected });
+    instrument.status = expected;
+  }
+  await bulkUpdateUnique(base44.asServiceRole.entities.Instrument, updates);
+  return instruments;
+}
+async function ensureSuspendedReferenceQuotes(base44, instruments, sourceId) {
+  const suspended = instruments.filter((instrument) => instrument.status === "suspended");
+  if (!suspended.length) return;
+  const existing = await base44.asServiceRole.entities.QuoteLatest.filter({
+    instrument_id: { $in: suspended.map((instrument) => instrument.id) },
+    market_code: "SA_MAIN"
+  }, "-provider_as_of", suspended.length);
+  const existingIds = new Set(existing.map((quote) => quote.instrument_id));
+  const catalogBySymbol = new Map(official_main_market_catalog_2026_07_21_default.companies.map((row) => [row.symbol, row]));
+  const rows = suspended.filter((instrument) => !existingIds.has(instrument.id)).map((instrument) => {
+    const reference = catalogBySymbol.get(instrument.symbol)?.officialQuote || {};
+    const lastPrice = positiveNumber(reference.lastPrice);
+    if (!lastPrice) return null;
+    return {
+      instrument_id: instrument.id,
+      market_code: "SA_MAIN",
+      session_date: official_main_market_catalog_2026_07_21_default.quoteTime.slice(0, 10),
+      symbol: instrument.symbol,
+      last_price: lastPrice,
+      previous_close: lastPrice,
+      change_value: 0,
+      change_percent: 0,
+      volume: nonNegativeNumber(reference.volume),
+      traded_value: nonNegativeNumber(reference.tradedValue),
+      market_cap: nonNegativeNumber(reference.marketCap),
+      source_id: sourceId,
+      source_time: official_main_market_catalog_2026_07_21_default.quoteTime,
+      provider_as_of: official_main_market_catalog_2026_07_21_default.quoteTime,
+      received_time: new Date().toISOString(),
+      delay_seconds: 0,
+      license_status: "suspended",
+      quote_time: official_main_market_catalog_2026_07_21_default.quoteTime,
+      quality_status: "stale",
+      freshness_status: "stale",
+      market_phase: "closed",
+      is_final: true,
+      snapshot_version: `official-suspended-${instrument.symbol}-${official_main_market_catalog_2026_07_21_default.quoteTime.slice(0, 10)}`
+    };
+  }).filter(Boolean);
+  if (rows.length) await base44.asServiceRole.entities.QuoteLatest.bulkCreate(rows);
 }
 function lossClassification(row, instrumentId, sourceId) {
   const level = row.warningFlag || "none";
@@ -6316,6 +6377,7 @@ Deno.serve(async (req) => {
     if (instruments.length !== EXPECTED_INSTRUMENT_COUNT) {
       throw ingestionFailure(`Verified main-market catalog is incomplete: ${instruments.length}/${EXPECTED_INSTRUMENT_COUNT}`, "MARKET_CATALOG_INCOMPLETE");
     }
+    await reconcileInstrumentTradingStatuses(base44, instruments);
     if (tasi) {
       await upsertMany(base44, "InstrumentAlias", [
         { instrument_id: tasi.id, market_code: "SA_MAIN", alias: "TASI", alias_type: "symbol", normalized_alias: "tasi", active: true },
@@ -6335,6 +6397,7 @@ Deno.serve(async (req) => {
       base_url: official_main_market_catalog_2026_07_21_default.sourceUrl,
       last_verified_at: official_main_market_catalog_2026_07_21_default.quoteTime
     });
+    await ensureSuspendedReferenceQuotes(base44, instruments, officialSource.id);
     const bySymbol = new Map(instruments.map((row) => [row.symbol, row]));
     const lossRows = official_main_market_catalog_2026_07_21_default.companies.map((row) => lossClassification(row, bySymbol.get(row.symbol)?.id, officialSource.id)).filter((row) => row.instrument_id);
     const existingLossRows = await base44.asServiceRole.entities.LossClassification.list("instrument_id", 500);
@@ -6343,6 +6406,9 @@ Deno.serve(async (req) => {
       stage = "loss_classification_upsert";
       await upsertMany(base44, "LossClassification", lossRows, ["instrument_id"]);
     }
+    const tradableInstruments = instruments.filter((instrument) => instrument.status !== "suspended");
+    const providerInstruments = [...tradableInstruments, ...(tasi ? [tasi] : [])];
+    const expectedFeedCount = providerInstruments.length;
     const mappings = useLicensedProvider
       ? (await base44.asServiceRole.entities.ProviderInstrumentMap.filter({
         market_code: marketCode,
@@ -6350,10 +6416,10 @@ Deno.serve(async (req) => {
         quote_mode: "delayed",
         license_status: "approved",
         active: true
-      })).filter((mapping) => instruments.some((instrument) => instrument.id === mapping.instrument_id))
-      : instruments.map((instrument) => ({
+      })).filter((mapping) => providerInstruments.some((instrument) => instrument.id === mapping.instrument_id))
+      : providerInstruments.map((instrument) => ({
         instrument_id: instrument.id,
-        provider_symbol: `${instrument.symbol}.SR`
+        provider_symbol: publicProviderSymbol(instrument.symbol)
       }));
     stage = "ingestion_run_create";
     run = await base44.asServiceRole.entities.IngestionRun.create({
@@ -6364,9 +6430,9 @@ Deno.serve(async (req) => {
       scheduled_for: now.toISOString(),
       started_at: now.toISOString(),
       lease_expires_at: new Date(now.getTime() + INGESTION_LEASE_MS).toISOString(),
-      total_records: EXPECTED_INSTRUMENT_COUNT,
+      total_records: expectedFeedCount,
       success_count: 0,
-      failed_count: EXPECTED_INSTRUMENT_COUNT,
+      failed_count: expectedFeedCount,
       coverage_percent: 0,
       attempt_count: 0,
       status: "running",
@@ -6396,11 +6462,11 @@ Deno.serve(async (req) => {
       }]);
       throw ingestionFailure("Licensed market-data redistribution is not approved", "MARKET_LICENSE_NOT_APPROVED");
     }
-    if (useLicensedProvider && mappings.length !== EXPECTED_INSTRUMENT_COUNT) {
+    if (useLicensedProvider && mappings.length !== expectedFeedCount) {
       await recordQualityIssues(base44, provider.id, run.id, "", [{
         issue_type: "provider_mapping_incomplete",
         severity: "critical",
-        message: `Approved provider mappings are incomplete: ${mappings.length}/${EXPECTED_INSTRUMENT_COUNT}`
+        message: `Approved provider mappings are incomplete: ${mappings.length}/${expectedFeedCount}`
       }]);
       throw ingestionFailure("Provider instrument mapping is incomplete", "PROVIDER_MAPPING_INCOMPLETE");
     }
@@ -6408,16 +6474,16 @@ Deno.serve(async (req) => {
     const candleState = await loadCurrentCandleState(
       base44,
       schedule.clock.date,
-      instruments.map((instrument) => instrument.id),
+      providerInstruments.map((instrument) => instrument.id),
       marketCode
     );
     const candleContexts = buildPublicCandleContexts({
-      instruments,
+      instruments: providerInstruments,
       quotes: candleState.quotes,
       chunks: candleState.chunks,
       sessionDate: schedule.clock.date
     });
-    const symbolByInstrumentId = new Map(instruments.map((instrument) => [instrument.id, instrument.symbol]));
+    const symbolByInstrumentId = new Map(providerInstruments.map((instrument) => [instrument.id, instrument.symbol]));
     let payload;
     let attemptCount = 0;
     let requestModes = { incremental: 0, bootstrap: 0, backfill: 0, gap_recovery: 0 };
@@ -6443,12 +6509,12 @@ Deno.serve(async (req) => {
         attemptCount = providerResult.attemptCount;
       } else {
         const providerResult = await fetchPublicDelayedCharts({
-          symbols: instruments.map((instrument) => instrument.symbol),
+          symbols: providerInstruments.map((instrument) => instrument.symbol),
           contextsBySymbol: candleContexts,
           now
         });
         payload = providerResult.payload;
-        attemptCount = Math.max(1, Math.ceil(providerResult.requestCount / instruments.length));
+        attemptCount = Math.max(1, Math.ceil(providerResult.requestCount / providerInstruments.length));
         requestModes = providerResult.requestModes;
       }
     } catch (error) {
@@ -6469,7 +6535,7 @@ Deno.serve(async (req) => {
     const normalized = normalizeLicensedSnapshot({
       payload,
       mappings,
-      instruments,
+      instruments: providerInstruments,
       sourceId: provider.id,
       runId: run.id,
       snapshotVersion,
@@ -6477,7 +6543,7 @@ Deno.serve(async (req) => {
       slotKind,
       validationMode: useLicensedProvider ? "licensed_t15" : "experimental_public"
     });
-    const coverage = coverageStatus(normalized.accepted.length, EXPECTED_INSTRUMENT_COUNT);
+    const coverage = coverageStatus(normalized.accepted.length, expectedFeedCount);
     if (!await renewOwnedIngestionLease(base44, run)) {
       return Response.json({ status: "skipped", reason: "slot_lease_superseded", slot_key: slotKey });
     }
@@ -6497,9 +6563,9 @@ Deno.serve(async (req) => {
     stage = "quote_latest_upsert";
     await upsertMany(base44, "QuoteLatest", normalized.accepted, ["instrument_id"]);
     stage = "missing_quote_mark_stale";
-    await markMissingQuotesStale(base44, instruments.map((instrument) => instrument.id), normalized.accepted, marketCode);
+    await markMissingQuotesStale(base44, providerInstruments.map((instrument) => instrument.id), normalized.accepted, marketCode);
     stage = "candle_chunk_upsert";
-    const candleChunks = await providerCandleChunks(payload, mappings, instruments, provider.id, schedule.clock.date, {
+    const candleChunks = await providerCandleChunks(payload, mappings, providerInstruments, provider.id, schedule.clock.date, {
       runId: run.id,
       snapshotVersion,
       providerAsOf: normalized.providerAsOf,
@@ -6522,7 +6588,7 @@ Deno.serve(async (req) => {
       finished_at: finishedAt,
       provider_as_of: normalized.providerAsOf,
       snapshot_version: snapshotVersion,
-      total_records: EXPECTED_INSTRUMENT_COUNT,
+      total_records: expectedFeedCount,
       success_count: normalized.accepted.length,
       failed_count: normalized.rejected.length,
       coverage_percent: coverage.coveragePercent,
