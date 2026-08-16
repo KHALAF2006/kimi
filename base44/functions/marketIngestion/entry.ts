@@ -6214,6 +6214,16 @@ Deno.serve(async (req) => {
     if (holidays.length || sessions[0]?.is_trading_day === false) {
       return Response.json({ status: "skipped", reason: holidays.length ? "official_market_holiday" : "market_session_closed", clock: schedule.clock });
     }
+    const expectedAsOfDate = new Date(expectedProviderAsOf(now));
+    expectedAsOfDate.setUTCSeconds(0, 0);
+    const expectedAsOf = expectedAsOfDate.toISOString();
+    const slotKey = `${marketCode}:${schedule.clock.date}:${slotKind}:${expectedAsOf}`;
+    const previousRuns = await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey });
+    const completed = previousRuns.find((item) => ["success", "partial"].includes(item.status));
+    const active = previousRuns.find((item) => item.status === "running" && new Date(item.lease_expires_at || 0) > now);
+    if (!body.force && (completed || active)) {
+      return Response.json({ status: "skipped", reason: completed ? "slot_already_promoted" : "slot_already_running", slot_key: slotKey });
+    }
     const providerUrl = String(Deno.env.get("SMART_INVESTOR_MARKET_DATA_URL") || "").trim();
     const providerToken = String(Deno.env.get("SMART_INVESTOR_MARKET_DATA_TOKEN") || "").trim();
     const configuredMode = String(Deno.env.get("SMART_INVESTOR_MARKET_DATA_MODE") || "experimental_public").trim();
@@ -6225,15 +6235,31 @@ Deno.serve(async (req) => {
     const provider = useLicensedProvider
       ? await licensedSource(base44, providerCode, providerUrl)
       : await experimentalPublicSource(base44);
-    stage = "market_upsert";
-    await upsertMany(base44, "Market", GCC_MARKETS, ["market_code"]);
-    stage = "instrument_upsert";
-    await upsertMany(base44, "Instrument", [...official_main_market_catalog_2026_07_21_default.companies.map(exactInstrument), TASI_INSTRUMENT], ["symbol"]);
-    const instruments = (await base44.asServiceRole.entities.Instrument.list("symbol", 500)).filter((row) => MAIN_MARKET_SYMBOLS.has(row.symbol));
+    stage = "catalog_readiness";
+    const [existingMarkets, initialInstrumentRows] = await Promise.all([
+      base44.asServiceRole.entities.Market.list("market_code", 100),
+      base44.asServiceRole.entities.Instrument.filter({ market_code: "SA_MAIN" }, "symbol", 500)
+    ]);
+    const existingMarketCodes = new Set(existingMarkets.map((row) => row.market_code));
+    if (GCC_MARKETS.some((row) => !existingMarketCodes.has(row.market_code))) {
+      stage = "market_upsert";
+      await upsertMany(base44, "Market", GCC_MARKETS, ["market_code"]);
+    }
+    let instruments = initialInstrumentRows.filter((row) => MAIN_MARKET_SYMBOLS.has(row.symbol));
+    let tasi = initialInstrumentRows.find((row) => row.market_code === "SA_MAIN" && row.instrument_code === "TASI") || null;
+    const catalogSymbols = new Set(instruments.map((row) => row.symbol));
+    const catalogComplete = instruments.length === EXPECTED_INSTRUMENT_COUNT
+      && [...MAIN_MARKET_SYMBOLS].every((symbol) => catalogSymbols.has(symbol));
+    if (!catalogComplete || !tasi) {
+      stage = "instrument_upsert";
+      await upsertMany(base44, "Instrument", [...official_main_market_catalog_2026_07_21_default.companies.map(exactInstrument), TASI_INSTRUMENT], ["symbol"]);
+      const refreshedInstrumentRows = await base44.asServiceRole.entities.Instrument.filter({ market_code: "SA_MAIN" }, "symbol", 500);
+      instruments = refreshedInstrumentRows.filter((row) => MAIN_MARKET_SYMBOLS.has(row.symbol));
+      tasi = refreshedInstrumentRows.find((row) => row.market_code === "SA_MAIN" && row.instrument_code === "TASI") || null;
+    }
     if (instruments.length !== EXPECTED_INSTRUMENT_COUNT) {
       throw ingestionFailure(`Verified main-market catalog is incomplete: ${instruments.length}/${EXPECTED_INSTRUMENT_COUNT}`, "MARKET_CATALOG_INCOMPLETE");
     }
-    const tasi = (await base44.asServiceRole.entities.Instrument.filter({ market_code: "SA_MAIN", instrument_code: "TASI" }))[0] || null;
     if (tasi) {
       await upsertMany(base44, "InstrumentAlias", [
         { instrument_id: tasi.id, market_code: "SA_MAIN", alias: "TASI", alias_type: "symbol", normalized_alias: "tasi", active: true },
@@ -6255,17 +6281,11 @@ Deno.serve(async (req) => {
     });
     const bySymbol = new Map(instruments.map((row) => [row.symbol, row]));
     const lossRows = official_main_market_catalog_2026_07_21_default.companies.map((row) => lossClassification(row, bySymbol.get(row.symbol)?.id, officialSource.id)).filter((row) => row.instrument_id);
-    stage = "loss_classification_upsert";
-    await upsertMany(base44, "LossClassification", lossRows, ["instrument_id"]);
-    const expectedAsOfDate = new Date(expectedProviderAsOf(now));
-    expectedAsOfDate.setUTCSeconds(0, 0);
-    const expectedAsOf = expectedAsOfDate.toISOString();
-    const slotKey = `${marketCode}:${schedule.clock.date}:${slotKind}:${expectedAsOf}`;
-    const previousRuns = await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey });
-    const completed = previousRuns.find((item) => ["success", "partial"].includes(item.status));
-    const active = previousRuns.find((item) => item.status === "running" && new Date(item.lease_expires_at || 0) > now);
-    if (!body.force && (completed || active)) {
-      return Response.json({ status: "skipped", reason: completed ? "slot_already_promoted" : "slot_already_running", slot_key: slotKey });
+    const existingLossRows = await base44.asServiceRole.entities.LossClassification.list("instrument_id", 500);
+    const classifiedInstrumentIds = new Set(existingLossRows.map((row) => row.instrument_id));
+    if (lossRows.some((row) => !classifiedInstrumentIds.has(row.instrument_id))) {
+      stage = "loss_classification_upsert";
+      await upsertMany(base44, "LossClassification", lossRows, ["instrument_id"]);
     }
     const mappings = useLicensedProvider
       ? (await base44.asServiceRole.entities.ProviderInstrumentMap.filter({

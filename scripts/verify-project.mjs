@@ -953,6 +953,9 @@ for (const source of [marketIngestionRetention, usOptionsIngestionRetention, usB
   assert.match(source, /SMART_INVESTOR_PERSIST_RAW_QUOTE_OBSERVATIONS/, "raw quote observations must be opt-in instead of growing without a reader or retention policy");
   assert.match(source, /rawQuoteObservationPersistenceEnabled\(\)/, "raw quote observation writes must remain behind the explicit operational gate");
 }
+assert.ok(marketIngestionRetention.indexOf('entities.IngestionRun.filter({ slot_key: slotKey })') < marketIngestionRetention.indexOf('stage = "catalog_readiness"'), "Saudi ingestion must reject duplicate slots before catalog reconciliation");
+assert.match(marketIngestionRetention, /const catalogComplete = instruments\.length === EXPECTED_INSTRUMENT_COUNT/, "the Saudi catalog must be reconciled only when its verified universe is incomplete");
+assert.match(marketIngestionRetention, /lossRows\.some\(\(row\) => !classifiedInstrumentIds\.has/, "loss classifications must be repaired selectively instead of rewritten on every cycle");
 assert.equal(replayStartIndex(risingBars, risingBars[8].time), 8, "bar replay must resolve the selected historical candle deterministically");
 assert.equal(replayCandles(risingBars, 8).length, 9, "bar replay must hide every candle after the current replay cursor");
 assert.equal(nextReplayCursor(8, risingBars.length, -1), 7, "bar replay must step backwards one candle");
