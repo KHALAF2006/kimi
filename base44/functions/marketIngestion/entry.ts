@@ -6024,6 +6024,7 @@ async function evaluateDrawingAlerts(base44, quotes) {
   const rules = (await base44.asServiceRole.entities.AlertRule.filter({ market_code: "SA_MAIN", enabled: true }, "-updated_date", 5e3))
     .filter((rule) => String(rule.condition || "").startsWith("crosses_drawing"));
   let triggered = 0;
+  const ruleUpdates = [];
   for (const rule of rules) {
     const quote = bySymbol.get(rule.symbol);
     if (!quote || !Number.isFinite(Number(quote.last_price))) continue;
@@ -6048,8 +6049,9 @@ async function evaluateDrawingAlerts(base44, quotes) {
       if (rule.frequency === "once") update.enabled = false;
       triggered += 1;
     }
-    await base44.asServiceRole.entities.AlertRule.update(rule.id, update);
+    ruleUpdates.push({ id: rule.id, ...update });
   }
+  await bulkUpdateUnique(base44.asServiceRole.entities.AlertRule, ruleUpdates);
   return { evaluated: rules.length, triggered };
 }
 function alertEvaluationBucket(quote, interval) {
@@ -6091,6 +6093,7 @@ async function evaluatePriceAlerts(base44, quotes) {
   let evaluated = 0;
   let triggered = 0;
   let deliveryEvents = 0;
+  const ruleUpdates = [];
   for (const rule of rules) {
     const quote = bySymbol.get(rule.symbol);
     const currentPrice = Number(quote?.last_price);
@@ -6114,8 +6117,9 @@ async function evaluatePriceAlerts(base44, quotes) {
       if (rule.frequency === "once") update.enabled = false;
       triggered += 1;
     }
-    await base44.asServiceRole.entities.AlertRule.update(rule.id, update);
+    ruleUpdates.push({ id: rule.id, ...update });
   }
+  await bulkUpdateUnique(base44.asServiceRole.entities.AlertRule, ruleUpdates);
   return { rules: rules.length, evaluated, triggered, delivery_events: deliveryEvents };
 }
 async function licensedSource(base44, providerCode, providerUrl) {
