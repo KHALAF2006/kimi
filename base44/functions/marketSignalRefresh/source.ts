@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { canonicalizeQuarterHourBars } from "../../shared/market-data.ts";
+import { finalSaudiDailyBar } from "../../shared/market-data.ts";
 import { readJsonBody, replyError, requirePermission, requireTrustedOwner } from "../../shared/security.ts";
 import {
   TECHNICAL_SIGNAL_FORMULA_VERSION,
@@ -85,29 +85,6 @@ function quoteIsFinalForSession(quote: Record<string, any> | null, sessionDate: 
 
 function isThursday(sessionDate: string) {
   return new Date(`${sessionDate}T00:00:00.000Z`).getUTCDay() === 4;
-}
-
-function finalDailyBar(
-  bars: Array<Record<string, any>>,
-  quote: Record<string, any>,
-) {
-  const canonical = canonicalizeQuarterHourBars(bars);
-  if (!canonical.length) return null;
-  const first = canonical[0];
-  const last = canonical.at(-1);
-  const open = Number(quote.open) > 0 ? Number(quote.open) : Number(first.open);
-  const close = Number(quote.last_price) > 0 ? Number(quote.last_price) : Number(last.close);
-  const high = Math.max(Number(quote.high) || 0, ...canonical.map((bar) => Number(bar.high)), open, close);
-  const lowCandidates = [Number(quote.low), ...canonical.map((bar) => Number(bar.low)), open, close].filter((value) => value > 0);
-  const low = Math.min(...lowCandidates);
-  return {
-    time: first.time,
-    open,
-    high,
-    low,
-    close,
-    volume: Math.max(0, Number(quote.volume || 0)),
-  };
 }
 
 function barsByInstrument(chunks: Array<Record<string, any>>, interval: string) {
@@ -232,7 +209,7 @@ async function projectInstrumentBatch(
     base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-source_as_of", PROJECTION_BATCH_SIZE * 12),
   ]);
   const instruments = entityRows(instrumentsRaw)
-    .filter((item) => item.market_code === MARKET_CODE && item.status !== "delisted")
+    .filter((item) => item.market_code === MARKET_CODE && item.status === "active")
     .sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
   const quotes = entityRows(quotesRaw);
   // The instrument-id boundary keeps legacy Saudi rows without market_code
@@ -270,7 +247,7 @@ async function projectInstrumentBatch(
     const existingDaily = aggregateTechnicalBars(dailyHistory.get(instrument.id) || [], "1d");
     let canonicalDaily = existingDaily;
     if (quoteIsFinalForSession(quote, sessionDate)) {
-      const today = finalDailyBar(finalizedQuarterBars.get(instrument.id) || [], quote);
+      const today = finalSaudiDailyBar(finalizedQuarterBars.get(instrument.id) || [], quote, sessionDate);
       if (today) {
         canonicalDaily = aggregateTechnicalBars([...existingDaily, today], "1d");
         newDailyChunks.push(await projectionChunk({
@@ -397,7 +374,7 @@ Deno.serve(async (req) => {
     const slotKey = projectionSlotKey(sessionDate);
     const instrumentsRaw = await base44.asServiceRole.entities.Instrument.filter({ market_code: MARKET_CODE }, "symbol", 500);
     const instruments = entityRows(instrumentsRaw)
-      .filter((item) => item.status !== "delisted")
+      .filter((item) => item.status === "active")
       .sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
     const actualBatchCount = Math.ceil(instruments.length / PROJECTION_BATCH_SIZE);
     if (actualBatchCount > PROJECTION_BATCH_COUNT) {

@@ -35,6 +35,7 @@ const {
   earliestInteriorCandleGap,
   expectedProviderAsOf,
   fetchPublicDelayedCharts,
+  finalSaudiDailyBar,
   freshnessStatus,
   groupRowsByKey,
   mergeIncrementalCandleChunks,
@@ -497,6 +498,57 @@ assert.equal(canonicalQuarterBars[0].time, "2026-07-29T08:15:00.000Z");
 assert.equal(canonicalQuarterBars[0].close, 196, "an exact boundary candle must outrank provisional off-grid updates");
 assert.equal(canonicalQuarterBars[1].time, "2026-07-29T08:30:00.000Z");
 assert.equal(canonicalQuarterBars[1].close, 199, "the latest provisional update must win when an exact boundary candle is unavailable");
+
+const quoteOnlyDailyBar = finalSaudiDailyBar([], {
+  open: 100,
+  high: 107,
+  low: 98,
+  last_price: 105,
+  volume: 123456,
+}, "2026-07-29");
+assert.deepEqual(quoteOnlyDailyBar, {
+  time: "2026-07-29T07:00:00.000Z",
+  open: 100,
+  high: 107,
+  low: 98,
+  close: 105,
+  volume: 123456,
+}, "a verified final quote must close a real Saudi daily candle when the intraday archive is missing");
+assert.equal(finalSaudiDailyBar([], {
+  open: 100,
+  high: 107,
+  last_price: 105,
+  volume: 123456,
+}, "2026-07-29"), null, "an incomplete final quote must never create a daily candle");
+assert.equal(finalSaudiDailyBar([], {
+  open: 100,
+  high: 99,
+  low: 98,
+  last_price: 105,
+  volume: 123456,
+}, "2026-07-29"), null, "an internally inconsistent final quote must never be silently corrected into a daily candle");
+assert.equal(finalSaudiDailyBar([], {
+  open: 100,
+  high: 107,
+  low: 98,
+  last_price: 105,
+  volume: 123456,
+}, "2026-02-30"), null, "an invalid Saudi session date must never create a daily candle");
+const quarterBackedDailyBar = finalSaudiDailyBar(canonicalQuarterBars, {
+  open: 190,
+  high: 202,
+  low: 189,
+  last_price: 201,
+  volume: 987654,
+}, "2026-07-29");
+assert.deepEqual(quarterBackedDailyBar, {
+  time: "2026-07-29T08:15:00.000Z",
+  open: 190,
+  high: 202,
+  low: 189,
+  close: 201,
+  volume: 987654,
+}, "final quote OHLCV must reconcile the canonical intraday archive without duplicating volume");
 
 const fiftyOneBars = Array.from({ length: 51 }, (_, index) => {
   const close = index < 49 ? 10 : index === 49 ? 9 : 12;

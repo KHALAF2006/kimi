@@ -171,6 +171,7 @@ for (let index = 0; index < saudiSignalSteps.length; index += 1) {
   assert.equal(saudiSignalSteps[index].step.then, saudiSignalSteps[index + 1]?.key || "end", "Saudi projection steps must never branch or run concurrently");
 }
 const marketSignalRefreshSource = await readFile(new URL("../base44/functions/marketSignalRefresh/source.ts", import.meta.url), "utf8");
+const marketDataSource = await readFile(new URL("../base44/shared/market-data.ts", import.meta.url), "utf8");
 const ingestionRunLifecycle = await readFile(new URL("../base44/shared/ingestion-run-lifecycle.ts", import.meta.url), "utf8");
 assert.match(ingestionRunLifecycle, /status !== ["']running["']/, "only running ingestion records may be considered for lease expiry");
 assert.match(ingestionRunLifecycle, /leaseExpiresAt <= nowMs/, "an ingestion run must not be closed before its lease expires");
@@ -193,6 +194,10 @@ assert.match(marketSignalRefreshSource, /remaining_batches:/, "each scheduled wo
 assert.doesNotMatch(marketSignalRefreshSource, /const batchResults = await Promise\.all/, "Saudi projection batches must never run concurrently");
 assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_SIZE = 8/, "Saudi projection batches must stay below the observed Base44 entity write-traffic ceiling");
 assert.match(marketSignalRefreshSource, /const PROJECTION_BATCH_COUNT = 34/, "Saudi projection capacity must cover the entire catalog in bounded batches");
+assert.match(marketSignalRefreshSource, /finalSaudiDailyBar\(/, "Saudi projection must use the shared final-daily-candle contract");
+assert.match(marketDataSource, /final market snapshot is an authoritative session-level OHLCV/, "a verified final quote must safely close a daily candle when the intraday archive has a gap");
+assert.match(marketDataSource, /time: `\$\{sessionDate\}T07:00:00\.000Z`/, "quote-only daily fallback must retain the canonical Saudi session timestamp");
+assert.match(marketSignalRefreshSource, /item\.status === "active"/, "suspended and delisted instruments must not reduce active-market projection coverage");
 assert.match(marketSignalRefreshSource, /indicator_key:\s*["']momentum_zones["']/, "the projection job must persist the authoritative investor-zone lifecycle snapshot");
 assert.match(marketSignalRefreshSource, /MOMENTUM_FORMULA_VERSION/, "persisted investor zones must carry their versioned role-reversal formula");
 assert.match(marketSignalRefreshSource, /timeframe === ["']1wk["']\s*\? isThursday\(sessionDate\)/, "weekly projections must finalize only at the Saudi trading-week close");

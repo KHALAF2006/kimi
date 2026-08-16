@@ -644,6 +644,54 @@ export function canonicalizeQuarterHourBars(bars) {
     .map(({ bar }) => bar);
 }
 
+export function finalSaudiDailyBar(bars, quote, sessionDate) {
+  const parsedSessionDate = new Date(`${sessionDate}T00:00:00.000Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(sessionDate || ""))
+    || !Number.isFinite(parsedSessionDate.getTime())
+    || !parsedSessionDate.toISOString().startsWith(sessionDate)) return null;
+  const canonical = canonicalizeQuarterHourBars(bars);
+  if (!canonical.length) {
+    // A verified final market snapshot is an authoritative session-level OHLCV
+    // source. Require a complete, valid price set so an archive gap never turns
+    // into an invented or carried-forward candle.
+    const open = positiveNumber(quote?.open);
+    const close = positiveNumber(quote?.last_price);
+    const quotedHigh = positiveNumber(quote?.high);
+    const quotedLow = positiveNumber(quote?.low);
+    if ([open, close, quotedHigh, quotedLow].some((value) => value === null)
+      || quotedHigh < Math.max(open, close)
+      || quotedLow > Math.min(open, close)) return null;
+    return {
+      time: `${sessionDate}T07:00:00.000Z`,
+      open,
+      high: quotedHigh,
+      low: quotedLow,
+      close,
+      volume: nonNegativeNumber(quote?.volume) ?? 0,
+    };
+  }
+
+  const first = canonical[0];
+  const last = canonical.at(-1);
+  const open = positiveNumber(quote?.open) ?? Number(first.open);
+  const close = positiveNumber(quote?.last_price) ?? Number(last.close);
+  const quotedHigh = positiveNumber(quote?.high) ?? 0;
+  const quotedLow = positiveNumber(quote?.low);
+  const high = Math.max(quotedHigh, ...canonical.map((bar) => Number(bar.high)), open, close);
+  const low = Math.min(
+    ...[quotedLow, ...canonical.map((bar) => Number(bar.low)), open, close]
+      .filter((value) => Number.isFinite(value) && value > 0),
+  );
+  return {
+    time: first.time,
+    open,
+    high,
+    low,
+    close,
+    volume: nonNegativeNumber(quote?.volume) ?? 0,
+  };
+}
+
 function uniqueSortedBars(bars) {
   const byTime = new Map();
   for (const bar of Array.isArray(bars) ? bars : []) {

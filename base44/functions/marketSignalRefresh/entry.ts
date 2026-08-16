@@ -101,6 +101,44 @@ function canonicalizeQuarterHourBars(bars) {
   }
   return [...byBucket.values()].sort((a, b) => new Date(a.bar.time).getTime() - new Date(b.bar.time).getTime()).map(({ bar }) => bar);
 }
+function finalSaudiDailyBar(bars, quote, sessionDate) {
+  const parsedSessionDate = /* @__PURE__ */ new Date(`${sessionDate}T00:00:00.000Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(sessionDate || "")) || !Number.isFinite(parsedSessionDate.getTime()) || !parsedSessionDate.toISOString().startsWith(sessionDate)) return null;
+  const canonical = canonicalizeQuarterHourBars(bars);
+  if (!canonical.length) {
+    const open2 = positiveNumber(quote?.open);
+    const close2 = positiveNumber(quote?.last_price);
+    const quotedHigh2 = positiveNumber(quote?.high);
+    const quotedLow2 = positiveNumber(quote?.low);
+    if ([open2, close2, quotedHigh2, quotedLow2].some((value) => value === null) || quotedHigh2 < Math.max(open2, close2) || quotedLow2 > Math.min(open2, close2)) return null;
+    return {
+      time: `${sessionDate}T07:00:00.000Z`,
+      open: open2,
+      high: quotedHigh2,
+      low: quotedLow2,
+      close: close2,
+      volume: nonNegativeNumber(quote?.volume) ?? 0
+    };
+  }
+  const first = canonical[0];
+  const last = canonical.at(-1);
+  const open = positiveNumber(quote?.open) ?? Number(first.open);
+  const close = positiveNumber(quote?.last_price) ?? Number(last.close);
+  const quotedHigh = positiveNumber(quote?.high) ?? 0;
+  const quotedLow = positiveNumber(quote?.low);
+  const high = Math.max(quotedHigh, ...canonical.map((bar) => Number(bar.high)), open, close);
+  const low = Math.min(
+    ...[quotedLow, ...canonical.map((bar) => Number(bar.low)), open, close].filter((value) => Number.isFinite(value) && value > 0)
+  );
+  return {
+    time: first.time,
+    open,
+    high,
+    low,
+    close,
+    volume: nonNegativeNumber(quote?.volume) ?? 0
+  };
+}
 
 // base44/shared/permissions.ts
 var PERMISSION_CATALOG = [
@@ -1001,25 +1039,6 @@ function quoteIsFinalForSession(quote, sessionDate) {
 function isThursday(sessionDate) {
   return (/* @__PURE__ */ new Date(`${sessionDate}T00:00:00.000Z`)).getUTCDay() === 4;
 }
-function finalDailyBar(bars, quote) {
-  const canonical = canonicalizeQuarterHourBars(bars);
-  if (!canonical.length) return null;
-  const first = canonical[0];
-  const last = canonical.at(-1);
-  const open = Number(quote.open) > 0 ? Number(quote.open) : Number(first.open);
-  const close = Number(quote.last_price) > 0 ? Number(quote.last_price) : Number(last.close);
-  const high = Math.max(Number(quote.high) || 0, ...canonical.map((bar) => Number(bar.high)), open, close);
-  const lowCandidates = [Number(quote.low), ...canonical.map((bar) => Number(bar.low)), open, close].filter((value) => value > 0);
-  const low = Math.min(...lowCandidates);
-  return {
-    time: first.time,
-    open,
-    high,
-    low,
-    close,
-    volume: Math.max(0, Number(quote.volume || 0))
-  };
-}
 function barsByInstrument(chunks, interval) {
   const grouped = /* @__PURE__ */ new Map();
   for (const chunk of chunks) {
@@ -1118,7 +1137,7 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate) {
     }, "-end_time", PROJECTION_BATCH_SIZE * 8),
     base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery, market_code: MARKET_CODE }, "-source_as_of", PROJECTION_BATCH_SIZE * 12)
   ]);
-  const instruments = entityRows(instrumentsRaw).filter((item) => item.market_code === MARKET_CODE && item.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
+  const instruments = entityRows(instrumentsRaw).filter((item) => item.market_code === MARKET_CODE && item.status === "active").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
   const quotes = entityRows(quotesRaw);
   const chunks = [
     ...entityRows(currentIntradayRaw),
@@ -1145,7 +1164,7 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate) {
     const existingDaily = aggregateTechnicalBars(dailyHistory.get(instrument.id) || [], "1d");
     let canonicalDaily = existingDaily;
     if (quoteIsFinalForSession(quote, sessionDate)) {
-      const today = finalDailyBar(finalizedQuarterBars.get(instrument.id) || [], quote);
+      const today = finalSaudiDailyBar(finalizedQuarterBars.get(instrument.id) || [], quote, sessionDate);
       if (today) {
         canonicalDaily = aggregateTechnicalBars([...existingDaily, today], "1d");
         newDailyChunks.push(await projectionChunk({
@@ -1261,7 +1280,7 @@ Deno.serve(async (req) => {
     const sessionDate = String(body.session_date || riyadhDate());
     const slotKey = projectionSlotKey(sessionDate);
     const instrumentsRaw = await base44.asServiceRole.entities.Instrument.filter({ market_code: MARKET_CODE }, "symbol", 500);
-    const instruments = entityRows(instrumentsRaw).filter((item) => item.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
+    const instruments = entityRows(instrumentsRaw).filter((item) => item.status === "active").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
     const actualBatchCount = Math.ceil(instruments.length / PROJECTION_BATCH_SIZE);
     if (actualBatchCount > PROJECTION_BATCH_COUNT) {
       throw Object.assign(new Error(`Saudi projection capacity exceeded: ${instruments.length}`), {
