@@ -27,6 +27,7 @@ const {
   buildPublicCandleContexts,
   canonicalizeQuarterHourBars,
   coverageStatus,
+  earliestInteriorCandleGap,
   expectedProviderAsOf,
   fetchPublicDelayedCharts,
   freshnessStatus,
@@ -336,6 +337,18 @@ assert.deepEqual(publicChartRequestWindow({
   watermark: "2026-07-01T08:15:00.000Z",
   now: new Date("2026-07-29T08:30:00.000Z"),
 }), { mode: "backfill", range: "5d" }, "stale cursors must use a bounded backfill instead of an unbounded request");
+assert.equal(earliestInteriorCandleGap([
+  { time: "2026-07-29T07:00:00.000Z" },
+  { time: "2026-07-29T07:15:00.000Z" },
+  { time: "2026-07-29T07:45:00.000Z" },
+]), "2026-07-29T07:30:00.000Z", "the first missing interior quarter-hour must be recovered");
+const gapRecoveryWindow = publicChartRequestWindow({
+  watermark: "2026-07-29T08:15:00.000Z",
+  gapTime: "2026-07-29T07:30:00.000Z",
+  now: new Date("2026-07-29T08:30:00.000Z"),
+});
+assert.equal(gapRecoveryWindow.mode, "gap_recovery");
+assert.equal(gapRecoveryWindow.period1, Date.parse("2026-07-29T07:15:00.000Z") / 1000, "gap recovery must overlap one candle before the missing bar");
 
 const publicContexts = buildPublicCandleContexts({
   instruments,
@@ -362,6 +375,26 @@ const publicContexts = buildPublicCandleContexts({
 });
 assert.equal(publicContexts.get("1321").watermark, "2026-07-29T08:15:00.000Z", "the stored candle boundary must be the incremental cursor");
 assert.equal(publicContexts.get("1321").previous_close, 190);
+
+const gappedContexts = buildPublicCandleContexts({
+  instruments,
+  quotes: [{ instrument_id: "instrument-1", session_date: "2026-07-29", previous_close: 190 }],
+  chunks: [{
+    instrument_id: "instrument-1",
+    interval: "15m",
+    session_date: "2026-07-29",
+    chunk_key: "1321-15m-2026-07-29",
+    end_time: "2026-07-29T08:00:00.000Z",
+    bars: [
+      { time: "2026-07-29T07:00:00.000Z", open: 190, high: 191, low: 189, close: 190, volume: 100 },
+      { time: "2026-07-29T07:15:00.000Z", open: 190, high: 192, low: 190, close: 191, volume: 100 },
+      { time: "2026-07-29T07:45:00.000Z", open: 191, high: 193, low: 191, close: 192, volume: 100 },
+      { time: "2026-07-29T08:00:00.000Z", open: 192, high: 194, low: 192, close: 193, volume: 100 },
+    ],
+  }],
+  sessionDate: "2026-07-29",
+});
+assert.equal(gappedContexts.get("1321").gap_time, "2026-07-29T07:30:00.000Z", "each Saudi instrument must carry its own earliest interior gap cursor");
 
 const incrementalPublicCharts = normalizePublicDelayedCharts([{
   symbol: "1321",
@@ -658,7 +691,7 @@ const requestedPublicParams = new URL(requestedPublicUrl).searchParams;
 assert.equal(requestedPublicParams.has("range"), false, "normal cycles must not request the rolling five-day range");
 assert.equal(requestedPublicParams.get("period1"), String(incrementalWindow.period1));
 assert.equal(requestedPublicParams.get("period2"), String(incrementalWindow.period2));
-assert.deepEqual(incrementalFetch.requestModes, { incremental: 1, bootstrap: 0, backfill: 0 });
+assert.deepEqual(incrementalFetch.requestModes, { incremental: 1, bootstrap: 0, backfill: 0, gap_recovery: 0 });
 
 const normalizedHistory = normalizeAdjustedHistoricalBars({
   interval: "1d",

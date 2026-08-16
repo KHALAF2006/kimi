@@ -337,6 +337,7 @@ function contextForSymbol(contextsBySymbol, symbol) {
 }
 function publicChartRequestWindow({
   watermark,
+  gapTime,
   now = /* @__PURE__ */ new Date(),
   overlapMilliseconds = PUBLIC_CANDLE_OVERLAP_MILLISECONDS,
   maxIncrementalLookbackMilliseconds = PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS
@@ -344,6 +345,14 @@ function publicChartRequestWindow({
   const nowTime = new Date(now).getTime();
   if (!Number.isFinite(nowTime)) throw new Error("Public chart request time is invalid");
   const watermarkTime = new Date(watermark || "").getTime();
+  const gapTimestamp = new Date(gapTime || "").getTime();
+  if (Number.isFinite(gapTimestamp) && gapTimestamp <= nowTime) {
+    return {
+      mode: "gap_recovery",
+      period1: Math.floor((gapTimestamp - overlapMilliseconds) / 1e3),
+      period2: Math.ceil(nowTime / 1e3) + 60
+    };
+  }
   if (!Number.isFinite(watermarkTime)) return { mode: "bootstrap", range: "5d" };
   if (nowTime - watermarkTime > maxIncrementalLookbackMilliseconds) {
     return { mode: "backfill", range: "5d" };
@@ -377,12 +386,14 @@ function buildPublicCandleContexts({
     const chunk = chunkByInstrument.get(instrument.id) || {};
     const bars = canonicalizeQuarterHourBars((chunk.bars || []).filter((bar) => riyadhClock(new Date(bar.time)).date === sessionDate));
     const latestBarTime = bars.at(-1)?.time || "";
+    const gapTime = earliestInteriorCandleGap(bars);
     const quoteSessionDate = String(quote.session_date || "");
     const previousClose = quoteSessionDate === sessionDate ? positiveNumber(quote.previous_close) : positiveNumber(quote.last_price) || positiveNumber(quote.previous_close);
     contexts.set(instrument.symbol, {
       session_date: sessionDate,
       bars,
       watermark: latestBarTime || quote.last_trade_time || quote.provider_as_of || "",
+      gap_time: gapTime,
       previous_close: previousClose
     });
   }
@@ -467,7 +478,7 @@ async function fetchPublicDelayedCharts({
   const failures = [];
   let cursor = 0;
   let requestCount = 0;
-  const requestModes = { incremental: 0, bootstrap: 0, backfill: 0 };
+  const requestModes = { incremental: 0, bootstrap: 0, backfill: 0, gap_recovery: 0 };
   async function fetchOne(symbol) {
     let lastError = null;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -479,7 +490,7 @@ async function fetchPublicDelayedCharts({
         const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(providerSymbol)}`);
         url.searchParams.set("interval", "15m");
         const context = contextForSymbol(contextsBySymbol, symbol);
-        const window = publicChartRequestWindow({ watermark: context.watermark, now });
+        const window = publicChartRequestWindow({ watermark: context.watermark, gapTime: context.gap_time, now });
         if (window.range) url.searchParams.set("range", window.range);
         else {
           url.searchParams.set("period1", String(window.period1));
@@ -6174,6 +6185,17 @@ async function providerCandleChunks(payload, mappings, instruments, sourceId, se
 function ingestionFailure(message, code = "MARKET_INGESTION_FAILED", status = 503) {
   return Object.assign(new Error(message), { code, status });
 }
+function earliestInteriorCandleGap(bars, intervalMilliseconds = 15 * 60 * 1e3) {
+  const ordered = uniqueSortedBars(bars);
+  for (let index = 1; index < ordered.length; index += 1) {
+    const previous = new Date(ordered[index - 1].time).getTime();
+    const current = new Date(ordered[index].time).getTime();
+    if (current - previous > intervalMilliseconds + 1e3) {
+      return new Date(previous + intervalMilliseconds).toISOString();
+    }
+  }
+  return "";
+}
 const INGESTION_LEASE_MS = 4 * 60 * 1e3;
 function ingestionRunOrder(left, right) {
   const started = Date.parse(left?.started_at || left?.created_date || 0) - Date.parse(right?.started_at || right?.created_date || 0);
@@ -6388,7 +6410,7 @@ Deno.serve(async (req) => {
     const symbolByInstrumentId = new Map(instruments.map((instrument) => [instrument.id, instrument.symbol]));
     let payload;
     let attemptCount = 0;
-    let requestModes = { incremental: 0, bootstrap: 0, backfill: 0 };
+    let requestModes = { incremental: 0, bootstrap: 0, backfill: 0, gap_recovery: 0 };
     try {
       stage = "provider_fetch";
       if (useLicensedProvider) {

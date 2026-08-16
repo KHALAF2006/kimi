@@ -651,6 +651,7 @@ function contextForSymbol(contextsBySymbol, symbol) {
 
 export function publicChartRequestWindow({
   watermark,
+  gapTime,
   now = new Date(),
   overlapMilliseconds = PUBLIC_CANDLE_OVERLAP_MILLISECONDS,
   maxIncrementalLookbackMilliseconds = PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS,
@@ -658,6 +659,14 @@ export function publicChartRequestWindow({
   const nowTime = new Date(now).getTime();
   if (!Number.isFinite(nowTime)) throw new Error("Public chart request time is invalid");
   const watermarkTime = new Date(watermark || "").getTime();
+  const gapTimestamp = new Date(gapTime || "").getTime();
+  if (Number.isFinite(gapTimestamp) && gapTimestamp <= nowTime) {
+    return {
+      mode: "gap_recovery",
+      period1: Math.floor((gapTimestamp - overlapMilliseconds) / 1000),
+      period2: Math.ceil(nowTime / 1000) + 60,
+    };
+  }
   if (!Number.isFinite(watermarkTime)) return { mode: "bootstrap", range: "5d" };
   if (nowTime - watermarkTime > maxIncrementalLookbackMilliseconds) {
     return { mode: "backfill", range: "5d" };
@@ -667,6 +676,18 @@ export function publicChartRequestWindow({
     period1: Math.floor((watermarkTime - overlapMilliseconds) / 1000),
     period2: Math.ceil(nowTime / 1000) + 60,
   };
+}
+
+export function earliestInteriorCandleGap(bars, intervalMilliseconds = 15 * 60 * 1000) {
+  const ordered = uniqueSortedBars(bars);
+  for (let index = 1; index < ordered.length; index += 1) {
+    const previous = new Date(ordered[index - 1].time).getTime();
+    const current = new Date(ordered[index].time).getTime();
+    if (current - previous > intervalMilliseconds + 1000) {
+      return new Date(previous + intervalMilliseconds).toISOString();
+    }
+  }
+  return "";
 }
 
 export function buildPublicCandleContexts({
@@ -693,6 +714,7 @@ export function buildPublicCandleContexts({
     const chunk = chunkByInstrument.get(instrument.id) || {};
     const bars = canonicalizeQuarterHourBars((chunk.bars || []).filter((bar) => riyadhClock(new Date(bar.time)).date === sessionDate));
     const latestBarTime = bars.at(-1)?.time || "";
+    const gapTime = earliestInteriorCandleGap(bars);
     const quoteSessionDate = String(quote.session_date || "");
     const previousClose = quoteSessionDate === sessionDate
       ? positiveNumber(quote.previous_close)
@@ -701,6 +723,7 @@ export function buildPublicCandleContexts({
       session_date: sessionDate,
       bars,
       watermark: latestBarTime || quote.last_trade_time || quote.provider_as_of || "",
+      gap_time: gapTime,
       previous_close: previousClose,
     });
   }
@@ -796,7 +819,7 @@ export async function fetchPublicDelayedCharts({
   const failures = [];
   let cursor = 0;
   let requestCount = 0;
-  const requestModes = { incremental: 0, bootstrap: 0, backfill: 0 };
+  const requestModes = { incremental: 0, bootstrap: 0, backfill: 0, gap_recovery: 0 };
 
   async function fetchOne(symbol) {
     let lastError = null;
@@ -809,7 +832,7 @@ export async function fetchPublicDelayedCharts({
         const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(providerSymbol)}`);
         url.searchParams.set("interval", "15m");
         const context = contextForSymbol(contextsBySymbol, symbol);
-        const window = publicChartRequestWindow({ watermark: context.watermark, now });
+        const window = publicChartRequestWindow({ watermark: context.watermark, gapTime: context.gap_time, now });
         if (window.range) url.searchParams.set("range", window.range);
         else {
           url.searchParams.set("period1", String(window.period1));
