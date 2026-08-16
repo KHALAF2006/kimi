@@ -373,6 +373,10 @@ assert.match(deliveryCenterFunction, /Subscription\.filter\(\{ market_code: mark
 assert.match(deliveryCenterFunction, /20_000/, "email campaigns must enforce the approved twenty-thousand-line limit");
 assert.match(deliveryCenterPage, /adminDeliveryCenter/, "the owner delivery page must use the centralized backend contract");
 assert.doesNotMatch(deliveryCenterPage, /window\.(alert|confirm|prompt)/, "the owner delivery page must use accessible in-product confirmation instead of browser dialogs");
+assert.match(deliveryCenterFunction, /AuditLog\.filter\(\{ action: "delivery\.worker\.completed" \}/, "the owner delivery center must read the worker completion audit trail");
+assert.match(deliveryCenterFunction, /pending_count: pendingEvents\.length/, "the owner delivery center must expose pending delivery queue health");
+assert.match(deliveryCenterFunction, /retry_count: retryEvents\.length/, "the owner delivery center must expose retry queue health");
+assert.match(deliveryCenterPage, /workerHealth\?\.has_completed_run/, "the owner must see whether a real worker run has been recorded");
 assert.match(telegramDeliveryFunction, /requirePermission\(base44, payload\.session_id, payload\.device_id, "delivery\.channels\.manage"\)/, "manual Telegram delivery must require the owner-only centralized delivery permission from its registered device");
 assert.match(whatsappDeliveryFunction, /requirePermission\(base44, payload\.session_id, payload\.device_id, "delivery\.channels\.manage"\)/, "manual WhatsApp delivery must require the owner-only centralized delivery permission from its registered device");
 assert.match(deliveryWorkerFunction, /MAX_EVENT_AGE_MS = 60 \* 60 \* 1000/, "the centralized delivery worker must expire stale alerts before any real delivery");
