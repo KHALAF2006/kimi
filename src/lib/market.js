@@ -379,14 +379,27 @@ export function calculateMomentumSnapshot(inputBars = [], lookbackDays = 20, his
   };
 }
 
+const numberFormatters = new Map();
+
+function numberFormatter(language, digits, compact = false) {
+  const locale = language === "ar" ? "ar-SA" : "en-US";
+  const key = `${locale}:${compact ? "compact" : "standard"}:${digits}`;
+  if (!numberFormatters.has(key)) {
+    numberFormatters.set(key, new Intl.NumberFormat(locale, compact
+      ? { notation: "compact", maximumFractionDigits: digits }
+      : { maximumFractionDigits: digits }));
+  }
+  return numberFormatters.get(key);
+}
+
 export function formatNumber(value, language = "ar", digits = 2) {
   if (value == null || !Number.isFinite(Number(value))) return "—";
-  return new Intl.NumberFormat(language === "ar" ? "ar-SA" : "en-US", { maximumFractionDigits: digits }).format(Number(value));
+  return numberFormatter(language, digits).format(Number(value));
 }
 
 export function formatCompact(value, language = "ar") {
   if (value == null || !Number.isFinite(Number(value))) return "—";
-  return new Intl.NumberFormat(language === "ar" ? "ar-SA" : "en-US", { notation: "compact", maximumFractionDigits: 1 }).format(Number(value));
+  return numberFormatter(language, 1, true).format(Number(value));
 }
 
 export function quoteDirection(value) {

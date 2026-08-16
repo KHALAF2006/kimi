@@ -369,6 +369,7 @@ assert.match(siteStyles, /\.chart-history-status[^\n]+amber/, "amber must remain
 assert.doesNotMatch(siteStyles.replace(/\.chart-history-status[^\n]+/g, ""), /amber|orange/, "interactive site identity styles must not retain the retired orange palette");
 
 const companyChart = await readFile(new URL("../src/components/market/CompanyChart.jsx", import.meta.url), "utf8");
+const marketLibSource = await readFile(new URL("../src/lib/market.js", import.meta.url), "utf8");
 assert.match(companyChart, /showVolume/);
 assert.match(companyChart, /showMomentum/);
 assert.match(companyChart, /showRsi/);
@@ -383,6 +384,10 @@ assert.match(companyChart, /buildDisplayCandles/, "the chart must switch one exc
 assert.match(companyChart, /indicator-hub-button/, "indicators must be grouped under one compact menu");
 assert.equal((companyChart.match(/readMarketChart\(request\)/g) || []).length, 1, "each chart state must use one combined candle and investor-zone request");
 assert.doesNotMatch(companyChart, /indicatorRange/, "the chart must not issue a second full-history request for investor zones");
+assert.match(companyChart, /backendMomentum \|\| fallbackMomentum\s*\?\s*null\s*:\s*calculateMomentumSnapshot/, "the browser must not repeat the full investor-zone calculation when the backend already returned it");
+assert.doesNotMatch(companyChart, /retryKey, isArabic\]\);/, "switching the interface language must not issue a new chart network request");
+assert.match(companyChart, /if \(replayState\.mode === "playing"\) return;[\s\S]*onMomentumChange/, "bar replay must not rerender the parent company panel on every playback tick");
+assert.match(marketLibSource, /const numberFormatters = new Map\(\)/, "frequent price and volume formatting must reuse Intl formatters");
 assert.match(marketService, /chartRequestInflight\.has\(key\)/, "identical in-flight chart reads must be deduplicated");
 assert.match(marketService, /CHART_CACHE_MAX_ENTRIES/, "the short chart cache must remain bounded");
 assert.match(marketService, /MARKET_SUPPLEMENT_MAX_AGE_MS = 15 \* 60_000/, "non-critical market supplements must be cached for the quarter-hour display cycle");

@@ -166,6 +166,8 @@ function sameHoveredCandle(current, next) {
 
 export default function CompanyChart({ symbol = "", companyNameAr = "", companyNameEn = "", sector = "", marketCode = "SA_MAIN", momentum: rawMomentum = null, requestedInterval = "", onMomentumChange = (_momentum, _interval) => {}, previousCompany = null, nextCompany = null, onSelectCompany = (_symbol) => {}, onResetWidth = () => {} }) {
   const { language, isArabic, theme } = usePreferences();
+  const isArabicRef = useRef(isArabic);
+  isArabicRef.current = isArabic;
   const containerRef = useRef(null);
   const canvasWrapRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -320,8 +322,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   sma50DataRef.current = sma50Data;
   const fallbackMomentum = useMemo(() => normalizeMomentum(rawMomentum, theme), [rawMomentum, theme]);
   const calculatedMomentum = useMemo(
-    () => calculateMomentumSnapshot(orderedCandles, requestedPeakLookbackDays, Number.POSITIVE_INFINITY, theme, interval),
-    [orderedCandles, requestedPeakLookbackDays, theme, interval],
+    () => backendMomentum || fallbackMomentum
+      ? null
+      : calculateMomentumSnapshot(orderedCandles, requestedPeakLookbackDays, Number.POSITIVE_INFINITY, theme, interval),
+    [backendMomentum, fallbackMomentum, orderedCandles, requestedPeakLookbackDays, theme, interval],
   );
   const replayMomentum = useMemo(() => replayActive ? calculateMomentumSnapshot(visibleOrderedCandles, momentumSettings.peakLookbackDays, Number.POSITIVE_INFINITY, theme, interval) : null, [replayActive, visibleOrderedCandles, momentumSettings.peakLookbackDays, theme, interval]);
   const momentum = replayActive ? replayMomentum : backendMomentum || fallbackMomentum || calculatedMomentum;
@@ -466,6 +470,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     readMarketChart(request)
       .then((data) => {
         if (!active) return;
+        const responseIsArabic = isArabicRef.current;
         const nextCandles = Array.isArray(data.candles) ? data.candles : [];
         if (!nextCandles.length) throw Object.assign(new Error("chart_data_not_available"), { code: "CHART_DATA_NOT_AVAILABLE" });
         setCandles(nextCandles);
@@ -475,13 +480,13 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         if (nextMeta?.range_complete === false) {
           const fallbackRange = bestAvailableRange(interval, nextMeta.available_ranges);
           if (fallbackRange && fallbackRange !== range) {
-            setRecoveryNotice(isArabic
+            setRecoveryNotice(responseIsArabic
               ? `النطاق المطلوب غير مكتمل في الأرشيف؛ عُرض أكبر نطاق مكتمل وهو ${CHART_RANGE_LABELS[fallbackRange]?.ar || fallbackRange}.`
               : `The requested range is not complete in storage; the largest complete range (${CHART_RANGE_LABELS[fallbackRange]?.en || fallbackRange}) is being shown.`);
             setRange(fallbackRange);
             return;
           }
-          setRecoveryNotice(isArabic
+          setRecoveryNotice(responseIsArabic
             ? "المعروض هو كامل الجزء المخزن لهذا الفاصل، ولا يُقدَّم على أنه يغطي النطاق المطلوب."
             : "All stored bars for this interval are shown, but they do not cover the requested range.");
           setError("");
@@ -494,16 +499,17 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       })
       .catch((reason) => {
         if (!active) return;
+        const responseIsArabic = isArabicRef.current;
         const chartIssue = reason?.code ? reason : { response: reason?.response, status: reason?.status, code: reason?.response?.data?.code || "CHART_FETCH_FAILED" };
         const failedMessage = localizedAccessError(
           chartIssue,
-          isArabic ? "ar" : "en",
-          isArabic ? "تعذر تحميل بيانات الشارت الآن." : "Chart data could not be loaded right now.",
+          responseIsArabic ? "ar" : "en",
+          responseIsArabic ? "تعذر تحميل بيانات الشارت الآن." : "Chart data could not be loaded right now.",
         );
         const lastSuccessful = successfulSelectionRef.current;
         setError(failedMessage);
         if (lastSuccessful && (lastSuccessful.interval !== interval || lastSuccessful.range !== range)) {
-          setRecoveryNotice(isArabic
+          setRecoveryNotice(responseIsArabic
             ? `تعذر فتح فاصل ${interval}؛ أُعيد الشارت تلقائيًا إلى آخر فاصل سليم.`
             : `${interval} could not be opened; the chart returned to the last working interval.`);
           setInterval(lastSuccessful.interval);
@@ -512,11 +518,12 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       })
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [chartTarget, chartTargetType, sector, symbol, marketCode, interval, range, indicatorKey, requestedPeakLookbackDays, retryKey, isArabic]);
+  }, [chartTarget, chartTargetType, sector, symbol, marketCode, interval, range, indicatorKey, requestedPeakLookbackDays, retryKey]);
 
   useEffect(() => {
+    if (replayState.mode === "playing") return;
     onMomentumChange(momentum, interval);
-  }, [momentum, interval, onMomentumChange]);
+  }, [momentum, interval, onMomentumChange, replayState.mode]);
 
   useEffect(() => {
     localStorage.setItem("smart_investor_show_momentum", String(showMomentum));
