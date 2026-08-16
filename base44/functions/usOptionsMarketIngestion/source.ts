@@ -4,6 +4,7 @@ import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE, US_OPTIONS_SYMBOLS } from "
 import { alertIntervalDue, delayedCutoffMs, isCompletedDelayedBar, US_OPTIONS_DELAY_SECONDS } from "../../shared/us-options-timing.ts";
 import { earliestRecentGapByInstrument, incrementalProviderWindow, indexCandleChunks, latestStoredCandleByInstrument, mergeCandleBars, summarizeProviderWindows } from "../../shared/incremental-candle-sync.ts";
 import { closeExpiredIngestionRuns } from "../../shared/ingestion-run-lifecycle.ts";
+import { queuePersonalAlertMessage } from "../../shared/personal-alert-message.ts";
 
 const PROVIDER_CODE = "REFERENCE_YAHOO_US_OPTIONS_T15";
 const DELAY_SECONDS = US_OPTIONS_DELAY_SECONDS;
@@ -348,33 +349,16 @@ async function fetchUniverse(now, symbols, windowsBySymbol) {
   return { output, failures };
 }
 
-async function queueAlertDeliveries(base44, rule, quote, bucket, channels) {
-  if (rule.market_code !== US_OPTIONS_MARKET_CODE) throw new Error("alert_market_mismatch");
-  const candidates = [];
-  for (const channel of channels) {
-    const dedupe_key = await checksum(`${rule.id}:${channel.id}:${bucket}`);
-    candidates.push({
-      alert_rule_id: rule.id, destination_id: channel.id, market_code: US_OPTIONS_MARKET_CODE, dedupe_key,
-      channel: channel.channel, status: "pending", attempt_count: 0,
-      trigger_price: Number(quote.last_price),
-      trigger_observed_at: quote.provider_as_of || quote.source_time || quote.quote_time,
-      trigger_condition: rule.condition,
-      trigger_threshold: Number(rule.threshold),
-    });
-  }
-  if (!candidates.length) return;
-  const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: { $in: candidates.map((item) => item.dedupe_key) } }, "dedupe_key", candidates.length);
-  const existingKeys = new Set(rows(existing).map((item) => item.dedupe_key));
-  const missing = candidates.filter((item) => !existingKeys.has(item.dedupe_key));
-  if (missing.length) await base44.asServiceRole.entities.DeliveryEvent.bulkCreate(missing);
+async function queueAlertDeliveries(base44, rule, quote, bucket) {
+  if (rule.market_code !== US_OPTIONS_MARKET_CODE || (quote.market_code && quote.market_code !== US_OPTIONS_MARKET_CODE)) throw new Error("alert_market_mismatch");
+  const result = await queuePersonalAlertMessage(base44, rule, quote, bucket);
+  return result.created ? 1 : 0;
 }
 
 async function evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate) {
   const byInstrument = new Map(acceptedQuotes.map((quote) => [quote.instrument_id, quote]));
   const rules = rows(await base44.asServiceRole.entities.AlertRule.filter({ market_code: US_OPTIONS_MARKET_CODE, enabled: true }, "-updated_date", 5e3))
     .filter((rule) => ["crosses_above", "crosses_below"].includes(rule.condition));
-  const channels = rows(await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: US_OPTIONS_MARKET_CODE, active: true }))
-    .filter((item) => item.verified_at && ["telegram", "whatsapp"].includes(item.channel));
   for (const rule of rules) {
     const quote = byInstrument.get(rule.instrument_id);
     const current = Number(quote?.last_price);
@@ -390,7 +374,7 @@ async function evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate) 
     if (crossed) {
       const cooldown = Math.max(15, Number(rule.cooldown_minutes) || 15) * 60e3;
       if (!rule.last_triggered_at || Date.parse(quote.provider_as_of) - Date.parse(rule.last_triggered_at) >= cooldown) {
-        await queueAlertDeliveries(base44, rule, quote, bucket, channels);
+        await queueAlertDeliveries(base44, rule, quote, bucket);
         update.last_triggered_at = quote.provider_as_of;
         if (rule.frequency === "once") update.enabled = false;
       }
