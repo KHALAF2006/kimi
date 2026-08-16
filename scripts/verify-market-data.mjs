@@ -777,6 +777,42 @@ assert.equal(requestedPublicParams.get("period1"), String(incrementalWindow.peri
 assert.equal(requestedPublicParams.get("period2"), String(incrementalWindow.period2));
 assert.deepEqual(incrementalFetch.requestModes, { incremental: 1, bootstrap: 0, backfill: 0, gap_recovery: 0 });
 
+let requestedTasiUrl = "";
+const tasiFetch = await fetchPublicDelayedCharts({
+  symbols: ["tasi", "UNSUPPORTED"],
+  contextsBySymbol: new Map([["TASI", { previous_close: 11_900, bars: [] }]]),
+  now: new Date("2026-07-29T08:30:00.000Z"),
+  attempts: 1,
+  concurrency: 1,
+  fetchImpl: async (url) => {
+    requestedTasiUrl = String(url);
+    return {
+      ok: true,
+      async json() {
+        return {
+          chart: {
+            result: [{
+              timestamp: [Date.parse("2026-07-29T08:30:00.000Z") / 1000],
+              indicators: {
+                quote: [{
+                  open: [11_950],
+                  high: [12_010],
+                  low: [11_920],
+                  close: [12_000],
+                  volume: [0],
+                }],
+              },
+            }],
+          },
+        };
+      },
+    };
+  },
+});
+assert.equal(decodeURIComponent(new URL(requestedTasiUrl).pathname).endsWith("/^TASI.SR"), true, "the Saudi market index must use its explicit provider symbol");
+assert.equal(tasiFetch.requestCount, 1, "unsupported non-catalog symbols must not be requested");
+assert.equal(tasiFetch.payload.quotes[0].provider_symbol, "^TASI.SR", "the TASI quote must retain the same provider identity through normalization");
+
 const normalizedHistory = normalizeAdjustedHistoricalBars({
   interval: "1d",
   metadata: { partial: false },
