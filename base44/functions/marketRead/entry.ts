@@ -5745,22 +5745,8 @@ function sectorWeights(instruments, quoteByInstrument) {
   const total = caps.reduce((sum, value) => sum + value, 0);
   return new Map(instruments.map((instrument, index) => [instrument.id, total > 0 ? caps[index] / total : 1 / instruments.length]));
 }
-async function sectorSummaries(base44, instruments, quoteByInstrument, marketCode) {
+function sectorSummaries(instruments, quoteByInstrument, marketCode) {
   const equities = instruments.filter((instrument) => instrument.status !== "delisted");
-  const equitiesById = new Map(equities.map((instrument) => [instrument.id, instrument]));
-  const equitiesBySymbol = new Map(equities.map((instrument) => [String(instrument.symbol || "").trim().toUpperCase(), instrument]));
-  const archivedDailyChunks = (await readStoredCandleChunks(base44,
-    { ...candleIdentityFilter(equities, "1d", marketCode), is_historical_archive: true },
-    marketCode,
-    "-end_time",
-    500,
-  )).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
-  const barsByInstrument = new Map(equities.map((instrument) => [instrument.id, []]));
-  for (const chunk of archivedDailyChunks) {
-    const instrument = instrumentForCandleChunk(chunk, equitiesById, equitiesBySymbol, marketCode);
-    if (!instrument) continue;
-    barsByInstrument.get(instrument.id)?.push(...normalizedStoredBars([chunk], marketCode));
-  }
   const groups = new Map();
   for (const instrument of equities) {
     const key = instrument.sector_ar || instrument.sector_en;
@@ -5783,14 +5769,7 @@ async function sectorSummaries(base44, instruments, quoteByInstrument, marketCod
       return coverage > 0 ? sum / coverage : null;
     };
     const currentChange = weighted((instrument) => quoteByInstrument.get(instrument.id)?.change_percent);
-    const priorChange = weighted((instrument) => {
-      const bars = barsByInstrument.get(instrument.id) || [];
-      if (bars.length < 3) return null;
-      const previous = Number(bars.at(-2)?.close);
-      const beforePrevious = Number(bars.at(-3)?.close);
-      return previous > 0 && beforePrevious > 0 ? (previous - beforePrevious) / beforePrevious * 100 : null;
-    });
-    const movementStatus = Number(currentChange) <= -1.5 && Number(priorChange) <= -1.5
+    const movementStatus = Number(currentChange) <= -1.5
       ? "strong_down"
       : Number(currentChange) >= 1.5
         ? "strong_up"
@@ -5809,7 +5788,7 @@ async function sectorSummaries(base44, instruments, quoteByInstrument, marketCod
       sector_en: members[0].sector_en,
       constituent_count: members.length,
       change_percent: currentChange == null ? null : Number(currentChange.toFixed(4)),
-      prior_change_percent: priorChange == null ? null : Number(priorChange.toFixed(4)),
+      prior_change_percent: null,
       movement_status: movementStatus
     };
   }).sort((a, b) => String(a.sector_ar).localeCompare(String(b.sector_ar), "ar"));
@@ -5969,7 +5948,7 @@ Deno.serve(async (req) => {
       for (const quote of quotes) if (usableQuote(quote) && !quoteByInstrument.has(quote.instrument_id)) quoteByInstrument.set(quote.instrument_id, quote);
       return Response.json({
         market_code: requestedMarket,
-        sector_summaries: await sectorSummaries(base44, instruments, quoteByInstrument, requestedMarket),
+        sector_summaries: sectorSummaries(instruments, quoteByInstrument, requestedMarket),
       });
     }
     const sources = await optionalRows(

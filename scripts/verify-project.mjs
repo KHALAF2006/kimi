@@ -512,7 +512,9 @@ assert.match(marketReadFunction, /body\.action === "sector"/, "sector details mu
 assert.match(marketReadFunction, /body\.action === "sector_chart"/, "sector chart candles must be built by the protected market backend");
 assert.match(marketReadFunction, /sectorWeights/, "sector index construction must use an explicit weighting function");
 assert.match(marketReadFunction, /if \(interval === "1d"\) return \[interval\]/, "daily charts must not scan the much larger intraday archive as a fallback");
-assert.match(marketReadFunction.match(/async function sectorSummaries[\s\S]*?async function sectorResponse/)?.[0] || "", /is_historical_archive:\s*true[\s\S]*?500/, "sector heat must read only the bounded daily archive needed for its two-session rule");
+const sectorSummaryFunction = marketReadFunction.match(/function sectorSummaries[\s\S]*?async function sectorResponse/)?.[0] || "";
+assert.doesNotMatch(sectorSummaryFunction, /CandleChunk|readStoredCandleChunks|is_historical_archive/, "sector heat must not scan candle archives for a dashboard color summary");
+assert.match(sectorSummaryFunction, /quoteByInstrument\.get\(instrument\.id\)\?\.change_percent/, "sector heat must derive from the current verified market snapshot");
 assert.match(marketReadFunction, /market_code: body\?\.market_code \|\| null/, "market-read failures must record the requested market for root-cause diagnosis");
 assert.match(marketReadFunction, /storedCandlesForInstruments/, "sector charts must bulk-read stored candles instead of issuing one database query per constituent");
 assert.match(marketReadFunction, /INTERVAL_RANGE_MATRIX/, "the backend must reject interval and range combinations outside the supported chart contract");
@@ -522,7 +524,7 @@ assert.match(marketReadFunction, /range_complete/, "chart responses must disting
 assert.match(marketReadFunction, /instrument_type:\s*"sector_index"/, "sector search results must carry a first-class instrument identity");
 assert.match(marketReadFunction, /TASI_SYMBOL/, "the protected market directory must include the Saudi general market index");
 assert.match(marketReadFunction, /searchCandidateScore/, "instrument autocomplete must use deterministic exact, prefix, and substring ranking");
-assert.match(marketReadFunction, /Number\(currentChange\) <= -1\.5 && Number\(priorChange\) <= -1\.5/, "sector heat state must reserve red for a two-session decline beyond 1.5 percent");
+assert.match(marketReadFunction, /Number\(currentChange\) <= -1\.5/, "sector heat state must reserve red for a current decline beyond 1.5 percent");
 assert.match(marketReadFunction, /body\.action === "sector_summaries"/, "sector heat must use a separate protected read instead of blocking the core market snapshot");
 assert.match(marketReadFunction, /const sectorSummaryRows = \[\]/, "the core market snapshot must not scan historical candle chunks for sector heat");
 assert.match(marketReadFunction, /attempt <= 3/, "rate-limited entity reads must use a bounded server-side retry");
@@ -547,7 +549,7 @@ assert.match(marketReadFunction, /mergeStoredCandleSeries\(series, interval, mar
 assert.match(marketReadFunction, /requestedMarket === "SA_MAIN" \? filter : \{ \.\.\.filter, market_code: requestedMarket \}/, "Saudi reads must recover legacy candle chunks without weakening explicit market filters elsewhere");
 assert.match(marketReadFunction, /if \(requestedMarket === "SA_MAIN"\) return !storedMarket \|\| storedMarket === requestedMarket/, "Saudi compatibility reads must accept only legacy untagged or explicitly Saudi stored records");
 assert.match(marketReadFunction, /return storedMarket === requestedMarket/, "non-Saudi candle reads must keep exact market isolation");
-assert.equal((marketReadFunction.match(/readStoredCandleChunks\(base44,/g) || []).length, 4, "all company, multi-instrument, and sector-summary candle reads must share the compatibility guard");
+assert.equal((marketReadFunction.match(/readStoredCandleChunks\(base44,/g) || []).length, 3, "company and multi-instrument candle reads must share the compatibility guard without adding a sector-summary archive scan");
 assert.match(marketReadFunction, /return \{ symbol: symbols\.length === 1 \? symbols\[0\] : \{ \$in: symbols \}, interval \}/, "Saudi candle reads must resolve legacy archives by stable exchange symbol rather than a regenerated entity id");
 assert.match(marketReadFunction, /readHistoricalSyncs\(base44, instrument, body\.market_code\)/, "historical completeness metadata must use the same legacy-compatible Saudi identity");
 assert.match(marketReadFunction, /async function readIndicatorSnapshots/, "Saudi indicator reads must share a legacy-compatible market guard");
