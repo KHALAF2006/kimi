@@ -79,11 +79,12 @@ assert.ok((ingestion.match(/renewOwnedIngestionLease\(base44, run\)/g) || []).le
 assert.match(ingestion, /failure_code:\s*"SLOT_LEASE_SUPERSEDED"/, "a concurrent losing ingestion run must terminate visibly without promoting data");
 assert.match(ingestion, /QuoteLatest\.filter\(\{\s*instrument_id:\s*\{ \$in: instrumentIds \},\s*market_code: marketCode/s, "previous-quote and stale-quote reads must be scoped by both market and instrument identity");
 assert.doesNotMatch(ingestion, /QuoteLatest\.list\("-updated_date", 500\)/, "Saudi candle context must not derive previous close from a global quote list");
-assert.match(ingestion, /trigger_price:\s*Number\(quote\.last_price\)/, "Saudi alert events must persist the trigger price at evaluation time");
-assert.match(ingestion, /trigger_observed_at:/, "Saudi alert events must persist the trigger timestamp at evaluation time");
+assert.match(ingestion, /async function queuePersonalAlertMessage/, "Saudi alert evaluation must use the customer-scoped message path");
+assert.match(ingestion, /Subscription\.filter\(\{ customer_id: rule\.customer_id, market_code: "SA_MAIN", status: "active" \}/, "Saudi personal alerts must verify the exact customer market subscription");
+assert.match(ingestion, /recipient_customer_id: profile\.id/, "Saudi alert messages must address the rule owner only");
 assert.match(ingestion, /AlertRule\.filter\(\{ market_code: "SA_MAIN", enabled: true \}/, "Saudi alert evaluation must read only active rules for its own market");
-assert.match(ingestion, /DeliveryEvent\.bulkCreate\(missing\)/, "Saudi alert delivery deduplication must create missing events in one bounded batch");
-assert.match(ingestion, /\["telegram", "whatsapp"\]\.includes\(item\.channel\)/, "scheduled alert delivery must not queue email campaigns into channel delivery");
+assert.doesNotMatch(ingestion, /DeliveryEvent\.bulkCreate\(missing\)/, "Saudi customer rules must never enter the owner broadcast queue");
+assert.doesNotMatch(ingestion, /DeliveryChannel\.filter\(\{ market_code: "SA_MAIN"/, "Saudi customer rules must not depend on the owner's centralized channels");
 assert.match(ingestion, /SUSPENDED_INSTRUMENTS = new Map\(\[/, "officially suspended Saudi instruments must have an explicit canonical state");
 assert.match(ingestion, /\["2210", \{ since: "2026-04-30"/, "Nama Chemicals suspension must retain the official effective date");
 assert.match(ingestion, /quality_status: "stale"/, "a suspended instrument reference price must never be presented as current");
@@ -103,6 +104,13 @@ for (const [name, delivery] of [["Telegram", telegramDelivery], ["WhatsApp", wha
   assert.doesNotMatch(delivery, /QuoteLatest\.filter/, `${name} delivery must not replace the trigger snapshot with a later quote`);
 }
 assert.match(alertEvaluation, /TRIGGER_SNAPSHOT_REQUIRED/, "manual alert evaluation must fail closed without a verifiable trigger snapshot");
+assert.match(alertEvaluation, /queuePersonalAlertMessage/, "manual alert evaluation must create a customer-scoped in-app message");
+assert.doesNotMatch(alertEvaluation, /DeliveryEvent\.(create|bulkCreate)/, "manual customer alert evaluation must never create a centralized broadcast event");
+const personalAlertMessage = await readFile(new URL("../base44/shared/personal-alert-message.ts", import.meta.url), "utf8");
+assert.match(personalAlertMessage, /recipient_customer_id: profile\.id/, "personal alerts must target the rule owner by canonical customer identity");
+assert.match(personalAlertMessage, /Subscription\.filter\(\{ customer_id: rule\.customer_id, market_code: marketCode, status: "active" \}/, "personal alerts must require an active subscription for the exact market");
+assert.match(personalAlertMessage, /instrument\.market_code !== marketCode/, "personal alerts must reject instrument and market mismatches");
+assert.doesNotMatch(personalAlertMessage, /DeliveryChannel|DeliveryEvent/, "personal alerts must remain isolated from centralized owner broadcasts");
 
 const historicalBackfill = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
 assert.match(historicalBackfill, /requireAdminUser\(base44\)/, "historical backfill must require a verified admin identity");
