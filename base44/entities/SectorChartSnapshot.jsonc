@@ -14,12 +14,6 @@
     "interval": {
       "type": "string"
     },
-    "range": {
-      "type": "string"
-    },
-    "lookback_days": {
-      "type": "integer"
-    },
     "payload": {
       "type": "object"
     },
@@ -30,10 +24,6 @@
     "calculated_at": {
       "type": "string",
       "format": "date-time"
-    },
-    "expires_at": {
-      "type": "string",
-      "format": "date-time"
     }
   },
   "required": [
@@ -41,12 +31,9 @@
     "market_code",
     "sector",
     "interval",
-    "range",
-    "lookback_days",
     "payload",
     "source_as_of",
-    "calculated_at",
-    "expires_at"
+    "calculated_at"
   ],
   "rls": {
     "create": false,
