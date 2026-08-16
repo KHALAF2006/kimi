@@ -5892,7 +5892,10 @@ function drawingLevel(points, observedAt) {
 }
 async function evaluateDrawingAlerts(base44, quotes) {
   const bySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
-  const rules = (await base44.asServiceRole.entities.AlertRule.list("-updated_date", 5e3)).filter((rule) => rule.enabled && String(rule.condition || "").startsWith("crosses_drawing"));
+  const rules = (await base44.asServiceRole.entities.AlertRule.filter({ market_code: "SA_MAIN", enabled: true }, "-updated_date", 5e3))
+    .filter((rule) => String(rule.condition || "").startsWith("crosses_drawing"));
+  const channels = (await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: "SA_MAIN", active: true }))
+    .filter((item) => item.verified_at && ["telegram", "whatsapp"].includes(item.channel));
   let triggered = 0;
   for (const rule of rules) {
     const quote = bySymbol.get(rule.symbol);
@@ -5913,13 +5916,12 @@ async function evaluateDrawingAlerts(base44, quotes) {
     const update = { last_observed_price: currentPrice, last_observed_at: quote.quote_time };
     if (matches && cooldownPassed) {
       if ((rule.market_code || "SA_MAIN") !== "SA_MAIN") continue;
-      const channels = (await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: "SA_MAIN", active: true })).filter((item) => item.verified_at);
+      const candidates = [];
       for (const channel of channels) {
         const raw = `${rule.id}:${channel.id}:${quote.quote_time}`;
         const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
         const dedupeKey = Array.from(new Uint8Array(bytes)).map((value) => value.toString(16).padStart(2, "0")).join("");
-        const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: dedupeKey });
-        if (!existing.length) await base44.asServiceRole.entities.DeliveryEvent.create({
+        candidates.push({
           alert_rule_id: rule.id,
           destination_id: channel.id,
           market_code: "SA_MAIN",
@@ -5933,6 +5935,12 @@ async function evaluateDrawingAlerts(base44, quotes) {
           trigger_threshold: Number.isFinite(currentLevel) ? currentLevel : undefined,
         });
       }
+      const existing = candidates.length
+        ? await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: { $in: candidates.map((item) => item.dedupe_key) } }, "dedupe_key", candidates.length)
+        : [];
+      const existingKeys = new Set(existing.map((item) => item.dedupe_key));
+      const missing = candidates.filter((item) => !existingKeys.has(item.dedupe_key));
+      if (missing.length) await base44.asServiceRole.entities.DeliveryEvent.bulkCreate(missing);
       update.last_triggered_at = quote.quote_time;
       if (rule.frequency === "once") update.enabled = false;
       triggered += 1;
@@ -5969,38 +5977,40 @@ function alertEvaluationBucket(quote, interval) {
   }
   return null;
 }
-async function queueRuleDeliveries(base44, rule, quote, bucket) {
+async function queueRuleDeliveries(base44, rule, quote, bucket, channels) {
   if ((rule.market_code || "SA_MAIN") !== "SA_MAIN" || (quote.market_code && quote.market_code !== "SA_MAIN")) throw new Error("alert_market_mismatch");
-  const channels = (await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: "SA_MAIN", active: true })).filter((item) => item.verified_at);
-  let created = 0;
+  const candidates = [];
   for (const channel of channels) {
     const raw = `${rule.id}:${channel.id}:${bucket}`;
     const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
     const dedupeKey = Array.from(new Uint8Array(bytes)).map((value) => value.toString(16).padStart(2, "0")).join("");
-    const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: dedupeKey });
-    if (!existing.length) {
-      await base44.asServiceRole.entities.DeliveryEvent.create({
-        alert_rule_id: rule.id,
-        destination_id: channel.id,
-        market_code: "SA_MAIN",
-        dedupe_key: dedupeKey,
-        channel: channel.channel,
-        status: "pending",
-        attempt_count: 0,
-        trigger_price: Number(quote.last_price),
-        trigger_observed_at: quote.provider_as_of || quote.source_time || quote.quote_time,
-        trigger_condition: rule.condition,
-        trigger_threshold: Number(rule.threshold),
-      });
-      created += 1;
-    }
+    candidates.push({
+      alert_rule_id: rule.id,
+      destination_id: channel.id,
+      market_code: "SA_MAIN",
+      dedupe_key: dedupeKey,
+      channel: channel.channel,
+      status: "pending",
+      attempt_count: 0,
+      trigger_price: Number(quote.last_price),
+      trigger_observed_at: quote.provider_as_of || quote.source_time || quote.quote_time,
+      trigger_condition: rule.condition,
+      trigger_threshold: Number(rule.threshold),
+    });
   }
-  return created;
+  if (!candidates.length) return 0;
+  const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: { $in: candidates.map((item) => item.dedupe_key) } }, "dedupe_key", candidates.length);
+  const existingKeys = new Set(existing.map((item) => item.dedupe_key));
+  const missing = candidates.filter((item) => !existingKeys.has(item.dedupe_key));
+  if (missing.length) await base44.asServiceRole.entities.DeliveryEvent.bulkCreate(missing);
+  return missing.length;
 }
 async function evaluatePriceAlerts(base44, quotes) {
   const bySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
-  const rules = (await base44.asServiceRole.entities.AlertRule.list("-updated_date", 5e3))
-    .filter((rule) => rule.enabled && ["crosses_above", "crosses_below"].includes(rule.condition));
+  const rules = (await base44.asServiceRole.entities.AlertRule.filter({ market_code: "SA_MAIN", enabled: true }, "-updated_date", 5e3))
+    .filter((rule) => ["crosses_above", "crosses_below"].includes(rule.condition));
+  const channels = (await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: "SA_MAIN", active: true }))
+    .filter((item) => item.verified_at && ["telegram", "whatsapp"].includes(item.channel));
   let evaluated = 0;
   let triggered = 0;
   let deliveryEvents = 0;
@@ -6022,7 +6032,7 @@ async function evaluatePriceAlerts(base44, quotes) {
     const update = { last_observed_price: currentPrice, last_observed_at: observedAt, last_evaluation_bucket: bucket };
     evaluated += 1;
     if (crossed && cooldownPassed) {
-      deliveryEvents += await queueRuleDeliveries(base44, rule, quote, bucket);
+      deliveryEvents += await queueRuleDeliveries(base44, rule, quote, bucket, channels);
       update.last_triggered_at = observedAt;
       if (rule.frequency === "once") update.enabled = false;
       triggered += 1;

@@ -23,6 +23,8 @@ assert.doesNotMatch(bundledIngestion, /from "\.\.\/\.\.\/shared\//, "the deploye
 assert.match(ingestion, /new Set\(bar\.component_times\)\.size === 3/, "15-minute candles must require all three five-minute components");
 assert.match(ingestion, /incrementalProviderWindow/, "normal benchmark cycles must resume from the latest stored candle");
 assert.match(ingestion, /earliestRecentGapByInstrument/, "a recent interior gap must widen only the affected instrument request");
+assert.match(ingestion, /AlertRule\.filter\(\{ market_code: US_BENCHMARKS_MARKET_CODE, enabled: true \}/, "benchmark alert evaluation must be market-scoped at the database boundary");
+assert.match(ingestion, /DeliveryEvent\.bulkCreate\(missing\)/, "benchmark alert events must be deduplicated and inserted in a bounded batch");
 assert.match(ingestion, /url\.searchParams\.set\("period1"/, "an incremental provider window must request only the missing tail");
 assert.match(ingestion, /mergeCandleBars\(existing\?\.bars, session\.bars\)/, "overlap candles must merge into the durable session instead of replacing it");
 assert.match(ingestion, /canonical_version: "us-benchmarks-intraday-v4"/);

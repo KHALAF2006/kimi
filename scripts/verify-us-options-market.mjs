@@ -173,6 +173,8 @@ const ingestion = await source("base44/functions/usOptionsMarketIngestion/source
 assert.match(ingestion, /url\.searchParams\.set\("interval", "5m"\)/);
 assert.match(ingestion, /incrementalProviderWindow/);
 assert.match(ingestion, /earliestRecentGapByInstrument/);
+assert.match(ingestion, /AlertRule\.filter\(\{ market_code: US_OPTIONS_MARKET_CODE, enabled: true \}/, "U.S. options alert evaluation must be market-scoped at the database boundary");
+assert.match(ingestion, /DeliveryEvent\.bulkCreate\(missing\)/, "U.S. options alert events must be deduplicated and inserted in a bounded batch");
 assert.match(ingestion, /url\.searchParams\.set\("period1"/);
 assert.match(ingestion, /mergeCandleBars\(existing\?\.bars, session\.bars\)/);
 assert.match(ingestion, /new Set\(bar\.component_times\)\.size === 3/, "a published 15-minute candle must contain all three five-minute components");

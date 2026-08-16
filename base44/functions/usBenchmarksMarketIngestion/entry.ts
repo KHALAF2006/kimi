@@ -728,13 +728,12 @@ function normalizeIntraday(item2, result, now) {
   const marketCap = Math.max(0, Number(result?.meta?.marketCap || 0));
   return { item: item2, sessionDate, providerAsOf: canonicalProviderAsOf, sessions: [...sessions.entries()].map(([date, values]) => ({ date, bars: completeBars(values) })).filter((session) => session.bars.length), previousClose, marketCap, quote: quoteFromBars(currentBars, previousClose, marketCap) };
 }
-async function queueAlertDeliveries(base44, rule, quote, bucket) {
+async function queueAlertDeliveries(base44, rule, quote, bucket, channels) {
   if (rule.market_code !== US_BENCHMARKS_MARKET_CODE) throw new Error("alert_market_mismatch");
-  const channels = entityRows(await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: US_BENCHMARKS_MARKET_CODE, active: true })).filter((item2) => item2.verified_at);
+  const candidates = [];
   for (const channel of channels) {
     const dedupeKey = await digest(`${rule.id}:${channel.id}:${bucket}`);
-    const existing = entityRows(await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: dedupeKey }));
-    if (!existing.length) await base44.asServiceRole.entities.DeliveryEvent.create({
+    candidates.push({
       alert_rule_id: rule.id,
       destination_id: channel.id,
       market_code: US_BENCHMARKS_MARKET_CODE,
@@ -748,10 +747,16 @@ async function queueAlertDeliveries(base44, rule, quote, bucket) {
       trigger_threshold: Number(rule.threshold)
     });
   }
+  if (!candidates.length) return;
+  const existing = entityRows(await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: { $in: candidates.map((item2) => item2.dedupe_key) } }, "dedupe_key", candidates.length));
+  const existingKeys = new Set(existing.map((item2) => item2.dedupe_key));
+  const missing = candidates.filter((item2) => !existingKeys.has(item2.dedupe_key));
+  if (missing.length) await base44.asServiceRole.entities.DeliveryEvent.bulkCreate(missing);
 }
 async function evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate) {
   const byInstrument = new Map(acceptedQuotes.map((quote) => [quote.instrument_id, quote]));
-  const rules = entityRows(await base44.asServiceRole.entities.AlertRule.list("-updated_date", 5e3)).filter((rule) => rule.enabled && rule.market_code === US_BENCHMARKS_MARKET_CODE).filter((rule) => ["crosses_above", "crosses_below"].includes(rule.condition));
+  const rules = entityRows(await base44.asServiceRole.entities.AlertRule.filter({ market_code: US_BENCHMARKS_MARKET_CODE, enabled: true }, "-updated_date", 5e3)).filter((rule) => ["crosses_above", "crosses_below"].includes(rule.condition));
+  const channels = entityRows(await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: US_BENCHMARKS_MARKET_CODE, active: true })).filter((item2) => item2.verified_at && ["telegram", "whatsapp"].includes(item2.channel));
   for (const rule of rules) {
     const quote = byInstrument.get(rule.instrument_id);
     const current = Number(quote?.last_price);
@@ -765,7 +770,7 @@ async function evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate) 
     if (crossed) {
       const cooldown = Math.max(15, Number(rule.cooldown_minutes) || 15) * 6e4;
       if (!rule.last_triggered_at || Date.parse(quote.provider_as_of) - Date.parse(rule.last_triggered_at) >= cooldown) {
-        await queueAlertDeliveries(base44, rule, quote, bucket);
+        await queueAlertDeliveries(base44, rule, quote, bucket, channels);
         update.last_triggered_at = quote.provider_as_of;
         if (rule.frequency === "once") update.enabled = false;
       }

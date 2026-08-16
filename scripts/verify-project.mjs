@@ -67,6 +67,9 @@ assert.match(ingestion, /QuoteLatest\.filter\(\{\s*instrument_id:\s*\{ \$in: ins
 assert.doesNotMatch(ingestion, /QuoteLatest\.list\("-updated_date", 500\)/, "Saudi candle context must not derive previous close from a global quote list");
 assert.match(ingestion, /trigger_price:\s*Number\(quote\.last_price\)/, "Saudi alert events must persist the trigger price at evaluation time");
 assert.match(ingestion, /trigger_observed_at:/, "Saudi alert events must persist the trigger timestamp at evaluation time");
+assert.match(ingestion, /AlertRule\.filter\(\{ market_code: "SA_MAIN", enabled: true \}/, "Saudi alert evaluation must read only active rules for its own market");
+assert.match(ingestion, /DeliveryEvent\.bulkCreate\(missing\)/, "Saudi alert delivery deduplication must create missing events in one bounded batch");
+assert.match(ingestion, /\["telegram", "whatsapp"\]\.includes\(item\.channel\)/, "scheduled alert delivery must not queue email campaigns into channel delivery");
 
 const deliveryEventSchema = JSON.parse(await readFile(new URL("../base44/entities/DeliveryEvent.jsonc", import.meta.url), "utf8"));
 assert.equal(deliveryEventSchema.properties.trigger_price.type, "number", "delivery events must own an immutable trigger-price snapshot");
