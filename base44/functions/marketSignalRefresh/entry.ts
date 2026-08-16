@@ -139,6 +139,18 @@ function finalSaudiDailyBar(bars, quote, sessionDate) {
     volume: nonNegativeNumber(quote?.volume) ?? 0
   };
 }
+function stableInstrumentCatalog(rows2) {
+  return [...Array.isArray(rows2) ? rows2 : []].sort((left, right) => {
+    const symbolOrder = String(left?.symbol || "").localeCompare(String(right?.symbol || ""), "en");
+    return symbolOrder || String(left?.id || "").localeCompare(String(right?.id || ""), "en");
+  });
+}
+function activeInstrumentCatalogBatch(catalog, batchIndex, batchSize) {
+  const index = Number(batchIndex);
+  const size = Number(batchSize);
+  if (!Number.isInteger(index) || index < 0 || !Number.isInteger(size) || size <= 0) return [];
+  return (Array.isArray(catalog) ? catalog : []).slice(index * size, (index + 1) * size).filter((item) => item?.status === "active");
+}
 
 // base44/shared/permissions.ts
 var PERMISSION_CATALOG = [
@@ -1280,10 +1292,11 @@ Deno.serve(async (req) => {
     const sessionDate = String(body.session_date || riyadhDate());
     const slotKey = projectionSlotKey(sessionDate);
     const instrumentsRaw = await base44.asServiceRole.entities.Instrument.filter({ market_code: MARKET_CODE }, "symbol", 500);
-    const instruments = entityRows(instrumentsRaw).filter((item) => item.status === "active").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
-    const actualBatchCount = Math.ceil(instruments.length / PROJECTION_BATCH_SIZE);
+    const catalog = stableInstrumentCatalog(entityRows(instrumentsRaw));
+    const instruments = catalog.filter((item) => item.status === "active");
+    const actualBatchCount = Math.ceil(catalog.length / PROJECTION_BATCH_SIZE);
     if (actualBatchCount > PROJECTION_BATCH_COUNT) {
-      throw Object.assign(new Error(`Saudi projection capacity exceeded: ${instruments.length}`), {
+      throw Object.assign(new Error(`Saudi projection capacity exceeded: ${catalog.length}`), {
         status: 503,
         code: "PROJECTION_CAPACITY_EXCEEDED"
       });
@@ -1303,10 +1316,7 @@ Deno.serve(async (req) => {
           code: "INVALID_PROJECTION_BATCH"
         });
       }
-      const selected = instruments.slice(batchIndex * PROJECTION_BATCH_SIZE, (batchIndex + 1) * PROJECTION_BATCH_SIZE);
-      if (!selected.length) {
-        return Response.json({ status: "skipped", reason: "empty_projection_batch", session_date: sessionDate, batch_index: batchIndex });
-      }
+      const selected = activeInstrumentCatalogBatch(catalog, batchIndex, PROJECTION_BATCH_SIZE);
       const batchSlotKey = projectionBatchSlotKey(sessionDate, batchIndex);
       const existingBatchRuns = entityRows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: batchSlotKey }));
       const completedBatch = existingBatchRuns.filter((item) => ["success", "partial"].includes(item.status)).sort((left, right) => Date.parse(right.finished_at || right.updated_date || 0) - Date.parse(left.finished_at || left.updated_date || 0))[0];
@@ -1340,7 +1350,13 @@ Deno.serve(async (req) => {
         source_id: "canonical-projection",
         notes: `Bounded Saudi technical projection batch ${batchIndex + 1}/${PROJECTION_BATCH_COUNT}`
       });
-      const result = await projectInstrumentBatch(base44, selected.map((item) => item.id), sessionDate);
+      const result = selected.length ? await projectInstrumentBatch(base44, selected.map((item) => item.id), sessionDate) : {
+        candles: { created: 0, updated: 0 },
+        signals: { created: 0, updated: 0 },
+        skipped: [],
+        source_id: "canonical-projection",
+        snapshot_version: await digest({ sessionDate, batchIndex, empty: true })
+      };
       const failedIds = new Set((result.skipped || []).map((item) => item.instrument_id));
       const failureCount2 = Math.min(selected.length, failedIds.size);
       const status = failureCount2 === 0 ? "success" : failureCount2 < selected.length ? "partial" : "failed";
@@ -1353,7 +1369,7 @@ Deno.serve(async (req) => {
         status,
         source_id: result.source_id || "canonical-projection",
         snapshot_version: result.snapshot_version,
-        coverage_percent: selected.length ? (selected.length - failureCount2) / selected.length * 100 : 0,
+        coverage_percent: selected.length ? (selected.length - failureCount2) / selected.length * 100 : 100,
         promoted_at: finishedAt2,
         notes: JSON.stringify({
           batch_index: batchIndex,

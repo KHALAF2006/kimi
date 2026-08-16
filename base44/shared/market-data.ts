@@ -692,6 +692,22 @@ export function finalSaudiDailyBar(bars, quote, sessionDate) {
   };
 }
 
+export function stableInstrumentCatalog(rows) {
+  return [...(Array.isArray(rows) ? rows : [])].sort((left, right) => {
+    const symbolOrder = String(left?.symbol || "").localeCompare(String(right?.symbol || ""), "en");
+    return symbolOrder || String(left?.id || "").localeCompare(String(right?.id || ""), "en");
+  });
+}
+
+export function activeInstrumentCatalogBatch(catalog, batchIndex, batchSize) {
+  const index = Number(batchIndex);
+  const size = Number(batchSize);
+  if (!Number.isInteger(index) || index < 0 || !Number.isInteger(size) || size <= 0) return [];
+  return (Array.isArray(catalog) ? catalog : [])
+    .slice(index * size, (index + 1) * size)
+    .filter((item) => item?.status === "active");
+}
+
 function uniqueSortedBars(bars) {
   const byTime = new Map();
   for (const bar of Array.isArray(bars) ? bars : []) {

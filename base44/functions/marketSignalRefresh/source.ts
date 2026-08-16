@@ -1,5 +1,9 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { finalSaudiDailyBar } from "../../shared/market-data.ts";
+import {
+  activeInstrumentCatalogBatch,
+  finalSaudiDailyBar,
+  stableInstrumentCatalog,
+} from "../../shared/market-data.ts";
 import { readJsonBody, replyError, requirePermission, requireTrustedOwner } from "../../shared/security.ts";
 import {
   TECHNICAL_SIGNAL_FORMULA_VERSION,
@@ -373,12 +377,14 @@ Deno.serve(async (req) => {
     const sessionDate = String(body.session_date || riyadhDate());
     const slotKey = projectionSlotKey(sessionDate);
     const instrumentsRaw = await base44.asServiceRole.entities.Instrument.filter({ market_code: MARKET_CODE }, "symbol", 500);
-    const instruments = entityRows(instrumentsRaw)
-      .filter((item) => item.status === "active")
-      .sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
-    const actualBatchCount = Math.ceil(instruments.length / PROJECTION_BATCH_SIZE);
+    // Partition the complete catalog first, then execute only active rows inside
+    // each stable slice. A status change must not shift every later batch and
+    // cause duplicate or missing instruments during a resumed workflow.
+    const catalog = stableInstrumentCatalog(entityRows(instrumentsRaw));
+    const instruments = catalog.filter((item) => item.status === "active");
+    const actualBatchCount = Math.ceil(catalog.length / PROJECTION_BATCH_SIZE);
     if (actualBatchCount > PROJECTION_BATCH_COUNT) {
-      throw Object.assign(new Error(`Saudi projection capacity exceeded: ${instruments.length}`), {
+      throw Object.assign(new Error(`Saudi projection capacity exceeded: ${catalog.length}`), {
         status: 503,
         code: "PROJECTION_CAPACITY_EXCEEDED",
       });
@@ -399,10 +405,7 @@ Deno.serve(async (req) => {
           code: "INVALID_PROJECTION_BATCH",
         });
       }
-      const selected = instruments.slice(batchIndex * PROJECTION_BATCH_SIZE, (batchIndex + 1) * PROJECTION_BATCH_SIZE);
-      if (!selected.length) {
-        return Response.json({ status: "skipped", reason: "empty_projection_batch", session_date: sessionDate, batch_index: batchIndex });
-      }
+      const selected = activeInstrumentCatalogBatch(catalog, batchIndex, PROJECTION_BATCH_SIZE);
       const batchSlotKey = projectionBatchSlotKey(sessionDate, batchIndex);
       const existingBatchRuns = entityRows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: batchSlotKey }));
       const completedBatch = existingBatchRuns
@@ -438,7 +441,15 @@ Deno.serve(async (req) => {
         source_id: "canonical-projection",
         notes: `Bounded Saudi technical projection batch ${batchIndex + 1}/${PROJECTION_BATCH_COUNT}`,
       });
-      const result = await projectInstrumentBatch(base44, selected.map((item) => item.id), sessionDate);
+      const result = selected.length
+        ? await projectInstrumentBatch(base44, selected.map((item) => item.id), sessionDate)
+        : {
+          candles: { created: 0, updated: 0 },
+          signals: { created: 0, updated: 0 },
+          skipped: [],
+          source_id: "canonical-projection",
+          snapshot_version: await digest({ sessionDate, batchIndex, empty: true }),
+        };
       const failedIds = new Set((result.skipped || []).map((item) => item.instrument_id));
       const failureCount = Math.min(selected.length, failedIds.size);
       const status = failureCount === 0 ? "success" : failureCount < selected.length ? "partial" : "failed";
@@ -451,7 +462,7 @@ Deno.serve(async (req) => {
         status,
         source_id: result.source_id || "canonical-projection",
         snapshot_version: result.snapshot_version,
-        coverage_percent: selected.length ? (selected.length - failureCount) / selected.length * 100 : 0,
+        coverage_percent: selected.length ? (selected.length - failureCount) / selected.length * 100 : 100,
         promoted_at: finishedAt,
         notes: JSON.stringify({
           batch_index: batchIndex,

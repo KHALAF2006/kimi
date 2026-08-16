@@ -198,6 +198,9 @@ assert.match(marketSignalRefreshSource, /finalSaudiDailyBar\(/, "Saudi projectio
 assert.match(marketDataSource, /final market snapshot is an authoritative session-level OHLCV/, "a verified final quote must safely close a daily candle when the intraday archive has a gap");
 assert.match(marketDataSource, /time: `\$\{sessionDate\}T07:00:00\.000Z`/, "quote-only daily fallback must retain the canonical Saudi session timestamp");
 assert.match(marketSignalRefreshSource, /item\.status === "active"/, "suspended and delisted instruments must not reduce active-market projection coverage");
+assert.match(marketSignalRefreshSource, /stableInstrumentCatalog\(entityRows\(instrumentsRaw\)\)/, "Saudi projection must freeze stable catalog ordering before slicing batches");
+assert.match(marketSignalRefreshSource, /activeInstrumentCatalogBatch\(catalog, batchIndex, PROJECTION_BATCH_SIZE\)/, "each stable catalog slice must execute only its active instruments");
+assert.match(marketSignalRefreshSource, /coverage_percent: selected\.length \?[^\n]+: 100/, "an empty stable slice must finalize successfully instead of blocking the workflow");
 assert.match(marketSignalRefreshSource, /indicator_key:\s*["']momentum_zones["']/, "the projection job must persist the authoritative investor-zone lifecycle snapshot");
 assert.match(marketSignalRefreshSource, /MOMENTUM_FORMULA_VERSION/, "persisted investor zones must carry their versioned role-reversal formula");
 assert.match(marketSignalRefreshSource, /timeframe === ["']1wk["']\s*\? isThursday\(sessionDate\)/, "weekly projections must finalize only at the Saudi trading-week close");

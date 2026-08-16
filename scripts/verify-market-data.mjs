@@ -29,6 +29,7 @@ const momentumModule = await importTypeScriptModule("./base44/shared/momentum.ts
 const {
   SAUDI_DELAY_SECONDS,
   MARKET_AUTOMATION_SPECS,
+  activeInstrumentCatalogBatch,
   buildPublicCandleContexts,
   canonicalizeQuarterHourBars,
   coverageStatus,
@@ -48,6 +49,7 @@ const {
   normalizeProviderCandles,
   publicChartRequestWindow,
   slotDecision,
+  stableInstrumentCatalog,
 } = marketDataModule;
 const { calculateMomentumZones } = momentumModule;
 const {
@@ -549,6 +551,28 @@ assert.deepEqual(quarterBackedDailyBar, {
   close: 201,
   volume: 987654,
 }, "final quote OHLCV must reconcile the canonical intraday archive without duplicating volume");
+
+const mixedStatusCatalog = stableInstrumentCatalog([
+  { id: "c", symbol: "3000", status: "active" },
+  { id: "a", symbol: "1000", status: "active" },
+  { id: "b", symbol: "2000", status: "suspended" },
+]);
+assert.deepEqual(mixedStatusCatalog.map((item) => item.symbol), ["1000", "2000", "3000"]);
+assert.deepEqual(
+  activeInstrumentCatalogBatch(mixedStatusCatalog, 0, 2).map((item) => item.symbol),
+  ["1000"],
+  "a suspended instrument must be excluded without moving a later symbol into the current batch",
+);
+assert.deepEqual(
+  activeInstrumentCatalogBatch(mixedStatusCatalog, 1, 2).map((item) => item.symbol),
+  ["3000"],
+  "later batch boundaries must remain stable when an earlier instrument is suspended",
+);
+const reactivatedCatalog = stableInstrumentCatalog(mixedStatusCatalog.map((item) => (
+  item.symbol === "2000" ? { ...item, status: "active" } : item
+)));
+assert.deepEqual(activeInstrumentCatalogBatch(reactivatedCatalog, 0, 2).map((item) => item.symbol), ["1000", "2000"]);
+assert.deepEqual(activeInstrumentCatalogBatch(reactivatedCatalog, 1, 2).map((item) => item.symbol), ["3000"]);
 
 const fiftyOneBars = Array.from({ length: 51 }, (_, index) => {
   const close = index < 49 ? 10 : index === 49 ? 9 : 12;
