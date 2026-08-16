@@ -20,6 +20,8 @@ var PERMISSION_CATALOG = [
   { code: "data.quality.manage", group_code: "data", name_ar: "\u0645\u0639\u0627\u0644\u062C\u0629 \u062C\u0648\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A", name_en: "Manage data quality", sensitive: true, owner_only: false },
   { code: "alerts.operations.read", group_code: "alerts", name_ar: "\u0639\u0631\u0636 \u062A\u0634\u063A\u064A\u0644 \u0627\u0644\u062A\u0646\u0628\u064A\u0647\u0627\u062A", name_en: "View alert operations", sensitive: false, owner_only: false },
   { code: "alerts.operations.manage", group_code: "alerts", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u062A\u0634\u063A\u064A\u0644 \u0627\u0644\u062A\u0646\u0628\u064A\u0647\u0627\u062A", name_en: "Manage alert operations", sensitive: true, owner_only: false },
+  { code: "delivery.channels.manage", group_code: "alerts", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0642\u0646\u0648\u0627\u062A \u0627\u0644\u0625\u0631\u0633\u0627\u0644 \u0627\u0644\u0645\u0631\u0643\u0632\u064A\u0629", name_en: "Manage centralized delivery channels", sensitive: true, owner_only: true },
+  { code: "email.campaigns.manage", group_code: "alerts", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u062D\u0645\u0644\u0627\u062A \u0627\u0644\u0628\u0631\u064A\u062F", name_en: "Manage email campaigns", sensitive: true, owner_only: true },
   { code: "audit.read", group_code: "audit", name_ar: "\u0639\u0631\u0636 \u0633\u062C\u0644 \u0627\u0644\u062A\u062F\u0642\u064A\u0642", name_en: "View audit log", sensitive: true, owner_only: false },
   { code: "audit.export", group_code: "audit", name_ar: "\u062A\u0635\u062F\u064A\u0631 \u0633\u062C\u0644 \u0627\u0644\u062A\u062F\u0642\u064A\u0642", name_en: "Export audit log", sensitive: true, owner_only: true },
   { code: "roles.manage", group_code: "administration", name_ar: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0623\u062F\u0648\u0627\u0631 \u0648\u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0627\u062A", name_en: "Manage roles and permissions", sensitive: true, owner_only: true },
@@ -719,15 +721,17 @@ function normalizeIntraday(item2, result, now) {
   return { item: item2, sessionDate, providerAsOf: canonicalProviderAsOf, sessions: [...sessions.entries()].map(([date, values]) => ({ date, bars: completeBars(values) })).filter((session) => session.bars.length), previousClose, marketCap, quote: quoteFromBars(currentBars, previousClose, marketCap) };
 }
 async function queueAlertDeliveries(base44, rule, bucket) {
-  const destinations = entityRows(await base44.asServiceRole.entities.AlertDestination.filter({ customer_id: rule.customer_id, active: true }));
-  for (const destination of destinations) {
-    const dedupeKey = await digest(`${rule.id}:${destination.id}:${bucket}`);
+  if (rule.market_code !== US_BENCHMARKS_MARKET_CODE) throw new Error("alert_market_mismatch");
+  const channels = entityRows(await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: US_BENCHMARKS_MARKET_CODE, active: true })).filter((item2) => item2.verified_at);
+  for (const channel of channels) {
+    const dedupeKey = await digest(`${rule.id}:${channel.id}:${bucket}`);
     const existing = entityRows(await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: dedupeKey }));
     if (!existing.length) await base44.asServiceRole.entities.DeliveryEvent.create({
       alert_rule_id: rule.id,
-      destination_id: destination.id,
+      destination_id: channel.id,
+      market_code: US_BENCHMARKS_MARKET_CODE,
       dedupe_key: dedupeKey,
-      channel: destination.channel,
+      channel: channel.channel,
       status: "pending",
       attempt_count: 0
     });

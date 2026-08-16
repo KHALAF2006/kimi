@@ -190,13 +190,14 @@ function normalizeIntraday(item, result, now) {
 }
 
 async function queueAlertDeliveries(base44, rule, bucket) {
-  const destinations = rows(await base44.asServiceRole.entities.AlertDestination.filter({ customer_id: rule.customer_id, active: true }));
-  for (const destination of destinations) {
-    const dedupeKey = await digest(`${rule.id}:${destination.id}:${bucket}`);
+  if (rule.market_code !== US_BENCHMARKS_MARKET_CODE) throw new Error("alert_market_mismatch");
+  const channels = rows(await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: US_BENCHMARKS_MARKET_CODE, active: true })).filter((item) => item.verified_at);
+  for (const channel of channels) {
+    const dedupeKey = await digest(`${rule.id}:${channel.id}:${bucket}`);
     const existing = rows(await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: dedupeKey }));
     if (!existing.length) await base44.asServiceRole.entities.DeliveryEvent.create({
-      alert_rule_id: rule.id, destination_id: destination.id, dedupe_key: dedupeKey,
-      channel: destination.channel, status: "pending", attempt_count: 0,
+      alert_rule_id: rule.id, destination_id: channel.id, market_code: US_BENCHMARKS_MARKET_CODE, dedupe_key: dedupeKey,
+      channel: channel.channel, status: "pending", attempt_count: 0,
     });
   }
 }

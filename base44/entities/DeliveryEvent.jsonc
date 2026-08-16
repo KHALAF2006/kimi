@@ -15,9 +15,11 @@
       "type": "string",
       "enum": [
         "telegram",
-        "whatsapp"
+        "whatsapp",
+        "email"
       ]
     },
+    "market_code": { "type": "string" },
     "status": {
       "type": "string",
       "enum": [
@@ -30,6 +32,8 @@
     "attempt_count": {
       "type": "integer"
     },
+    "recipient_cursor": { "type": "integer", "minimum": 0 },
+    "recipient_count": { "type": "integer", "minimum": 0 },
     "provider_code": {
       "type": "string"
     },

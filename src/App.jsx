@@ -29,7 +29,6 @@ const Screener = lazy(() => import('@/pages/Screener'));
 const SearchScreens = lazy(() => import('@/pages/SearchScreens'));
 const Watchlists = lazy(() => import('@/pages/Watchlists'));
 const Alerts = lazy(() => import('@/pages/Alerts'));
-const Destinations = lazy(() => import('@/pages/Destinations'));
 const Profile = lazy(() => import('@/pages/Profile'));
 const MarketApplications = lazy(() => import('@/pages/MarketApplications'));
 const MessageCenter = lazy(() => import('@/pages/MessageCenter'));
@@ -42,6 +41,7 @@ const DataQualityAdmin = lazy(() => import('@/pages/DataQualityAdmin'));
 const OperationsAdmin = lazy(() => import('@/pages/OperationsAdmin'));
 const AuditAdmin = lazy(() => import('@/pages/AuditAdmin'));
 const RolesAdmin = lazy(() => import('@/pages/RolesAdmin'));
+const DeliveryCenterAdmin = lazy(() => import('@/pages/DeliveryCenterAdmin'));
 
 const ProtectedProviders = () => (
   <AuthProvider>
@@ -74,7 +74,6 @@ const AppRoutes = () => {
           <Route path="/search" element={<SearchScreens />} />
           <Route path="/watchlists" element={<Watchlists />} />
           <Route path="/alerts" element={<Alerts />} />
-          <Route path="/destinations" element={<Destinations />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/market-applications" element={<MarketApplications />} />
           <Route path="/messages" element={<MessageCenter />} />
@@ -87,6 +86,7 @@ const AppRoutes = () => {
           <Route path="/admin/operations" element={<PermissionGate permission="data.operations.read"><OperationsAdmin /></PermissionGate>} />
           <Route path="/admin/audit" element={<PermissionGate permission="audit.read"><AuditAdmin /></PermissionGate>} />
           <Route path="/admin/roles" element={<PermissionGate permission="roles.manage"><RolesAdmin /></PermissionGate>} />
+          <Route path="/admin/delivery" element={<PermissionGate permission="delivery.channels.manage" ownerOnly><DeliveryCenterAdmin /></PermissionGate>} />
         </Route>
       </Route>
       <Route path="*" element={<PageNotFound />} />

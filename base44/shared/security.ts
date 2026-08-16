@@ -2,7 +2,7 @@ import { LEGACY_ROLE_PERMISSIONS, PERMISSION_CATALOG } from "./permissions.ts";
 
 const MAX_JSON_BODY_BYTES = 256 * 1024;
 const SESSION_TOKEN_PREFIX = "smart_investor1";
-const MARKET_ACCESS = {
+export const MARKET_ACCESS = {
   SA_MAIN: { entitlement: "market.saudi", name_ar: "السوق السعودية الرئيسية", name_en: "Saudi Main Market", currency: "SAR" },
   US_OPTIONS: { entitlement: "market.us.options", name_ar: "شركات عقود الخيارات", name_en: "U.S. Optionable Companies", currency: "USD" },
   US_BENCHMARKS: { entitlement: "market.us.benchmarks", name_ar: "المؤشرات والصناديق الأمريكية", name_en: "U.S. Indices & ETFs", currency: "USD" },

@@ -11,7 +11,6 @@ const ROUTES = {
   "/search": ["البحث", "Search"],
   "/watchlists": ["المتابعة", "Watchlists"],
   "/alerts": ["التنبيهات الذكية", "Smart alerts"],
-  "/destinations": ["قنوات التنبيه", "Alert channels"],
   "/profile": ["الحساب", "Account"],
   "/market-applications": ["طلبات الأسواق", "Market access"],
   "/messages": ["مركز الرسائل", "Message center"],
@@ -25,6 +24,7 @@ const ROUTES = {
   "/admin/operations": ["تشغيل السوق", "Market operations"],
   "/admin/audit": ["سجل التدقيق", "Audit log"],
   "/admin/roles": ["الأدوار والصلاحيات", "Roles and permissions"],
+  "/admin/delivery": ["قنوات الإرسال", "Delivery channels"],
 };
 
 function safeInternalPath(value) {

@@ -1,0 +1,22 @@
+{
+  "definition": {
+    "document": { "dsl": "1.0.0", "name": "delivery_worker_every_fifteen_minutes", "version": "1.0", "namespace": "base44" },
+    "do": [{
+      "process_delivery_queue": {
+        "call": "invoke_backend_function",
+        "with": { "function_name": "deliveryWorker", "args": { "action": "scheduled" } },
+        "then": "end"
+      }
+    }]
+  },
+  "description": "يعالج دفعات محدودة من تنبيهات تيليجرام وواتساب وحملات البريد مع استئناف آمن ومنع التكرار.",
+  "name": "معالجة قنوات الإرسال المركزية",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled", "events": [], "schedule_mode": "recurring", "cron_expression": "*/15 10-23 * * 0-5",
+      "one_time_date": null, "timezone": "Asia/Riyadh", "interval_value": null, "interval_unit": null,
+      "interval_anchor": null, "ends_type": "never", "ends_on_date": null, "ends_after_count": null
+    }
+  }
+}

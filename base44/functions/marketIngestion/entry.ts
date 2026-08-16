@@ -5897,13 +5897,14 @@ async function evaluateDrawingAlerts(base44, quotes) {
     const cooldownPassed = !rule.last_triggered_at || new Date(quote.quote_time).getTime() - new Date(rule.last_triggered_at).getTime() >= cooldownMs;
     const update = { last_observed_price: currentPrice, last_observed_at: quote.quote_time };
     if (matches && cooldownPassed) {
-      const destinations = await base44.asServiceRole.entities.AlertDestination.filter({ customer_id: rule.customer_id, active: true });
-      for (const destination of destinations) {
-        const raw = `${rule.id}:${destination.id}:${quote.quote_time}`;
+      if ((rule.market_code || "SA_MAIN") !== "SA_MAIN") continue;
+      const channels = (await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: "SA_MAIN", active: true })).filter((item) => item.verified_at);
+      for (const channel of channels) {
+        const raw = `${rule.id}:${channel.id}:${quote.quote_time}`;
         const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
         const dedupeKey = Array.from(new Uint8Array(bytes)).map((value) => value.toString(16).padStart(2, "0")).join("");
         const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: dedupeKey });
-        if (!existing.length) await base44.asServiceRole.entities.DeliveryEvent.create({ alert_rule_id: rule.id, destination_id: destination.id, dedupe_key: dedupeKey, channel: destination.channel, status: "pending", attempt_count: 0 });
+        if (!existing.length) await base44.asServiceRole.entities.DeliveryEvent.create({ alert_rule_id: rule.id, destination_id: channel.id, market_code: "SA_MAIN", dedupe_key: dedupeKey, channel: channel.channel, status: "pending", attempt_count: 0 });
       }
       update.last_triggered_at = quote.quote_time;
       if (rule.frequency === "once") update.enabled = false;
@@ -5942,15 +5943,16 @@ function alertEvaluationBucket(quote, interval) {
   return null;
 }
 async function queueRuleDeliveries(base44, rule, quote, bucket) {
-  const destinations = await base44.asServiceRole.entities.AlertDestination.filter({ customer_id: rule.customer_id, active: true });
+  if ((rule.market_code || "SA_MAIN") !== "SA_MAIN" || (quote.market_code && quote.market_code !== "SA_MAIN")) throw new Error("alert_market_mismatch");
+  const channels = (await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: "SA_MAIN", active: true })).filter((item) => item.verified_at);
   let created = 0;
-  for (const destination of destinations) {
-    const raw = `${rule.id}:${destination.id}:${bucket}`;
+  for (const channel of channels) {
+    const raw = `${rule.id}:${channel.id}:${bucket}`;
     const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
     const dedupeKey = Array.from(new Uint8Array(bytes)).map((value) => value.toString(16).padStart(2, "0")).join("");
     const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: dedupeKey });
     if (!existing.length) {
-      await base44.asServiceRole.entities.DeliveryEvent.create({ alert_rule_id: rule.id, destination_id: destination.id, dedupe_key: dedupeKey, channel: destination.channel, status: "pending", attempt_count: 0 });
+      await base44.asServiceRole.entities.DeliveryEvent.create({ alert_rule_id: rule.id, destination_id: channel.id, market_code: "SA_MAIN", dedupe_key: dedupeKey, channel: channel.channel, status: "pending", attempt_count: 0 });
       created += 1;
     }
   }

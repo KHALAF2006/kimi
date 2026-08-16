@@ -1,7 +1,7 @@
 import React from "react";
 import { Outlet } from "react-router-dom";
 import { SessionNavLink } from "@/components/SessionLink";
-import { BarChart3, Bell, BookOpen, Eye, KeyRound, LogOut, MessageCircleMore, Moon, Search, Settings, ShieldCheck, Sparkles, Sun } from "lucide-react";
+import { BarChart3, Bell, BookOpen, Eye, KeyRound, LogOut, MessageCircleMore, Moon, RadioTower, Search, Settings, ShieldCheck, Sparkles, Sun } from "lucide-react";
 import MarketAccessSelect from "@/components/MarketAccessSelect";
 import { base44 } from "@/api/base44Client";
 import { usePreferences } from "@/lib/preferences";
@@ -25,6 +25,7 @@ export default function SmartInvestorLayout() {
     ["/courses", isArabic ? "الدورات" : "Courses", BookOpen],
   ];
   if (can("dashboard.owner.read")) links.push(["/admin", isArabic ? "الإدارة" : "Admin", ShieldCheck]);
+  if (can("delivery.channels.manage")) links.push(["/admin/delivery", isArabic ? "قنوات الإرسال" : "Delivery channels", RadioTower]);
 
   return <div className="min-h-screen bg-slate-50 text-slate-950 transition-colors dark:bg-[#08111f] dark:text-slate-100">
     <header className="app-header">

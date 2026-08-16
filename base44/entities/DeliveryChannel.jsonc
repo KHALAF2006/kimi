@@ -1,0 +1,18 @@
+{
+  "name": "DeliveryChannel",
+  "type": "object",
+  "properties": {
+    "channel": { "type": "string", "enum": ["telegram", "whatsapp"] },
+    "market_code": { "type": "string" },
+    "label": { "type": "string" },
+    "external_id": { "type": "string" },
+    "secret_ref": { "type": "string" },
+    "configuration": { "type": "object" },
+    "active": { "type": "boolean", "default": false },
+    "verified_at": { "type": "string", "format": "date-time" },
+    "last_verified_by_user_id": { "type": "string" },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["channel", "market_code", "label", "external_id", "secret_ref", "active", "revision"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

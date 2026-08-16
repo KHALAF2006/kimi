@@ -1,0 +1,20 @@
+{
+  "name": "EmailCampaign",
+  "type": "object",
+  "properties": {
+    "title": { "type": "string" },
+    "subject": { "type": "string" },
+    "body": { "type": "string" },
+    "market_codes": { "type": "array", "items": { "type": "string" } },
+    "status": { "type": "string", "enum": ["draft", "ready", "sending", "sent", "partially_failed", "cancelled"] },
+    "recipient_count": { "type": "integer", "minimum": 0 },
+    "sent_count": { "type": "integer", "minimum": 0 },
+    "failed_count": { "type": "integer", "minimum": 0 },
+    "created_by_user_id": { "type": "string" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["title", "subject", "body", "market_codes", "status", "recipient_count", "sent_count", "failed_count", "created_by_user_id", "revision"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}

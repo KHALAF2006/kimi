@@ -205,7 +205,7 @@ assert.ok(!customerProfile.required.includes("country_code"), "admin migration m
 
 const functionDirectory = fileURLToPath(new URL("../base44/functions/", import.meta.url));
 const functionNames = (await readdir(functionDirectory, { withFileTypes: true })).filter((item) => item.isDirectory()).map((item) => item.name);
-assert.equal(functionNames.length, 37, "all 37 backend functions must be present");
+assert.equal(functionNames.length, 39, "all 39 backend functions must be present");
 const referencedEntities = new Set();
 for (const functionName of functionNames) {
   const file = join(functionDirectory, functionName, "entry.ts");
@@ -255,7 +255,10 @@ const trainingContentFunction = await readFile(new URL("../base44/functions/trai
 const customerSelfServiceFunction = await readFile(new URL("../base44/functions/customerSelfService/entry.ts", import.meta.url), "utf8");
 const adminSubscriptionsPersistenceFunction = await readFile(new URL("../base44/functions/adminSubscriptions/entry.ts", import.meta.url), "utf8");
 const adminRolesPersistenceFunction = await readFile(new URL("../base44/functions/adminRoles/entry.ts", import.meta.url), "utf8");
-const destinationsPage = await readFile(new URL("../src/pages/Destinations.jsx", import.meta.url), "utf8");
+const deliveryCenterPage = await readFile(new URL("../src/pages/DeliveryCenterAdmin.jsx", import.meta.url), "utf8");
+const deliveryCenterFunction = await readFile(new URL("../base44/functions/adminDeliveryCenter/entry.ts", import.meta.url), "utf8");
+const telegramDeliveryFunction = await readFile(new URL("../base44/functions/telegramDelivery/entry.ts", import.meta.url), "utf8");
+const whatsappDeliveryFunction = await readFile(new URL("../base44/functions/whatsappDelivery/entry.ts", import.meta.url), "utf8");
 const coursesAdminPage = await readFile(new URL("../src/pages/CoursesAdmin.jsx", import.meta.url), "utf8");
 const landingCoursesPage = await readFile(new URL("../src/pages/Landing.jsx", import.meta.url), "utf8");
 const rolesAdminPage = await readFile(new URL("../src/pages/RolesAdmin.jsx", import.meta.url), "utf8");
@@ -293,8 +296,14 @@ assert.match(trainingContentFunction, /storage_provider:\s*"base44_private"/, "c
 assert.doesNotMatch(trainingContentFunction, /BUNNY|bunny|mediadelivery|DRM/, "course delivery must not depend on an external video provider or claim DRM");
 assert.match(trainingContentFunction, /attempt >= 3/, "three verified parallel playback attempts must trigger the temporary block gate");
 assert.match(trainingContentFunction, /ActiveDeviceSession\.updateMany/, "a protected-content block must revoke active sessions");
-assert.match(customerSelfServiceFunction, /body\.action === "destinations"/, "destination management must have a market-independent backend read path");
-assert.match(destinationsPage, /action:\s*"destinations"/, "the destinations page must not call a market-scoped alerts read without a market");
+assert.doesNotMatch(customerSelfServiceFunction, /AlertDestination|RecipientGroup|body\.action === "destinations"/, "customer self-service must not retain the retired per-user destination system");
+assert.match(deliveryCenterFunction, /context\.role !== "owner"/, "centralized delivery configuration must be owner-only at the backend boundary");
+assert.match(deliveryCenterFunction, /Subscription\.filter\(\{ market_code: marketCode, status: "active" \}/, "email and WhatsApp recipients must be derived from active market subscriptions");
+assert.match(deliveryCenterFunction, /20_000/, "email campaigns must enforce the approved twenty-thousand-line limit");
+assert.match(deliveryCenterPage, /adminDeliveryCenter/, "the owner delivery page must use the centralized backend contract");
+assert.doesNotMatch(deliveryCenterPage, /window\.(alert|confirm|prompt)/, "the owner delivery page must use accessible in-product confirmation instead of browser dialogs");
+assert.match(telegramDeliveryFunction, /requirePermission\(base44, payload\.session_id, "delivery\.channels\.manage"\)/, "manual Telegram delivery must require the owner-only centralized delivery permission");
+assert.match(whatsappDeliveryFunction, /requirePermission\(base44, payload\.session_id, "delivery\.channels\.manage"\)/, "manual WhatsApp delivery must require the owner-only centralized delivery permission");
 assert.match(adminSubscriptionsPersistenceFunction, /SUBSCRIPTION_PERSISTENCE_FAILED/, "subscription changes must be read back and confirmed before success");
 assert.match(adminRolesPersistenceFunction, /ROLE_ASSIGNMENT_PERSISTENCE_FAILED/, "role assignments must be read back and confirmed before success");
 assert.match(subscriptionsAdminPage, /transitionOptions\(item\.status\)/, "subscription status choices must only expose valid backend transitions");
@@ -541,6 +550,7 @@ const screenerPage = await readFile(new URL("../src/pages/Screener.jsx", import.
 assert.match(screenerPage, /snapshot_count === 0/, "the screener must distinguish unavailable calculations from a genuine zero-match result");
 assert.match(screenerPage, /لا تعني النتيجة الصفرية عدم وجود إشارات/, "Arabic screener feedback must not report a false zero result when snapshots are missing");
 const appRouter = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
+assert.doesNotMatch(appRouter, /path="\/destinations"/, "the retired customer destination route must not remain reachable");
 const authContext = await readFile(new URL("../src/lib/AuthContext.jsx", import.meta.url), "utf8");
 const customerLoginPage = await readFile(new URL("../src/pages/Login.jsx", import.meta.url), "utf8");
 assert.match(appRouter, /BrowserRouter as Router/, "the current React Router advisory is not applicable only while the app remains in declarative BrowserRouter mode");
@@ -838,7 +848,7 @@ assert.match(legacySchemaBridge, /official_exists/, "the schema audit must disti
 assert.match(legacySchemaBridge, /count_capped/, "the schema audit must disclose bounded-count results");
 
 const boundedBodyFunctions = [
-  "adminCustomers", "adminMarketData", "adminRoles", "adminSubscriptions", "alertEvaluation",
+  "adminCustomers", "adminDeliveryCenter", "adminMarketData", "adminRoles", "adminSubscriptions", "alertEvaluation", "deliveryWorker",
   "authLogin", "authRegistration", "chartDrawings", "companyIntelligence", "customerSelfService",
   "historicalCandleBackfill", "identityContext", "indicatorEngine", "legacySchemaBridge", "marketIngestion",
   "marketRead", "marketSignalRefresh", "marketSignalProjectionWorker", "messageCenter", "operationsQuality", "screeningWatchlists", "telegramDelivery", "usBenchmarksMarketIngestion", "usBenchmarksSignalRefresh", "usOptionsCompanyIntelligence", "whatsappDelivery",

@@ -345,13 +345,14 @@ async function fetchUniverse(now, symbols, windowsBySymbol) {
 }
 
 async function queueAlertDeliveries(base44, rule, bucket) {
-  const destinations = await base44.asServiceRole.entities.AlertDestination.filter({ customer_id: rule.customer_id, active: true });
-  for (const destination of destinations) {
-    const dedupe_key = await checksum(`${rule.id}:${destination.id}:${bucket}`);
+  if (rule.market_code !== US_OPTIONS_MARKET_CODE) throw new Error("alert_market_mismatch");
+  const channels = (await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: US_OPTIONS_MARKET_CODE, active: true })).filter((item) => item.verified_at);
+  for (const channel of channels) {
+    const dedupe_key = await checksum(`${rule.id}:${channel.id}:${bucket}`);
     const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key });
     if (!existing.length) await base44.asServiceRole.entities.DeliveryEvent.create({
-      alert_rule_id: rule.id, destination_id: destination.id, dedupe_key,
-      channel: destination.channel, status: "pending", attempt_count: 0,
+      alert_rule_id: rule.id, destination_id: channel.id, market_code: US_OPTIONS_MARKET_CODE, dedupe_key,
+      channel: channel.channel, status: "pending", attempt_count: 0,
     });
   }
 }
