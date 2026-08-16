@@ -371,8 +371,9 @@ assert.match(deliveryWorkerFunction, /MAX_EVENT_AGE_MS = 60 \* 60 \* 1000/, "the
 assert.match(deliveryWorkerFunction, /dryRun = args\.dry_run === true/, "the centralized delivery worker must support a non-sending diagnostic mode");
 assert.match(deliveryWorkerFunction, /const \[pending, retryRows, campaigns\] = await Promise\.all/, "delivery diagnostics must query independent queues concurrently to stay below the workflow timeout");
 assert.match(deliveryWorkerFunction, /unsupported_delivery_channel/, "unsupported queued channels must be closed instead of remaining pending forever");
-assert.match(deliveryWorkerWorkflow, /"dry_run": true/, "the centralized delivery workflow must remain in diagnostic mode until live delivery is explicitly approved");
-assert.match(deliveryWorkerWorkflow, /"cron_expression": "0 10-23 \* \* 0-5"/, "a diagnostic-only delivery workflow must not consume credits every fifteen minutes");
+assert.match(deliveryWorkerWorkflow, /"dry_run": false/, "the approved centralized delivery workflow must process real queued deliveries instead of reporting diagnostics only");
+assert.doesNotMatch(deliveryWorkerWorkflow, /"dry_run": true/, "the live centralized delivery workflow must never silently fall back to diagnostic-only execution");
+assert.match(deliveryWorkerWorkflow, /"cron_expression": "\*\/15 10-23 \* \* 0-5"/, "the delivery worker must drain fifteen-minute market alerts within the next quarter-hour window");
 assert.match(adminSubscriptionsPersistenceFunction, /SUBSCRIPTION_PERSISTENCE_FAILED/, "subscription changes must be read back and confirmed before success");
 assert.match(adminRolesPersistenceFunction, /ROLE_ASSIGNMENT_PERSISTENCE_FAILED/, "role assignments must be read back and confirmed before success");
 assert.match(subscriptionsAdminPage, /transitionOptions\(item\.status\)/, "subscription status choices must only expose valid backend transitions");
