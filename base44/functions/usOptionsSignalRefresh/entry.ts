@@ -116,8 +116,8 @@ async function requireTrustedOwner(base44) {
   return { user, profile, role: "owner" };
 }
 async function profileFor(base44, user) {
-  const rows2 = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  return rows2[0] || null;
+  const rows3 = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
+  return rows3[0] || null;
 }
 function hasTrustedOwnerMarker(user, profile) {
   return user?.role === "admin" && profile?.acquisition_source === "platform_owner_bootstrap" && Array.isArray(profile?.tags) && profile.tags.includes("owner");
@@ -2324,11 +2324,44 @@ var US_OPTIONS_CATALOG = {
 };
 var US_OPTIONS_SYMBOLS = new Set(US_OPTIONS_CATALOG.companies.map((company) => company.symbol));
 
+// base44/shared/ingestion-run-lifecycle.ts
+function rows(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.items)) return value.items;
+  return [];
+}
+function isExpiredIngestionRun(run, nowMs = Date.now()) {
+  if (run?.status !== "running") return false;
+  const leaseExpiresAt = Date.parse(String(run.lease_expires_at || ""));
+  return Number.isFinite(leaseExpiresAt) && leaseExpiresAt <= nowMs;
+}
+async function closeExpiredIngestionRuns(base44, marketCode, now = /* @__PURE__ */ new Date()) {
+  const candidates = rows(await base44.asServiceRole.entities.IngestionRun.filter(
+    { market_code: marketCode, status: "running" },
+    "started_at",
+    500
+  ));
+  const expired = candidates.filter((run) => run.id && isExpiredIngestionRun(run, now.getTime()));
+  for (const run of expired) {
+    await base44.asServiceRole.entities.IngestionRun.update(run.id, {
+      status: "failed",
+      finished_at: now.toISOString(),
+      failure_code: "LEASE_EXPIRED",
+      notes: JSON.stringify({
+        reason: "execution_lease_expired",
+        previous_notes: String(run.notes || "").slice(0, 700)
+      }).slice(0, 1e3)
+    });
+  }
+  return { inspected: candidates.length, closed: expired.length };
+}
+
 // base44/functions/usOptionsSignalRefresh/source.ts
 var MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
 var PROJECTION_BATCH_SIZE = 16;
 var PROJECTION_BATCH_COUNT = Math.ceil(US_OPTIONS_CATALOG.companies.length / PROJECTION_BATCH_SIZE);
-function rows(value) {
+function rows2(value) {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.data)) return value.data;
   if (Array.isArray(value?.items)) return value.items;
@@ -2387,7 +2420,7 @@ async function upsert(base44, entity, values, existing, fields) {
   return { created: creates.length, updated: updates.length };
 }
 async function ensureProjectionSource(base44) {
-  const sourceRows = rows(await base44.asServiceRole.entities.DataSource.filter({ code: "US_OPTIONS_CANONICAL_PROJECTION" }));
+  const sourceRows = rows2(await base44.asServiceRole.entities.DataSource.filter({ code: "US_OPTIONS_CANONICAL_PROJECTION" }));
   const sourceData = {
     name: "U.S. options canonical daily and signal projection",
     market_code: US_OPTIONS_MARKET_CODE,
@@ -2409,9 +2442,9 @@ async function projectInstrumentBatch(base44, instrumentIds, sessionDate, source
     base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_OPTIONS_MARKET_CODE, interval: "15m", session_date: sessionDate }, "-end_time", 500),
     base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery, market_code: US_OPTIONS_MARKET_CODE }, "-source_as_of", PROJECTION_BATCH_SIZE * 12)
   ]);
-  const instruments = rows(instrumentRows).filter((item) => US_OPTIONS_SYMBOLS.has(item.symbol) && item.status !== "delisted");
-  const usableChunks = [...rows(dailyRows), ...rows(higherTimeframeRows), ...rows(intradayRows)].filter((chunk) => chunk.quality_status !== "quarantined");
-  const existingSnapshots = rows(snapshotRows).filter((item) => instrumentIds.includes(item.instrument_id));
+  const instruments = rows2(instrumentRows).filter((item) => US_OPTIONS_SYMBOLS.has(item.symbol) && item.status !== "delisted");
+  const usableChunks = [...rows2(dailyRows), ...rows2(higherTimeframeRows), ...rows2(intradayRows)].filter((chunk) => chunk.quality_status !== "quarantined");
+  const existingSnapshots = rows2(snapshotRows).filter((item) => instrumentIds.includes(item.instrument_id));
   const projectedDaily = [];
   const higherChunks = [];
   const snapshots = [];
@@ -2532,9 +2565,10 @@ Deno.serve(async (req) => {
     const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...requestBody.args || {} };
     const authContext = body.session_id ? await requirePermission(base44, body.session_id, "data.ingestion.run") : await requireTrustedOwner(base44);
+    await closeExpiredIngestionRuns(base44, US_OPTIONS_MARKET_CODE);
     const sessionDate = String(body.session_date || nyDate());
     if (body.mode === "projection_batch") {
-      const allInstruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_OPTIONS_MARKET_CODE }, "symbol", 500)).filter((item) => US_OPTIONS_SYMBOLS.has(item.symbol) && item.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
+      const allInstruments = rows2(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_OPTIONS_MARKET_CODE }, "symbol", 500)).filter((item) => US_OPTIONS_SYMBOLS.has(item.symbol) && item.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
       if (allInstruments.length !== US_OPTIONS_CATALOG.companies.length) throw Object.assign(new Error(`U.S. options catalog is incomplete: ${allInstruments.length}/${US_OPTIONS_CATALOG.companies.length}`), { status: 503, code: "US_OPTIONS_CATALOG_INCOMPLETE" });
       const batchCount = Math.ceil(allInstruments.length / PROJECTION_BATCH_SIZE);
       if (batchCount !== PROJECTION_BATCH_COUNT) throw Object.assign(new Error(`U.S. options projection capacity changed: ${allInstruments.length}`), { status: 503, code: "PROJECTION_CAPACITY_CHANGED" });
@@ -2542,7 +2576,7 @@ Deno.serve(async (req) => {
       if (!Number.isInteger(batchIndex) || batchIndex < 0 || batchIndex >= batchCount) throw Object.assign(new Error("Valid batch_index is required"), { status: 400, code: "INVALID_BATCH_INDEX" });
       const selected = allInstruments.slice(batchIndex * PROJECTION_BATCH_SIZE, (batchIndex + 1) * PROJECTION_BATCH_SIZE);
       const batchSlotKey = projectionBatchSlotKey(sessionDate, batchIndex);
-      const existingBatchRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: batchSlotKey }));
+      const existingBatchRuns = rows2(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: batchSlotKey }));
       const completedBatch = existingBatchRuns.filter((item) => ["success", "partial"].includes(item.status)).sort((left, right) => Date.parse(right.finished_at || right.updated_date || 0) - Date.parse(left.finished_at || left.updated_date || 0))[0];
       if (completedBatch && body.force !== true) return Response.json({ status: "skipped", reason: "batch_already_projected", session_date: sessionDate, batch_index: batchIndex, batch_count: batchCount, run_id: completedBatch.id });
       const activeBatch = existingBatchRuns.find((item) => item.status === "running" && Date.parse(item.lease_expires_at || 0) > Date.now());
@@ -2597,7 +2631,7 @@ Deno.serve(async (req) => {
     }
     const slotKey = projectionSlotKey(sessionDate);
     if (body.mode === "projection_finalize") {
-      const existingRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ market_code: US_OPTIONS_MARKET_CODE }, "-created_date", 500));
+      const existingRuns = rows2(await base44.asServiceRole.entities.IngestionRun.filter({ market_code: US_OPTIONS_MARKET_CODE }, "-created_date", 500));
       const completedRun2 = existingRuns.filter((item) => item.slot_key === slotKey && ["success", "partial"].includes(item.status)).sort((left, right) => Date.parse(right.finished_at || right.updated_date || 0) - Date.parse(left.finished_at || left.updated_date || 0))[0];
       if (completedRun2 && body.force !== true) return Response.json({ status: "skipped", reason: "already_projected", session_date: sessionDate, run_id: completedRun2.id });
       const batchRuns = [];
@@ -2653,7 +2687,7 @@ Deno.serve(async (req) => {
       return Response.json({ status, market_code: US_OPTIONS_MARKET_CODE, session_date: sessionDate, instruments: totalRecords, success_count: successCount, failed_count: failedCount, candles: candleResult, signals: signalResult, run_id: run.id });
     }
     if (!body.mode) {
-      const existingRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ market_code: US_OPTIONS_MARKET_CODE }, "-created_date", 500));
+      const existingRuns = rows2(await base44.asServiceRole.entities.IngestionRun.filter({ market_code: US_OPTIONS_MARKET_CODE }, "-created_date", 500));
       let nextBatchIndex = -1;
       for (let batchIndex = 0; batchIndex < PROJECTION_BATCH_COUNT; batchIndex += 1) {
         const latest = existingRuns.filter((item) => item.slot_key === projectionBatchSlotKey(sessionDate, batchIndex)).sort((left, right) => Date.parse(right.finished_at || right.updated_date || right.started_at || 0) - Date.parse(left.finished_at || left.updated_date || left.started_at || 0))[0];
@@ -2688,7 +2722,7 @@ Deno.serve(async (req) => {
       });
       return Response.json({ status: response?.data?.status || response?.status || "success", stage: "projection_finalize", market_code: US_OPTIONS_MARKET_CODE, session_date: sessionDate, final: response?.data || response });
     }
-    const oldRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
+    const oldRuns = rows2(await base44.asServiceRole.entities.IngestionRun.filter({ slot_key: slotKey }));
     const completedRun = oldRuns.find((item) => ["success", "partial"].includes(item.status));
     if (completedRun && body.force !== true) return Response.json({ status: "skipped", reason: "already_projected", session_date: sessionDate, run_id: completedRun.id });
     const activeRun = oldRuns.find((item) => item.status === "running" && Date.parse(item.lease_expires_at || 0) > Date.now());

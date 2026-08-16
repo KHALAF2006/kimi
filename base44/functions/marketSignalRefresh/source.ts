@@ -9,6 +9,7 @@ import {
   normalizeTechnicalBars,
 } from "../../shared/technical-signals.ts";
 import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from "../../shared/momentum.ts";
+import { closeExpiredIngestionRuns } from "../../shared/ingestion-run-lifecycle.ts";
 
 const CANONICAL_VERSION = "candle-projection-v1";
 const MARKET_CODE = "SA_MAIN";
@@ -391,6 +392,7 @@ Deno.serve(async (req) => {
     const body = { ...requestBody, ...(requestBody.args || {}) };
     if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
     else await requireTrustedOwner(base44);
+    await closeExpiredIngestionRuns(base44, MARKET_CODE);
     const sessionDate = String(body.session_date || riyadhDate());
     const slotKey = projectionSlotKey(sessionDate);
     const instrumentsRaw = await base44.asServiceRole.entities.Instrument.filter({ market_code: MARKET_CODE }, "symbol", 500);

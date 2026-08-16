@@ -3,6 +3,7 @@ import { readJsonBody, replyError, requirePermission, requireTrustedOwner } from
 import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE, US_OPTIONS_SYMBOLS } from "../../shared/us-options-catalog.ts";
 import { alertIntervalDue, delayedCutoffMs, isCompletedDelayedBar, US_OPTIONS_DELAY_SECONDS } from "../../shared/us-options-timing.ts";
 import { earliestRecentGapByInstrument, incrementalProviderWindow, indexCandleChunks, latestStoredCandleByInstrument, mergeCandleBars, summarizeProviderWindows } from "../../shared/incremental-candle-sync.ts";
+import { closeExpiredIngestionRuns } from "../../shared/ingestion-run-lifecycle.ts";
 
 const PROVIDER_CODE = "REFERENCE_YAHOO_US_OPTIONS_T15";
 const DELAY_SECONDS = US_OPTIONS_DELAY_SECONDS;
@@ -409,6 +410,7 @@ Deno.serve(async (req) => {
     if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
     else await requireTrustedOwner(base44);
     if (String(body.market_code || US_OPTIONS_MARKET_CODE) !== US_OPTIONS_MARKET_CODE) throw Object.assign(new Error("Wrong market for U.S. options ingestion"), { status: 400, code: "MARKET_MISMATCH" });
+    await closeExpiredIngestionRuns(base44, US_OPTIONS_MARKET_CODE);
     const now = new Date();
     const clock = nyClock(now);
     // Catalog readiness is independent from the exchange session. This keeps a newly

@@ -165,6 +165,12 @@ for (let index = 0; index < saudiSignalSteps.length; index += 1) {
   assert.equal(saudiSignalSteps[index].step.then, saudiSignalSteps[index + 1]?.key || "end", "Saudi projection steps must never branch or run concurrently");
 }
 const marketSignalRefreshSource = await readFile(new URL("../base44/functions/marketSignalRefresh/source.ts", import.meta.url), "utf8");
+const ingestionRunLifecycle = await readFile(new URL("../base44/shared/ingestion-run-lifecycle.ts", import.meta.url), "utf8");
+assert.match(ingestionRunLifecycle, /status !== ["']running["']/, "only running ingestion records may be considered for lease expiry");
+assert.match(ingestionRunLifecycle, /leaseExpiresAt <= nowMs/, "an ingestion run must not be closed before its lease expires");
+assert.match(ingestionRunLifecycle, /failure_code:\s*["']LEASE_EXPIRED["']/, "expired ingestion leases must close with an auditable failure code");
+assert.match(ingestionRunLifecycle, /market_code: marketCode, status: ["']running["']/, "stale-run recovery must be scoped to one market and running state at the database boundary");
+assert.match(marketSignalRefreshSource, /closeExpiredIngestionRuns\(base44, MARKET_CODE\)/, "Saudi projection must recover expired market runs before resuming");
 assert.match(marketSignalRefreshSource, /}, "-start_time", 1200\)/, "Saudi projection must fetch the newest bounded daily candle window before chronological normalization");
 assert.match(marketSignalRefreshSource, /session_date:\s*sessionDate/, "signal projection must read only the current 15-minute session for daily finalization");
 assert.match(marketSignalRefreshSource, /chunk\.is_final === true/, "daily finalization must use only a finalized 15-minute session chunk");

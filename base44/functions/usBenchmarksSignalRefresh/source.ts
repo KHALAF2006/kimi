@@ -3,6 +3,7 @@ import { readJsonBody, replyError, requirePermission, requireTrustedOwner } from
 import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from "../../shared/momentum.ts";
 import { aggregateTechnicalBars, calculateTechnicalSignals, normalizeTechnicalBars, TECHNICAL_SIGNAL_FORMULA_VERSION, TECHNICAL_SIGNAL_WINDOW_SIZE } from "../../shared/technical-signals.ts";
 import { US_BENCHMARKS_CATALOG, US_BENCHMARKS_MARKET_CODE, US_BENCHMARKS_SYMBOLS } from "../../shared/us-benchmarks-catalog.ts";
+import { closeExpiredIngestionRuns } from "../../shared/ingestion-run-lifecycle.ts";
 
 const MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
 // One bounded batch per workflow invocation. The previous monolithic job
@@ -125,6 +126,7 @@ Deno.serve(async (req) => {
     const body = { ...requestBody, ...(requestBody.args || {}) };
     if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run"); else await requireTrustedOwner(base44);
     if (String(body.market_code || US_BENCHMARKS_MARKET_CODE) !== US_BENCHMARKS_MARKET_CODE) throw Object.assign(new Error("Wrong market"), { status: 400, code: "MARKET_MISMATCH" });
+    await closeExpiredIngestionRuns(base44, US_BENCHMARKS_MARKET_CODE);
     const sessionDate = String(body.session_date || nyDate());
     const slotKey = projectionSlotKey(sessionDate);
     const instruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_BENCHMARKS_MARKET_CODE }, "symbol", 500))

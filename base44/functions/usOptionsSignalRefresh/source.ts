@@ -3,6 +3,7 @@ import { audit, readJsonBody, replyError, requirePermission, requireTrustedOwner
 import { calculateMomentumZones, MOMENTUM_FORMULA_VERSION } from "../../shared/momentum.ts";
 import { aggregateTechnicalBars, calculateTechnicalSignals, normalizeTechnicalBars, TECHNICAL_SIGNAL_FORMULA_VERSION, TECHNICAL_SIGNAL_WINDOW_SIZE } from "../../shared/technical-signals.ts";
 import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE, US_OPTIONS_SYMBOLS } from "../../shared/us-options-catalog.ts";
+import { closeExpiredIngestionRuns } from "../../shared/ingestion-run-lifecycle.ts";
 
 const MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
 // A 16-instrument batch keeps each backend call below Base44's three-minute
@@ -186,6 +187,7 @@ Deno.serve(async (req) => {
     const authContext = body.session_id
       ? await requirePermission(base44, body.session_id, "data.ingestion.run")
       : await requireTrustedOwner(base44);
+    await closeExpiredIngestionRuns(base44, US_OPTIONS_MARKET_CODE);
     const sessionDate = String(body.session_date || nyDate());
 
     if (body.mode === "projection_batch") {

@@ -116,8 +116,8 @@ async function requireTrustedOwner(base44) {
   return { user, profile, role: "owner" };
 }
 async function profileFor(base44, user) {
-  const rows2 = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  return rows2[0] || null;
+  const rows3 = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
+  return rows3[0] || null;
 }
 function hasTrustedOwnerMarker(user, profile) {
   return user?.role === "admin" && profile?.acquisition_source === "platform_owner_bootstrap" && Array.isArray(profile?.tags) && profile.tags.includes("owner");
@@ -1950,6 +1950,39 @@ function summarizeProviderWindows(windows) {
   return summary;
 }
 
+// base44/shared/ingestion-run-lifecycle.ts
+function rows(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.items)) return value.items;
+  return [];
+}
+function isExpiredIngestionRun(run, nowMs = Date.now()) {
+  if (run?.status !== "running") return false;
+  const leaseExpiresAt = Date.parse(String(run.lease_expires_at || ""));
+  return Number.isFinite(leaseExpiresAt) && leaseExpiresAt <= nowMs;
+}
+async function closeExpiredIngestionRuns(base44, marketCode, now = /* @__PURE__ */ new Date()) {
+  const candidates = rows(await base44.asServiceRole.entities.IngestionRun.filter(
+    { market_code: marketCode, status: "running" },
+    "started_at",
+    500
+  ));
+  const expired = candidates.filter((run) => run.id && isExpiredIngestionRun(run, now.getTime()));
+  for (const run of expired) {
+    await base44.asServiceRole.entities.IngestionRun.update(run.id, {
+      status: "failed",
+      finished_at: now.toISOString(),
+      failure_code: "LEASE_EXPIRED",
+      notes: JSON.stringify({
+        reason: "execution_lease_expired",
+        previous_notes: String(run.notes || "").slice(0, 700)
+      }).slice(0, 1e3)
+    });
+  }
+  return { inspected: candidates.length, closed: expired.length };
+}
+
 // base44/functions/usOptionsMarketIngestion/source.ts
 var PROVIDER_CODE = "REFERENCE_YAHOO_US_OPTIONS_T15";
 var DELAY_SECONDS = US_OPTIONS_DELAY_SECONDS;
@@ -1975,7 +2008,7 @@ var HOLIDAYS_2026 = /* @__PURE__ */ new Map([
   ["2026-12-25", "Christmas Day"]
 ]);
 var EARLY_CLOSE_2026 = /* @__PURE__ */ new Set(["2026-11-27", "2026-12-24"]);
-function rows(value) {
+function rows2(value) {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.data)) return value.data;
   if (Array.isArray(value?.items)) return value.items;
@@ -1985,7 +2018,7 @@ async function readRowsWithRetry(read) {
   let lastError = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      return rows(await read());
+      return rows2(await read());
     } catch (error) {
       lastError = error;
       const status = Number(error?.status || error?.response?.status || 0);
@@ -2055,13 +2088,13 @@ function minuteFromClock(value, fallback) {
   return Number.isFinite(minute) ? minute : fallback;
 }
 async function sessionDecision(base44, clock) {
-  const sessions = rows(await base44.asServiceRole.entities.MarketSession.filter({ market_code: US_OPTIONS_MARKET_CODE, session_date: clock.date }));
+  const sessions = rows2(await base44.asServiceRole.entities.MarketSession.filter({ market_code: US_OPTIONS_MARKET_CODE, session_date: clock.date }));
   if (sessions[0]) return {
     tradingDay: sessions[0].is_trading_day === true,
     closeMinute: minuteFromClock(sessions[0].closes_at, 960),
     reason: sessions[0].reason || "market_session_calendar"
   };
-  const holidays = rows(await base44.asServiceRole.entities.MarketHoliday.filter({ market_code: US_OPTIONS_MARKET_CODE, holiday_date: clock.date }));
+  const holidays = rows2(await base44.asServiceRole.entities.MarketHoliday.filter({ market_code: US_OPTIONS_MARKET_CODE, holiday_date: clock.date }));
   if (holidays.length) return { tradingDay: false, closeMinute: 960, reason: "market_holiday_calendar" };
   const weekday = ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(clock.weekday);
   if (!weekday || HOLIDAYS_2026.has(clock.date)) return { tradingDay: false, closeMinute: 960, reason: weekday ? "official_market_holiday" : "weekend" };
@@ -2079,7 +2112,7 @@ async function nextTradingSessionDate(base44, sessionDate) {
 }
 async function upsertMany(base44, entity, incoming, fields, existingFilter = null) {
   const unique = [...new Map(incoming.map((row) => [keyFor(row, fields), row])).values()];
-  const existing = rows(existingFilter ? await base44.asServiceRole.entities[entity].filter(existingFilter, "-updated_date", 5e3) : await base44.asServiceRole.entities[entity].list("-updated_date", 5e3));
+  const existing = rows2(existingFilter ? await base44.asServiceRole.entities[entity].filter(existingFilter, "-updated_date", 5e3) : await base44.asServiceRole.entities[entity].list("-updated_date", 5e3));
   const byKey = new Map(existing.map((row) => [keyFor(row, fields), row]));
   const creates = unique.filter((row) => !byKey.has(keyFor(row, fields)));
   const updates = unique.filter((row) => byKey.has(keyFor(row, fields))).map((row) => ({ id: byKey.get(keyFor(row, fields)).id, ...row }));
@@ -2128,7 +2161,7 @@ async function ensureCatalog(base44, now) {
     last_verified_at: now.toISOString()
   };
   const source = sourceRows[0] ? await base44.asServiceRole.entities.DataSource.update(sourceRows[0].id, sourceData) : await base44.asServiceRole.entities.DataSource.create({ code: PROVIDER_CODE, ...sourceData });
-  const existingInstruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_OPTIONS_MARKET_CODE }));
+  const existingInstruments = rows2(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_OPTIONS_MARKET_CODE }));
   const byCompositeKey = new Map(existingInstruments.map((instrument) => [instrument.composite_key, instrument]));
   const instrumentCreates = [];
   const instrumentUpdates = [];
@@ -2140,9 +2173,9 @@ async function ensureCatalog(base44, now) {
   }
   if (instrumentCreates.length) await base44.asServiceRole.entities.Instrument.bulkCreate(instrumentCreates);
   if (instrumentUpdates.length) await base44.asServiceRole.entities.Instrument.bulkUpdate(instrumentUpdates);
-  const instruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_OPTIONS_MARKET_CODE })).filter((instrument) => US_OPTIONS_SYMBOLS.has(instrument.symbol) && instrument.status !== "delisted");
+  const instruments = rows2(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_OPTIONS_MARKET_CODE })).filter((instrument) => US_OPTIONS_SYMBOLS.has(instrument.symbol) && instrument.status !== "delisted");
   if (instruments.length !== US_OPTIONS_CATALOG.companies.length) throw Object.assign(new Error(`U.S. options catalog incomplete: ${instruments.length}/${US_OPTIONS_CATALOG.companies.length}`), { status: 503, code: "US_OPTIONS_CATALOG_INCOMPLETE" });
-  const existingMappings = rows(await base44.asServiceRole.entities.ProviderInstrumentMap.filter({ market_code: US_OPTIONS_MARKET_CODE }));
+  const existingMappings = rows2(await base44.asServiceRole.entities.ProviderInstrumentMap.filter({ market_code: US_OPTIONS_MARKET_CODE }));
   const mappingsByKey = new Map(existingMappings.map((mapping) => [`${mapping.instrument_id}|${mapping.provider_code}`, mapping]));
   const mappingCreates = [];
   const mappingUpdates = [];
@@ -2304,14 +2337,14 @@ async function queueAlertDeliveries(base44, rule, quote, bucket, channels) {
   }
   if (!candidates.length) return;
   const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: { $in: candidates.map((item) => item.dedupe_key) } }, "dedupe_key", candidates.length);
-  const existingKeys = new Set(rows(existing).map((item) => item.dedupe_key));
+  const existingKeys = new Set(rows2(existing).map((item) => item.dedupe_key));
   const missing = candidates.filter((item) => !existingKeys.has(item.dedupe_key));
   if (missing.length) await base44.asServiceRole.entities.DeliveryEvent.bulkCreate(missing);
 }
 async function evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate) {
   const byInstrument = new Map(acceptedQuotes.map((quote) => [quote.instrument_id, quote]));
-  const rules = rows(await base44.asServiceRole.entities.AlertRule.filter({ market_code: US_OPTIONS_MARKET_CODE, enabled: true }, "-updated_date", 5e3)).filter((rule) => ["crosses_above", "crosses_below"].includes(rule.condition));
-  const channels = rows(await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: US_OPTIONS_MARKET_CODE, active: true })).filter((item) => item.verified_at && ["telegram", "whatsapp"].includes(item.channel));
+  const rules = rows2(await base44.asServiceRole.entities.AlertRule.filter({ market_code: US_OPTIONS_MARKET_CODE, enabled: true }, "-updated_date", 5e3)).filter((rule) => ["crosses_above", "crosses_below"].includes(rule.condition));
+  const channels = rows2(await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: US_OPTIONS_MARKET_CODE, active: true })).filter((item) => item.verified_at && ["telegram", "whatsapp"].includes(item.channel));
   for (const rule of rules) {
     const quote = byInstrument.get(rule.instrument_id);
     const current = Number(quote?.last_price);
@@ -2344,6 +2377,7 @@ Deno.serve(async (req) => {
     if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
     else await requireTrustedOwner(base44);
     if (String(body.market_code || US_OPTIONS_MARKET_CODE) !== US_OPTIONS_MARKET_CODE) throw Object.assign(new Error("Wrong market for U.S. options ingestion"), { status: 400, code: "MARKET_MISMATCH" });
+    await closeExpiredIngestionRuns(base44, US_OPTIONS_MARKET_CODE);
     const now = /* @__PURE__ */ new Date();
     const clock = nyClock(now);
     const { source, instruments, bySymbol } = await ensureCatalog(base44, now);
@@ -2554,7 +2588,7 @@ Deno.serve(async (req) => {
     const quoteResult = status === "failed" ? { created: 0, updated: 0, preserved_last_good: true } : await upsertMany(base44, "QuoteLatest", acceptedQuotes, ["instrument_id"], { market_code: US_OPTIONS_MARKET_CODE });
     const candleResult = status === "failed" ? { created: 0, updated: 0, preserved_last_good: true } : await upsertMany(base44, "CandleChunk", chunks, ["instrument_id", "interval", "chunk_key"], { market_code: US_OPTIONS_MARKET_CODE, interval: "15m" });
     const acceptedIds = new Set(acceptedQuotes.map((quote) => quote.instrument_id));
-    const stale = rows(await base44.asServiceRole.entities.QuoteLatest.filter({ market_code: US_OPTIONS_MARKET_CODE })).filter((quote) => batchInstruments.some((instrument) => instrument.id === quote.instrument_id) && (status === "failed" || !acceptedIds.has(quote.instrument_id))).map((quote) => ({ id: quote.id, freshness_status: "stale", quality_status: "stale" }));
+    const stale = rows2(await base44.asServiceRole.entities.QuoteLatest.filter({ market_code: US_OPTIONS_MARKET_CODE })).filter((quote) => batchInstruments.some((instrument) => instrument.id === quote.instrument_id) && (status === "failed" || !acceptedIds.has(quote.instrument_id))).map((quote) => ({ id: quote.id, freshness_status: "stale", quality_status: "stale" }));
     if (stale.length) await base44.asServiceRole.entities.QuoteLatest.bulkUpdate([...new Map(stale.map((row) => [row.id, row])).values()]);
     if (status !== "failed") await evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate);
     await base44.asServiceRole.entities.IngestionRun.update(run.id, {

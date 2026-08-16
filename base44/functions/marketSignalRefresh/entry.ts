@@ -208,8 +208,8 @@ async function requireTrustedOwner(base44) {
   return { user, profile, role: "owner" };
 }
 async function profileFor(base44, user) {
-  const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  return rows[0] || null;
+  const rows2 = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
+  return rows2[0] || null;
 }
 function hasTrustedOwnerMarker(user, profile) {
   return user?.role === "admin" && profile?.acquisition_source === "platform_owner_bootstrap" && Array.isArray(profile?.tags) && profile.tags.includes("owner");
@@ -931,6 +931,39 @@ function calculateTechnicalSignals(inputBars, windowSize = TECHNICAL_SIGNAL_WIND
   };
 }
 
+// base44/shared/ingestion-run-lifecycle.ts
+function rows(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.items)) return value.items;
+  return [];
+}
+function isExpiredIngestionRun(run, nowMs = Date.now()) {
+  if (run?.status !== "running") return false;
+  const leaseExpiresAt = Date.parse(String(run.lease_expires_at || ""));
+  return Number.isFinite(leaseExpiresAt) && leaseExpiresAt <= nowMs;
+}
+async function closeExpiredIngestionRuns(base44, marketCode, now = /* @__PURE__ */ new Date()) {
+  const candidates = rows(await base44.asServiceRole.entities.IngestionRun.filter(
+    { market_code: marketCode, status: "running" },
+    "started_at",
+    500
+  ));
+  const expired = candidates.filter((run) => run.id && isExpiredIngestionRun(run, now.getTime()));
+  for (const run of expired) {
+    await base44.asServiceRole.entities.IngestionRun.update(run.id, {
+      status: "failed",
+      finished_at: now.toISOString(),
+      failure_code: "LEASE_EXPIRED",
+      notes: JSON.stringify({
+        reason: "execution_lease_expired",
+        previous_notes: String(run.notes || "").slice(0, 700)
+      }).slice(0, 1e3)
+    });
+  }
+  return { inspected: candidates.length, closed: expired.length };
+}
+
 // base44/functions/marketSignalRefresh/source.ts
 var CANONICAL_VERSION = "candle-projection-v1";
 var MARKET_CODE = "SA_MAIN";
@@ -954,16 +987,16 @@ async function digest(value) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
   return [...new Uint8Array(bytes)].map((item) => item.toString(16).padStart(2, "0")).join("");
 }
-async function inBatches(rows, operation) {
-  for (let offset = 0; offset < rows.length; offset += BATCH_SIZE) {
-    await operation(rows.slice(offset, offset + BATCH_SIZE));
+async function inBatches(rows2, operation) {
+  for (let offset = 0; offset < rows2.length; offset += BATCH_SIZE) {
+    await operation(rows2.slice(offset, offset + BATCH_SIZE));
   }
 }
 function rowKey(row, fields) {
   return fields.map((field) => String(row[field] ?? "")).join("|");
 }
-async function upsertRows(base44, entity, rows, existing, keyFields) {
-  const unique = new Map(rows.map((row) => [rowKey(row, keyFields), row]));
+async function upsertRows(base44, entity, rows2, existing, keyFields) {
+  const unique = new Map(rows2.map((row) => [rowKey(row, keyFields), row]));
   const existingByKey = new Map(existing.map((row) => [rowKey(row, keyFields), row]));
   const creates = [];
   const updates = [];
@@ -1021,9 +1054,9 @@ function isLastSaudiTradingWeekdayOfMonth(sessionDate) {
   } while ([5, 6].includes(next.getUTCDay()));
   return next.getUTCMonth() !== month;
 }
-function firstByInstrument(rows) {
+function firstByInstrument(rows2) {
   const result = /* @__PURE__ */ new Map();
-  for (const row of rows) {
+  for (const row of rows2) {
     if (row.instrument_id && !result.has(row.instrument_id)) result.set(row.instrument_id, row);
   }
   return result;
@@ -1240,6 +1273,7 @@ Deno.serve(async (req) => {
     const body = { ...requestBody, ...requestBody.args || {} };
     if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
     else await requireTrustedOwner(base44);
+    await closeExpiredIngestionRuns(base44, MARKET_CODE);
     const sessionDate = String(body.session_date || riyadhDate());
     const slotKey = projectionSlotKey(sessionDate);
     const instrumentsRaw = await base44.asServiceRole.entities.Instrument.filter({ market_code: MARKET_CODE }, "symbol", 500);

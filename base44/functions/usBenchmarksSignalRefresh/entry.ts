@@ -116,8 +116,8 @@ async function requireTrustedOwner(base44) {
   return { user, profile, role: "owner" };
 }
 async function profileFor(base44, user) {
-  const rows2 = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  return rows2[0] || null;
+  const rows3 = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
+  return rows3[0] || null;
 }
 function hasTrustedOwnerMarker(user, profile) {
   return user?.role === "admin" && profile?.acquisition_source === "platform_owner_bootstrap" && Array.isArray(profile?.tags) && profile.tags.includes("owner");
@@ -895,11 +895,44 @@ var US_BENCHMARKS_CATALOG = {
 };
 var US_BENCHMARKS_SYMBOLS = new Set(US_BENCHMARKS_CATALOG.instruments.map((instrument) => instrument.symbol));
 
+// base44/shared/ingestion-run-lifecycle.ts
+function rows(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.items)) return value.items;
+  return [];
+}
+function isExpiredIngestionRun(run, nowMs = Date.now()) {
+  if (run?.status !== "running") return false;
+  const leaseExpiresAt = Date.parse(String(run.lease_expires_at || ""));
+  return Number.isFinite(leaseExpiresAt) && leaseExpiresAt <= nowMs;
+}
+async function closeExpiredIngestionRuns(base44, marketCode, now = /* @__PURE__ */ new Date()) {
+  const candidates = rows(await base44.asServiceRole.entities.IngestionRun.filter(
+    { market_code: marketCode, status: "running" },
+    "started_at",
+    500
+  ));
+  const expired = candidates.filter((run) => run.id && isExpiredIngestionRun(run, now.getTime()));
+  for (const run of expired) {
+    await base44.asServiceRole.entities.IngestionRun.update(run.id, {
+      status: "failed",
+      finished_at: now.toISOString(),
+      failure_code: "LEASE_EXPIRED",
+      notes: JSON.stringify({
+        reason: "execution_lease_expired",
+        previous_notes: String(run.notes || "").slice(0, 700)
+      }).slice(0, 1e3)
+    });
+  }
+  return { inspected: candidates.length, closed: expired.length };
+}
+
 // base44/functions/usBenchmarksSignalRefresh/source.ts
 var MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
 var PROJECTION_BATCH_SIZE = 12;
 var PROJECTION_BATCH_COUNT = Math.ceil(US_BENCHMARKS_CATALOG.instruments.length / PROJECTION_BATCH_SIZE);
-function rows(value) {
+function rows2(value) {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.data)) return value.data;
   if (Array.isArray(value?.items)) return value.items;
@@ -949,7 +982,7 @@ async function upsert(base44, entity, values, existing, fields) {
 }
 async function projectionSource(base44) {
   const code = "US_BENCHMARKS_CANONICAL_PROJECTION";
-  const existing = rows(await base44.asServiceRole.entities.DataSource.filter({ code }));
+  const existing = rows2(await base44.asServiceRole.entities.DataSource.filter({ code }));
   const payload = { name: "U.S. benchmarks canonical candles and signals", market_code: US_BENCHMARKS_MARKET_CODE, quote_mode: "end_of_day", delay_seconds: 0, public_enabled: false, source_type: "reference", license_status: "restricted", last_verified_at: (/* @__PURE__ */ new Date()).toISOString() };
   return existing[0] ? base44.asServiceRole.entities.DataSource.update(existing[0].id, payload) : base44.asServiceRole.entities.DataSource.create({ code, ...payload });
 }
@@ -960,8 +993,8 @@ async function projectBatch(base44, instruments, sessionDate, sourceId, runId) {
     base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE }, "-start_time", 2e3),
     base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE }, "-source_as_of", 500)
   ]);
-  const chunks = rows(candleRows).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
-  const existingSnapshots = rows(snapshotRows);
+  const chunks = rows2(candleRows).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+  const existingSnapshots = rows2(snapshotRows);
   const projectedCandles = [];
   const snapshots = [];
   const skipped = [];
@@ -1003,12 +1036,13 @@ Deno.serve(async (req) => {
     if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
     else await requireTrustedOwner(base44);
     if (String(body.market_code || US_BENCHMARKS_MARKET_CODE) !== US_BENCHMARKS_MARKET_CODE) throw Object.assign(new Error("Wrong market"), { status: 400, code: "MARKET_MISMATCH" });
+    await closeExpiredIngestionRuns(base44, US_BENCHMARKS_MARKET_CODE);
     const sessionDate = String(body.session_date || nyDate());
     const slotKey = projectionSlotKey(sessionDate);
-    const instruments = rows(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_BENCHMARKS_MARKET_CODE }, "symbol", 500)).filter((item2) => US_BENCHMARKS_SYMBOLS.has(item2.symbol) && item2.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
+    const instruments = rows2(await base44.asServiceRole.entities.Instrument.filter({ market_code: US_BENCHMARKS_MARKET_CODE }, "symbol", 500)).filter((item2) => US_BENCHMARKS_SYMBOLS.has(item2.symbol) && item2.status !== "delisted").sort((left, right) => String(left.symbol).localeCompare(String(right.symbol), "en"));
     if (instruments.length !== US_BENCHMARKS_CATALOG.instruments.length) throw Object.assign(new Error(`Benchmark catalog incomplete: ${instruments.length}/${US_BENCHMARKS_CATALOG.instruments.length}`), { status: 503, code: "US_BENCHMARKS_CATALOG_INCOMPLETE" });
     if (Math.ceil(instruments.length / PROJECTION_BATCH_SIZE) !== PROJECTION_BATCH_COUNT) throw Object.assign(new Error(`Benchmark projection capacity changed: ${instruments.length}`), { status: 503, code: "PROJECTION_CAPACITY_CHANGED" });
-    const recentRuns = rows(await base44.asServiceRole.entities.IngestionRun.filter({ market_code: US_BENCHMARKS_MARKET_CODE }, "-created_date", 250));
+    const recentRuns = rows2(await base44.asServiceRole.entities.IngestionRun.filter({ market_code: US_BENCHMARKS_MARKET_CODE }, "-created_date", 250));
     const completedRun = recentRuns.find((item2) => item2.slot_key === slotKey && ["success", "partial"].includes(item2.status));
     if (completedRun && body.force !== true) return Response.json({ status: "skipped", reason: "already_projected", market_code: US_BENCHMARKS_MARKET_CODE, session_date: sessionDate, run_id: completedRun.id });
     const completedBatches = [];
