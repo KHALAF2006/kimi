@@ -5960,12 +5960,50 @@ function drawingLevel(points, observedAt) {
   const ratio = (new Date(observedAt).getTime() / 1e3 - Number(first.time)) / (Number(second.time) - Number(first.time));
   return Number(first.price) + (Number(second.price) - Number(first.price)) * ratio;
 }
+async function queuePersonalAlertMessage(base44, rule, quote, bucket, thresholdOverride) {
+  const observedAt = quote.provider_as_of || quote.source_time || quote.quote_time;
+  const triggerPrice = Number(quote.last_price);
+  if (!rule?.id || !rule.customer_id || rule.market_code !== "SA_MAIN" || quote.market_code && quote.market_code !== "SA_MAIN" || !Number.isFinite(triggerPrice) || !Number.isFinite(Date.parse(String(observedAt || "")))) return 0;
+  const [profile, subscriptions, instrument] = await Promise.all([
+    base44.asServiceRole.entities.CustomerProfile.get(rule.customer_id).catch(() => null),
+    base44.asServiceRole.entities.Subscription.filter({ customer_id: rule.customer_id, market_code: "SA_MAIN", status: "active" }, "-updated_date", 100),
+    base44.asServiceRole.entities.Instrument.get(rule.instrument_id).catch(() => null)
+  ]);
+  const now = Date.now();
+  const hasAccess = subscriptions.some((subscription) => !subscription.ends_at || Date.parse(subscription.ends_at) > now);
+  if (!profile || profile.role !== "user" || profile.account_status !== "active" || !profile.auth_user_id || !hasAccess || !instrument || instrument.market_code !== "SA_MAIN" || instrument.symbol !== rule.symbol) return 0;
+  const dedupeKey = `personal-alert:${rule.id}:${bucket}`;
+  if ((await base44.asServiceRole.entities.Message.filter({ dedupe_key: dedupeKey }, "-created_date", 1)).length) return 0;
+  const condition = {
+    crosses_above: ["اخترق السعر القيمة المحددة صعوداً", "Price crossed above your threshold"],
+    crosses_below: ["كسر السعر القيمة المحددة هبوطاً", "Price crossed below your threshold"],
+    crosses_drawing: ["تقاطع السعر مع الرسم المحدد", "Price crossed your drawing"],
+    crosses_drawing_above: ["اخترق السعر الرسم المحدد صعوداً", "Price crossed above your drawing"],
+    crosses_drawing_below: ["كسر السعر الرسم المحدد هبوطاً", "Price crossed below your drawing"]
+  }[rule.condition] || ["تحقق شرط التنبيه الذي حددته", "Your alert condition was met"];
+  const threshold = Number(thresholdOverride ?? rule.threshold);
+  const thresholdAr = Number.isFinite(threshold) ? `، والقيمة المحددة ${threshold.toFixed(2)} ريال` : "";
+  const thresholdEn = Number.isFinite(threshold) ? `, with a threshold of ${threshold.toFixed(2)} SAR` : "";
+  await base44.asServiceRole.entities.Message.create({
+    recipient_auth_user_id: profile.auth_user_id,
+    recipient_customer_id: profile.id,
+    message_type: "system",
+    priority: "important",
+    title_ar: `تحقق تنبيهك على ${rule.symbol}`,
+    title_en: `Your ${rule.symbol} alert was triggered`,
+    body_ar: `${condition[0]} في ${instrument.name_ar || instrument.name_en || rule.symbol}. سعر التحقق ${triggerPrice.toFixed(2)} ريال${thresholdAr}.`,
+    body_en: `${condition[1]} for ${instrument.name_en || instrument.name_ar || rule.symbol}. Trigger price: ${triggerPrice.toFixed(2)} SAR${thresholdEn}.`,
+    action_path: `/company?symbol=${encodeURIComponent(rule.symbol)}&market=SA_MAIN`,
+    feed_eligible: true,
+    dedupe_key: dedupeKey,
+    expires_at: new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString()
+  });
+  return 1;
+}
 async function evaluateDrawingAlerts(base44, quotes) {
   const bySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
   const rules = (await base44.asServiceRole.entities.AlertRule.filter({ market_code: "SA_MAIN", enabled: true }, "-updated_date", 5e3))
     .filter((rule) => String(rule.condition || "").startsWith("crosses_drawing"));
-  const channels = (await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: "SA_MAIN", active: true }))
-    .filter((item) => item.verified_at && ["telegram", "whatsapp"].includes(item.channel));
   let triggered = 0;
   for (const rule of rules) {
     const quote = bySymbol.get(rule.symbol);
@@ -5986,31 +6024,7 @@ async function evaluateDrawingAlerts(base44, quotes) {
     const update = { last_observed_price: currentPrice, last_observed_at: quote.quote_time };
     if (matches && cooldownPassed) {
       if ((rule.market_code || "SA_MAIN") !== "SA_MAIN") continue;
-      const candidates = [];
-      for (const channel of channels) {
-        const raw = `${rule.id}:${channel.id}:${quote.quote_time}`;
-        const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
-        const dedupeKey = Array.from(new Uint8Array(bytes)).map((value) => value.toString(16).padStart(2, "0")).join("");
-        candidates.push({
-          alert_rule_id: rule.id,
-          destination_id: channel.id,
-          market_code: "SA_MAIN",
-          dedupe_key: dedupeKey,
-          channel: channel.channel,
-          status: "pending",
-          attempt_count: 0,
-          trigger_price: currentPrice,
-          trigger_observed_at: quote.provider_as_of || quote.source_time || quote.quote_time,
-          trigger_condition: rule.condition,
-          trigger_threshold: Number.isFinite(currentLevel) ? currentLevel : undefined,
-        });
-      }
-      const existing = candidates.length
-        ? await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: { $in: candidates.map((item) => item.dedupe_key) } }, "dedupe_key", candidates.length)
-        : [];
-      const existingKeys = new Set(existing.map((item) => item.dedupe_key));
-      const missing = candidates.filter((item) => !existingKeys.has(item.dedupe_key));
-      if (missing.length) await base44.asServiceRole.entities.DeliveryEvent.bulkCreate(missing);
+      await queuePersonalAlertMessage(base44, rule, { ...quote, market_code: "SA_MAIN", last_price: currentPrice }, `drawing:${quote.quote_time}`, currentLevel);
       update.last_triggered_at = quote.quote_time;
       if (rule.frequency === "once") update.enabled = false;
       triggered += 1;
@@ -6047,40 +6061,14 @@ function alertEvaluationBucket(quote, interval) {
   }
   return null;
 }
-async function queueRuleDeliveries(base44, rule, quote, bucket, channels) {
+async function queueRuleDeliveries(base44, rule, quote, bucket) {
   if ((rule.market_code || "SA_MAIN") !== "SA_MAIN" || (quote.market_code && quote.market_code !== "SA_MAIN")) throw new Error("alert_market_mismatch");
-  const candidates = [];
-  for (const channel of channels) {
-    const raw = `${rule.id}:${channel.id}:${bucket}`;
-    const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
-    const dedupeKey = Array.from(new Uint8Array(bytes)).map((value) => value.toString(16).padStart(2, "0")).join("");
-    candidates.push({
-      alert_rule_id: rule.id,
-      destination_id: channel.id,
-      market_code: "SA_MAIN",
-      dedupe_key: dedupeKey,
-      channel: channel.channel,
-      status: "pending",
-      attempt_count: 0,
-      trigger_price: Number(quote.last_price),
-      trigger_observed_at: quote.provider_as_of || quote.source_time || quote.quote_time,
-      trigger_condition: rule.condition,
-      trigger_threshold: Number(rule.threshold),
-    });
-  }
-  if (!candidates.length) return 0;
-  const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: { $in: candidates.map((item) => item.dedupe_key) } }, "dedupe_key", candidates.length);
-  const existingKeys = new Set(existing.map((item) => item.dedupe_key));
-  const missing = candidates.filter((item) => !existingKeys.has(item.dedupe_key));
-  if (missing.length) await base44.asServiceRole.entities.DeliveryEvent.bulkCreate(missing);
-  return missing.length;
+  return await queuePersonalAlertMessage(base44, rule, { ...quote, market_code: "SA_MAIN" }, bucket);
 }
 async function evaluatePriceAlerts(base44, quotes) {
   const bySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
   const rules = (await base44.asServiceRole.entities.AlertRule.filter({ market_code: "SA_MAIN", enabled: true }, "-updated_date", 5e3))
     .filter((rule) => ["crosses_above", "crosses_below"].includes(rule.condition));
-  const channels = (await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: "SA_MAIN", active: true }))
-    .filter((item) => item.verified_at && ["telegram", "whatsapp"].includes(item.channel));
   let evaluated = 0;
   let triggered = 0;
   let deliveryEvents = 0;
@@ -6102,7 +6090,7 @@ async function evaluatePriceAlerts(base44, quotes) {
     const update = { last_observed_price: currentPrice, last_observed_at: observedAt, last_evaluation_bucket: bucket };
     evaluated += 1;
     if (crossed && cooldownPassed) {
-      deliveryEvents += await queueRuleDeliveries(base44, rule, quote, bucket, channels);
+      deliveryEvents += await queueRuleDeliveries(base44, rule, quote, bucket);
       update.last_triggered_at = observedAt;
       if (rule.frequency === "once") update.enabled = false;
       triggered += 1;
