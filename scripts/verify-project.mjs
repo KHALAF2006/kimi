@@ -573,7 +573,7 @@ assert.match(marketReadFunction, /mergeStoredCandleSeries\(series, interval, mar
 assert.match(marketReadFunction, /requestedMarket === "SA_MAIN" \? filter : \{ \.\.\.filter, market_code: requestedMarket \}/, "Saudi reads must recover legacy candle chunks without weakening explicit market filters elsewhere");
 assert.match(marketReadFunction, /if \(requestedMarket === "SA_MAIN"\) return !storedMarket \|\| storedMarket === requestedMarket/, "Saudi compatibility reads must accept only legacy untagged or explicitly Saudi stored records");
 assert.match(marketReadFunction, /return storedMarket === requestedMarket/, "non-Saudi candle reads must keep exact market isolation");
-assert.equal((marketReadFunction.match(/readStoredCandleChunks\(base44,/g) || []).length, 3, "company and multi-instrument candle reads must share the compatibility guard without adding a sector-summary archive scan");
+assert.equal((marketReadFunction.match(/readStoredCandleChunks\(base44,/g) || []).length, 4, "company, cache-signature, and multi-instrument candle reads must share the compatibility guard without adding a sector-summary archive scan");
 assert.match(marketReadFunction, /return \{ symbol: symbols\.length === 1 \? symbols\[0\] : \{ \$in: symbols \}, interval \}/, "Saudi candle reads must resolve legacy archives by stable exchange symbol rather than a regenerated entity id");
 assert.match(marketReadFunction, /readHistoricalSyncs\(base44, instrument, body\.market_code\)/, "historical completeness metadata must use the same legacy-compatible Saudi identity");
 assert.match(marketReadFunction, /async function readIndicatorSnapshots/, "Saudi indicator reads must share a legacy-compatible market guard");
@@ -639,6 +639,10 @@ assert.doesNotMatch(companyPanel, /indicators\?\.\[0\]/, "company details must n
 assert.match(marketReadFunction, /momentum_indicator: momentumIndicator/, "company reads must expose a deterministic momentum snapshot instead of relying on entity order");
 assert.match(marketReadFunction, /calculateMomentumZones\(/, "chart reads must calculate zone roles on the backend from canonical stored candles");
 assert.match(marketReadFunction, /lookback_days/, "backend chart calculations must honor the bounded peak lookback setting");
+assert.match(marketReadFunction, /const STORED_CANDLE_CACHE_MAX_ENTRIES = 80/, "server-side merged candle reuse must remain memory bounded");
+assert.match(marketReadFunction, /cached\?\.signature === signature/, "merged candle history must be reused only while its latest stored chunk signature is unchanged");
+assert.match(marketReadFunction, /latest\.checksum \|\| latest\.snapshot_version/, "the chart cache must invalidate from canonical candle content identity rather than an arbitrary timeout");
+assert.match(marketReadFunction, /rememberStoredCandleResult\(cacheKey, signature, result\)/, "a verified full-history merge must be cached after calculation");
 assert.match(companyChart, /data\.momentum_indicator/, "the chart must consume the backend lifecycle result instead of becoming a second calculation authority");
 assert.match(companyChart, /replayActive\s*\?\s*calculateMomentumSnapshot\(visibleOrderedCandles/, "historical replay must recompute zones only from candles already revealed to the user");
 assert.match(companyChart, /backendMomentum \|\| fallbackMomentum \|\| calculatedMomentum/, "the chart must preserve investor zones by calculating from loaded verified candles when a persisted snapshot is delayed");

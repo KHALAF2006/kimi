@@ -5479,6 +5479,29 @@ function instrumentForCandleChunk(chunk, instrumentsById, instrumentsBySymbol, m
   }
   return instrumentsById.get(chunk.instrument_id) || null;
 }
+const STORED_CANDLE_CACHE_MAX_ENTRIES = 80;
+const storedCandleCache = new Map();
+function storedCandleCacheKey(instrument, interval, marketCode) {
+  return `${normalizedMarketCode(marketCode)}:${instrument.id}:${String(instrument.symbol || "").trim().toUpperCase()}:${interval}`;
+}
+function rememberStoredCandleResult(key, signature, value) {
+  if (storedCandleCache.has(key)) storedCandleCache.delete(key);
+  storedCandleCache.set(key, { signature, value });
+  while (storedCandleCache.size > STORED_CANDLE_CACHE_MAX_ENTRIES) {
+    storedCandleCache.delete(storedCandleCache.keys().next().value);
+  }
+}
+async function latestStoredCandleSignature(base44, instrument, interval, marketCode) {
+  const latestByInterval = await Promise.all(fallbackIntervals(interval).map(async (storedInterval) => {
+    const candidates = (await readStoredCandleChunks(base44, candleIdentityFilter([instrument], storedInterval, marketCode), marketCode, "-end_time", 5))
+      .filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+    const latest = candidates[0] || null;
+    return latest
+      ? `${storedInterval}:${latest.id || latest.chunk_key}:${latest.checksum || latest.snapshot_version || ""}:${latest.end_time}:${latest.received_time || latest.updated_date || ""}`
+      : `${storedInterval}:none`;
+  }));
+  return latestByInterval.join("|");
+}
 async function readHistoricalSyncs(base44, instrument, marketCode) {
   const requestedMarket = normalizedMarketCode(marketCode);
   const filter = requestedMarket === "SA_MAIN"
@@ -5491,6 +5514,14 @@ async function readHistoricalSyncs(base44, instrument, marketCode) {
   return rows.filter((row) => storedMarketRecordBelongsToMarket(row, marketCode));
 }
 async function storedCandlesForInterval(base44, instrument, interval, marketCode) {
+  const cacheKey = storedCandleCacheKey(instrument, interval, marketCode);
+  const signature = await latestStoredCandleSignature(base44, instrument, interval, marketCode);
+  const cached = storedCandleCache.get(cacheKey);
+  if (cached?.signature === signature) {
+    storedCandleCache.delete(cacheKey);
+    storedCandleCache.set(cacheKey, cached);
+    return cached.value;
+  }
   const series = [];
   const allChunks = [];
   for (const storedInterval of fallbackIntervals(interval)) {
@@ -5507,7 +5538,7 @@ async function storedCandlesForInterval(base44, instrument, interval, marketCode
   const latestChunk = allChunks
     .sort((a, b) => new Date(a.end_time).getTime() - new Date(b.end_time).getTime())
     .at(-1) || null;
-  return {
+  const result = {
     bars: merged.bars,
     chunks: allChunks,
     latestChunk,
@@ -5515,6 +5546,8 @@ async function storedCandlesForInterval(base44, instrument, interval, marketCode
     storedInterval: merged.storedIntervals.join("+") || null,
     storedIntervals: merged.storedIntervals
   };
+  rememberStoredCandleResult(cacheKey, signature, result);
+  return result;
 }
 function hasRequestedRange(bars, interval, range) {
   if (!Array.isArray(bars) || bars.length < 2) return false;
