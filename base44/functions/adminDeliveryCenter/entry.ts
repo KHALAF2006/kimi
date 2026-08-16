@@ -73,15 +73,28 @@ async function eligibleRecipients(base44, codes) {
 }
 
 async function listState(base44) {
-  const [channels, campaigns] = await Promise.all([
+  const [channels, campaigns, completedRuns, pendingEvents, retryEvents] = await Promise.all([
     base44.asServiceRole.entities.DeliveryChannel.list("-updated_date", 500),
     base44.asServiceRole.entities.EmailCampaign.list("-created_date", 100),
+    base44.asServiceRole.entities.AuditLog.filter({ action: "delivery.worker.completed" }, "-created_date", 1),
+    base44.asServiceRole.entities.DeliveryEvent.filter({ status: "pending" }, "created_date", 500),
+    base44.asServiceRole.entities.DeliveryEvent.filter({ status: "retry" }, "next_attempt_at", 500),
   ]);
+  const latestRun = completedRuns[0] || null;
   return {
     markets: Object.entries(MARKET_ACCESS).map(([market_code, value]) => ({ market_code, ...value })),
     channels: channels.map(safeChannel),
     campaigns: campaigns.map(({ body: _body, ...campaign }) => campaign),
     email_batch_size: EMAIL_BATCH_SIZE,
+    worker_health: {
+      has_completed_run: Boolean(latestRun),
+      last_completed_at: latestRun?.created_date || null,
+      last_result: latestRun?.result || null,
+      last_summary: latestRun?.reason || "",
+      pending_count: pendingEvents.length,
+      retry_count: retryEvents.length,
+      counts_capped: pendingEvents.length >= 500 || retryEvents.length >= 500,
+    },
   };
 }
 
