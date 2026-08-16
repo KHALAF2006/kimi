@@ -58,6 +58,9 @@ assert.doesNotMatch(ingestion, /entities\[entity\]\.list\("-updated_date",\s*5e3
 assert.match(ingestion, /entities\[entity\]\.filter\(filter, "-updated_date", readLimit\)/, "bounded upserts must read only the incoming identity set");
 assert.match(ingestion, /upsertValueChanged/, "static catalog rows must not be rewritten when their values are unchanged");
 assert.match(ingestion, /INVALID_UPSERT_KEY/, "bounded upserts must fail closed when an identity key is missing");
+const scheduledAlertEvaluation = ingestion.match(/async function evaluateDrawingAlerts[\s\S]*?async function licensedSource/)?.[0] || "";
+assert.ok((scheduledAlertEvaluation.match(/bulkUpdateUnique\(base44\.asServiceRole\.entities\.AlertRule, ruleUpdates\)/g) || []).length >= 2, "drawing and price alert observations must each persist in one bounded bulk update");
+assert.doesNotMatch(scheduledAlertEvaluation, /entities\.AlertRule\.update\(/, "scheduled alert evaluation must not issue one rule-update request per alert");
 assert.match(ingestion, /requireTrustedOwner\(base44\)/, "scheduled market ingestion must require the centralized trusted-owner policy");
 assert.match(ingestion, /requireDataIngestionPermission\(base44, body\.session_id, body\.device_id\)/, "manual market ingestion must require an opaque session, its registered device, and the dedicated server permission");
 assert.match(ingestion, /identityContext/, "manual market ingestion must resolve identity and entitlements on the server");
