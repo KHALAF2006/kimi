@@ -85,13 +85,36 @@ async function reconcileLegacyAccess(base44, actor) {
   }
   return { checked: subscriptions.length, updated };
 }
+async function reconcileApplicationSubscriptions(base44, actor, applicationId, reason) {
+  const rows = await base44.asServiceRole.entities.Subscription.filter({ application_id: applicationId });
+  const active = rows.filter((item) => item.status === "active").sort((left, right) => {
+    const leftTime = new Date(left.created_date || left.starts_at || 0).getTime();
+    const rightTime = new Date(right.created_date || right.starts_at || 0).getTime();
+    return leftTime - rightTime || String(left.id).localeCompare(String(right.id));
+  });
+  const canonical = active[0] || rows[0] || null;
+  for (const duplicate of active.slice(1)) {
+    const suspendedAt = new Date().toISOString();
+    const confirmed = await base44.asServiceRole.entities.Subscription.update(duplicate.id, {
+      status: "suspended",
+      suspended_at: suspendedAt,
+      reason: `${duplicate.reason || reason} | duplicate application activation reconciled`.trim(),
+      revision: Number(duplicate.revision || 1) + 1,
+    });
+    await audit(base44, actor.id, "market_access.duplicate_subscription_reconciled", "Subscription", duplicate.id, "success", reason, duplicate, confirmed);
+  }
+  return canonical;
+}
 async function decideOne(base44, actor, applicationId, decision, reason) {
   const application = await base44.asServiceRole.entities.MarketAccessApplication.get(String(applicationId || ""));
   if (!application) fail("Application not found", "APPLICATION_NOT_FOUND", 404);
   if (!MARKETS[application.market_code]) fail("Unsupported market", "UNSUPPORTED_MARKET", 400);
   if (application.status !== "pending") {
     if (application.status === decision) {
-      return { application, access_snapshot: await confirmedCustomerAccess(base44, application.customer_id), idempotent: true, message_delivery: { inbox: "existing", email: "not_sent" } };
+      const subscription = decision === "approved"
+        ? await reconcileApplicationSubscriptions(base44, actor, application.id, reason)
+        : null;
+      return { application, ...(subscription ? { subscription } : {}), access_snapshot: await confirmedCustomerAccess(base44, application.customer_id), idempotent: true, message_delivery: { inbox: "existing", email: "not_sent" } };
     }
     fail("Application was already reviewed", "APPLICATION_ALREADY_REVIEWED", 409);
   }
@@ -133,6 +156,7 @@ async function decideOne(base44, actor, applicationId, decision, reason) {
       activation_method: "manual", reason, revision: 1,
     });
   }
+  subscription = await reconcileApplicationSubscriptions(base44, actor, application.id, reason) || subscription;
   const confirmedSubscription = await base44.asServiceRole.entities.Subscription.get(subscription.id);
   if (!confirmedSubscription || confirmedSubscription.status !== "active") fail("Subscription activation could not be confirmed", "SUBSCRIPTION_NOT_CONFIRMED", 500);
   const updated = await base44.asServiceRole.entities.MarketAccessApplication.update(application.id, {

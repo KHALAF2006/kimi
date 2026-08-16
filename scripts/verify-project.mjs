@@ -933,6 +933,8 @@ assert.match(adminSubscriptionsFunction, /OWNER_REQUIRED_FOR_PAID_ACTIVATION/, "
 assert.match(adminSubscriptionsFunction, /subscription\.manual_activation_reused/, "manual activation retries must reuse an existing active subscription");
 assert.match(messageCenterFunction, /contact_masked: !fullContact/, "support customer listings must disclose whether contact details are masked");
 assert.match(adminAccessFunction, /parsed\.protocol !== "https:"/, "trading-platform referral links must require HTTPS");
+assert.match(adminAccessFunction, /function reconcileApplicationSubscriptions\(/, "concurrent application approvals must reconcile to one canonical subscription");
+assert.match(adminAccessFunction, /market_access\.duplicate_subscription_reconciled/, "duplicate approval cleanup must remain auditable");
 assert.match(authLoginFunction, /function secureSixDigitOtp\(/, "login OTP generation must use rejection sampling without modulo bias");
 assert.equal(replayStartIndex(risingBars, risingBars[8].time), 8, "bar replay must resolve the selected historical candle deterministically");
 assert.equal(replayCandles(risingBars, 8).length, 9, "bar replay must hide every candle after the current replay cursor");
