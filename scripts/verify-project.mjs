@@ -397,6 +397,10 @@ assert.match(marketService, /CHART_CACHE_MAX_ENTRIES/, "the short chart cache mu
 assert.match(marketService, /MARKET_SUPPLEMENT_MAX_AGE_MS = 15 \* 60_000/, "non-critical market supplements must be cached for the quarter-hour display cycle");
 assert.match(marketService, /marketSupplementInflight\.has\(key\)/, "identical sector-summary reads must be deduplicated");
 assert.match(companyChart, /save_chart_preferences/, "chart preferences must persist through the protected backend");
+assert.match(companyChart, /function scheduleChartPreferenceSave\(preferences\)/, "quick chart controls must coalesce preference writes instead of writing on every color event");
+assert.match(companyChart, /window\.setTimeout\([\s\S]*?650\)/, "preference persistence must use a bounded trailing debounce");
+assert.match(companyChart, /if \(pending\) \{[\s\S]*?save_chart_preferences/, "an unsaved debounced preference change must be flushed when the chart unmounts");
+assert.doesNotMatch(companyChart, /persistChartPreferences\(next\)/, "quick chart controls must not create one backend audit record per UI event");
 assert.match(companyChart, /axisLabelVisible:\s*false,\s*title:\s*""/, "investor-zone boundaries must not crowd the price axis with repeated labels");
 assert.match(companyChart, /rsiSettings\.lineColor/);
 assert.match(companyChart, /momentumSettings\.zones/);

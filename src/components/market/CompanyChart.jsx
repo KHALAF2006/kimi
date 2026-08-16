@@ -182,6 +182,8 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const investorZonePrimitiveRef = useRef(null);
   const mainPaneHeightRef = useRef(470);
   const preferenceSaveQueueRef = useRef(/** @type {Promise<any>} */ (Promise.resolve(null)));
+  const preferenceSaveTimerRef = useRef(0);
+  const pendingPreferenceSaveRef = useRef(null);
   const momentumLinesRef = useRef([]);
   const overlayUpdateRef = useRef(() => {});
   const overlayFrameRef = useRef(0);
@@ -582,6 +584,9 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   }
 
   function persistChartPreferences(preferences) {
+    window.clearTimeout(preferenceSaveTimerRef.current);
+    preferenceSaveTimerRef.current = 0;
+    pendingPreferenceSaveRef.current = null;
     const request = () => invokeAppFunction("customerSelfService", {
       action: "save_chart_preferences",
       preferences,
@@ -589,6 +594,24 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     preferenceSaveQueueRef.current = preferenceSaveQueueRef.current.catch(() => null).then(request);
     return preferenceSaveQueueRef.current;
   }
+
+  function scheduleChartPreferenceSave(preferences) {
+    pendingPreferenceSaveRef.current = preferences;
+    window.clearTimeout(preferenceSaveTimerRef.current);
+    preferenceSaveTimerRef.current = window.setTimeout(() => {
+      const pending = pendingPreferenceSaveRef.current;
+      if (pending) persistChartPreferences(pending).catch(() => {});
+    }, 650);
+  }
+
+  useEffect(() => () => {
+    window.clearTimeout(preferenceSaveTimerRef.current);
+    const pending = pendingPreferenceSaveRef.current;
+    pendingPreferenceSaveRef.current = null;
+    if (pending) {
+      invokeAppFunction("customerSelfService", { action: "save_chart_preferences", preferences: pending }).catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -1095,7 +1118,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       },
     }, theme);
     setChartPreferences(next);
-    persistChartPreferences(next).catch(() => {});
+    scheduleChartPreferenceSave(next);
     setDrawingVisibilityCommand({ id: Date.now(), visible: nextVisible });
   }
 
@@ -1103,7 +1126,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     const next = sanitizeChartPreferences({ ...chartPreferences, candleType }, theme);
     setChartPreferences(next);
     dispatchChartControl({ type: "close-menu", menu: "candle-type" });
-    persistChartPreferences(next).catch(() => {});
+    scheduleChartPreferenceSave(next);
   }
 
   function changeChartMenu(menu, open) {
@@ -1119,7 +1142,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       },
     }, theme);
     setChartPreferences(next);
-    persistChartPreferences(next).catch(() => {});
+    scheduleChartPreferenceSave(next);
   }
 
   function updateReversalPattern(key, patch) {
@@ -1128,7 +1151,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       reversal: { ...chartPreferences.reversal, [key]: { ...chartPreferences.reversal[key], ...patch } },
     }, theme);
     setChartPreferences(next);
-    persistChartPreferences(next).catch(() => {});
+    scheduleChartPreferenceSave(next);
   }
 
   const candleTypeLabel = {
