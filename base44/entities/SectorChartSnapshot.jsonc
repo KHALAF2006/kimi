@@ -1,0 +1,57 @@
+{
+  "name": "SectorChartSnapshot",
+  "type": "object",
+  "properties": {
+    "snapshot_key": {
+      "type": "string"
+    },
+    "market_code": {
+      "type": "string"
+    },
+    "sector": {
+      "type": "string"
+    },
+    "interval": {
+      "type": "string"
+    },
+    "range": {
+      "type": "string"
+    },
+    "lookback_days": {
+      "type": "integer"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "source_as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "calculated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "snapshot_key",
+    "market_code",
+    "sector",
+    "interval",
+    "range",
+    "lookback_days",
+    "payload",
+    "source_as_of",
+    "calculated_at",
+    "expires_at"
+  ],
+  "rls": {
+    "create": false,
+    "read": false,
+    "update": false,
+    "delete": false
+  }
+}
