@@ -7,6 +7,7 @@ import InstrumentSearchInput from "@/components/market/InstrumentSearchInput";
 import { invokeAppFunction } from "@/services/marketService";
 import { usePreferences } from "@/lib/preferences";
 import { useActiveMarket } from "@/lib/MarketContext";
+import { localizedAccessError } from "@/lib/accessCopy";
 
 const conditions = [
   ["crosses_above", "اختراق السعر صعودًا", "Crosses above"],
@@ -25,8 +26,8 @@ export default function Alerts() {
   const [form, setForm] = useState({ symbol: "", interval: "15m", condition: "crosses_above", threshold: "", frequency: "repeat", cooldown_minutes: 15 });
   const [selectedInstrument, setSelectedInstrument] = useState(null);
   const text = isArabic
-    ? { title: "مركز التنبيهات الذكية", description: "أنشئ قواعد السعر وأوقفها أو فعّلها واحذفها من مكان واحد.", symbol: "رمز الشركة", price: "السعر", create: "إنشاء تنبيه", empty: "لا توجد تنبيهات", delete: "حذف التنبيه", confirm: "هل تريد حذف هذا التنبيه؟", repeat: "متكرر", once: "مرة واحدة", cooldown: "التهدئة بالدقائق" }
-    : { title: "Smart alert center", description: "Create, enable, disable and delete price rules in one place.", symbol: "Company symbol", price: "Price", create: "Create alert", empty: "No alerts yet", delete: "Delete alert", confirm: "Delete this alert?", repeat: "Repeat", once: "Once", cooldown: "Cooldown in minutes" };
+    ? { title: "مركز التنبيهات الذكية", description: "أنشئ قواعد السعر وأوقفها أو فعّلها واحذفها من مكان واحد.", symbol: "رمز الشركة", price: "السعر", create: "إنشاء تنبيه", empty: "لا توجد تنبيهات", delete: "حذف التنبيه", confirm: "هل تريد حذف هذا التنبيه؟", repeat: "متكرر", once: "مرة واحدة", cooldown: "التهدئة بالدقائق", noMarket: "لا يوجد سوق مفعّل لإنشاء التنبيهات.", requestMarket: "طلب تفعيل سوق" }
+    : { title: "Smart alert center", description: "Create, enable, disable and delete price rules in one place.", symbol: "Company symbol", price: "Price", create: "Create alert", empty: "No alerts yet", delete: "Delete alert", confirm: "Delete this alert?", repeat: "Repeat", once: "Once", cooldown: "Cooldown in minutes", noMarket: "No market is active for creating alerts.", requestMarket: "Request market access" };
 
   async function load() {
     if (!marketCode) return;
@@ -35,10 +36,10 @@ export default function Alerts() {
       const data = await invokeAppFunction("customerSelfService", { action: "alerts", market_code: marketCode });
       setState({ loading: false, rules: data.rules || [], error: "", busy: "" });
     } catch (error) {
-      setState((value) => ({ ...value, loading: false, error: error?.response?.data?.error || error.message, busy: "" }));
+      setState((value) => ({ ...value, loading: false, error: localizedAccessError(error, language), busy: "" }));
     }
   }
-  useEffect(() => { setSelectedInstrument(null); setForm((value) => ({ ...value, symbol: "" })); if (marketCode) load(); }, [marketCode]);
+  useEffect(() => { setSelectedInstrument(null); setForm((value) => ({ ...value, symbol: "" })); if (marketCode) load(); else setState({ loading: false, rules: [], error: "", busy: "" }); }, [marketCode]);
 
   async function mutate(key, payload) {
     setState((value) => ({ ...value, busy: key, error: "" }));
@@ -47,7 +48,7 @@ export default function Alerts() {
       await load();
       return true;
     } catch (error) {
-      setState((value) => ({ ...value, busy: "", error: error?.response?.data?.error || error.message }));
+      setState((value) => ({ ...value, busy: "", error: localizedAccessError(error, language) }));
       return false;
     }
   }
@@ -60,6 +61,7 @@ export default function Alerts() {
 
   return <div className="space-y-5">
     <PageHeader title={text.title} description={text.description}/>
+    {!marketCode ? <div className="content-card p-8 text-center"><p className="font-bold">{text.noMarket}</p><SessionLink className="primary-button mt-4 justify-center" to="/market-applications">{text.requestMarket}</SessionLink></div> : <>
     <form onSubmit={create} className="content-card grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-7">
       <InstrumentSearchInput value={form.symbol} onChange={(symbol) => setForm({ ...form, symbol })} onSelect={setSelectedInstrument} marketCode={marketCode} isArabic={isArabic} label={text.symbol} required />
       <select className="form-input" value={form.condition} onChange={(event) => setForm({ ...form, condition: event.target.value })} aria-label={isArabic ? "شرط التنبيه" : "Alert condition"}>{conditions.map(([value, ar, en]) => <option key={value} value={value}>{language === "ar" ? ar : en}</option>)}</select>
@@ -81,6 +83,6 @@ export default function Alerts() {
           <button type="button" className="icon-button text-red-600" onClick={() => window.confirm(text.confirm) && mutate(`delete:${rule.id}`, { action: "delete_alert", rule_id: rule.id })} title={text.delete} aria-label={`${text.delete}: ${rule.symbol}`}><Trash2 size={16}/></button>
         </div>
       </article>;
-    })}</div> : <StatusPanel title={text.empty}/>}
+    })}</div> : <StatusPanel title={text.empty}/>}</>}
   </div>;
 }

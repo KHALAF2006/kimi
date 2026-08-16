@@ -20,14 +20,39 @@ function readLocal(marketCode, symbol, interval = "all") {
 }
 
 function writeLocal(marketCode, symbol, interval, drawings) {
-  localStorage.setItem(storageKey(marketCode, symbol, interval), JSON.stringify(drawings));
-  return drawings;
+  try {
+    localStorage.setItem(storageKey(marketCode, symbol, interval), JSON.stringify(drawings));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function replaceLocalDrawing(marketCode, symbol, interval, drawing) {
+  const drawings = readLocal(marketCode, symbol, interval);
+  const index = drawings.findIndex((item) => item.clientId === drawing.clientId);
+  if (index >= 0) drawings[index] = drawing;
+  else drawings.push(drawing);
+  return writeLocal(marketCode, symbol, interval, drawings);
+}
+
+function announceLocalFallback(marketCode, symbol, interval) {
+  window.dispatchEvent(new CustomEvent("smart-investor:drawing-local-fallback", { detail: { marketCode, symbol, interval } }));
 }
 
 export async function loadChartDrawings(marketCode, symbol, interval) {
   if (isReferencePreview()) return readLocal(marketCode, symbol, interval);
-  const result = await invokeAppFunction("chartDrawings", { action: "list", market_code: marketCode, symbol, interval_scope: interval });
-  return (result.drawings || []).map(normalizedDrawing).filter(Boolean);
+  const local = readLocal(marketCode, symbol, interval);
+  try {
+    const result = await invokeAppFunction("chartDrawings", { action: "list", market_code: marketCode, symbol, interval_scope: interval });
+    const drawings = (result.drawings || []).map(normalizedDrawing).filter(Boolean);
+    writeLocal(marketCode, symbol, interval, drawings);
+    return drawings;
+  } catch (error) {
+    if (!local.length) throw error;
+    announceLocalFallback(marketCode, symbol, interval);
+    return local;
+  }
 }
 
 export async function saveChartDrawing(marketCode, symbol, interval, drawing) {
@@ -40,14 +65,23 @@ export async function saveChartDrawing(marketCode, symbol, interval, drawing) {
     writeLocal(marketCode, symbol, interval, drawings);
     return scopedDrawing;
   }
-  const result = await invokeAppFunction("chartDrawings", {
-    action: "save",
-    market_code: marketCode,
-    symbol,
-    interval_scope: interval,
-    drawing,
-  });
-  return normalizedDrawing(result.drawing);
+  const scopedDrawing = normalizedDrawing({ ...drawing, intervalScope: interval });
+  const localBackupSaved = replaceLocalDrawing(marketCode, symbol, interval, scopedDrawing);
+  try {
+    const result = await invokeAppFunction("chartDrawings", {
+      action: "save",
+      market_code: marketCode,
+      symbol,
+      interval_scope: interval,
+      drawing,
+    });
+    const saved = normalizedDrawing(result.drawing);
+    replaceLocalDrawing(marketCode, symbol, interval, saved);
+    return saved;
+  } catch (error) {
+    error.localBackupSaved = localBackupSaved;
+    throw error;
+  }
 }
 
 export async function deleteChartDrawing(marketCode, symbol, drawing, confirmAlertDelete = false) {
@@ -56,7 +90,7 @@ export async function deleteChartDrawing(marketCode, symbol, drawing, confirmAle
     writeLocal(marketCode, symbol, interval, readLocal(marketCode, symbol, interval).filter((item) => item.clientId !== drawing.clientId));
     return { removed: true };
   }
-  return invokeAppFunction("chartDrawings", {
+  const result = await invokeAppFunction("chartDrawings", {
     action: "delete",
     market_code: marketCode,
     symbol,
@@ -64,6 +98,9 @@ export async function deleteChartDrawing(marketCode, symbol, drawing, confirmAle
     client_id: drawing.clientId,
     confirm_alert_delete: confirmAlertDelete,
   });
+  const interval = drawing.intervalScope || "all";
+  writeLocal(marketCode, symbol, interval, readLocal(marketCode, symbol, interval).filter((item) => item.clientId !== drawing.clientId));
+  return result;
 }
 
 export async function duplicateChartDrawing(marketCode, symbol, drawing, clientId, points = drawing.points) {
@@ -90,7 +127,9 @@ export async function duplicateChartDrawing(marketCode, symbol, drawing, clientI
     new_client_id: clientId,
     points,
   });
-  return normalizedDrawing(result.drawing);
+  const copy = normalizedDrawing(result.drawing);
+  replaceLocalDrawing(marketCode, symbol, drawing.intervalScope || "all", copy);
+  return copy;
 }
 
 export async function saveDrawingAlert(marketCode, symbol, drawing, alert) {
@@ -107,7 +146,9 @@ export async function saveDrawingAlert(marketCode, symbol, drawing, alert) {
     client_id: drawing.clientId,
     alert,
   });
-  return { id: result.rule.id, enabled: result.rule.enabled, condition: result.rule.condition };
+  const nextAlert = { id: result.rule.id, enabled: result.rule.enabled, condition: result.rule.condition };
+  replaceLocalDrawing(marketCode, symbol, drawing.intervalScope || "all", { ...drawing, alert: nextAlert });
+  return nextAlert;
 }
 
 export async function deleteDrawingAlert(marketCode, symbol, drawing) {
@@ -115,13 +156,15 @@ export async function deleteDrawingAlert(marketCode, symbol, drawing) {
     await saveChartDrawing(marketCode, symbol, drawing.intervalScope || "all", { ...drawing, alert: null });
     return { removed: true };
   }
-  return invokeAppFunction("chartDrawings", {
+  const result = await invokeAppFunction("chartDrawings", {
     action: "delete_alert",
     market_code: marketCode,
     symbol,
     drawing_id: drawing.serverId,
     client_id: drawing.clientId,
   });
+  replaceLocalDrawing(marketCode, symbol, drawing.intervalScope || "all", { ...drawing, alert: null });
+  return result;
 }
 
 export async function setAllChartDrawingsVisibility(marketCode, symbol, interval, visible) {
@@ -130,13 +173,15 @@ export async function setAllChartDrawingsVisibility(marketCode, symbol, interval
     writeLocal(marketCode, symbol, interval, drawings);
     return { updated: drawings.length, drawings };
   }
-  return invokeAppFunction("chartDrawings", {
+  const result = await invokeAppFunction("chartDrawings", {
     action: "set_visibility_bulk",
     market_code: marketCode,
     symbol,
     interval_scope: interval,
     visible: Boolean(visible),
   });
+  writeLocal(marketCode, symbol, interval, readLocal(marketCode, symbol, interval).map((drawing) => ({ ...drawing, visible: Boolean(visible) })));
+  return result;
 }
 
 export async function deleteAllChartDrawings(marketCode, symbol, interval, confirmAlertDelete = false) {
@@ -145,7 +190,7 @@ export async function deleteAllChartDrawings(marketCode, symbol, interval, confi
     writeLocal(marketCode, symbol, interval, []);
     return { removed: count };
   }
-  return invokeAppFunction("chartDrawings", {
+  const result = await invokeAppFunction("chartDrawings", {
     action: "delete_all",
     market_code: marketCode,
     symbol,
@@ -153,4 +198,6 @@ export async function deleteAllChartDrawings(marketCode, symbol, interval, confi
     confirm_all: true,
     confirm_alert_delete: Boolean(confirmAlertDelete),
   });
+  writeLocal(marketCode, symbol, interval, []);
+  return result;
 }

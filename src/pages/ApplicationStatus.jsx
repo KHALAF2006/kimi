@@ -11,9 +11,22 @@ const statusIcon = { approved: CheckCircle2, rejected: XCircle, pending: Clock3 
 export default function ApplicationStatus() {
   const { language, isArabic } = usePreferences();
   const [data, setData] = useState(null); const [name, setName] = useState(""); const [phone, setPhone] = useState(""); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [saving, setSaving] = useState(false);
-  async function load() { try { const response = await base44.functions.invoke("authRegistration", { action: "status" }); setData(response.data); setName(response.data?.profile?.full_name || ""); setPhone(response.data?.profile?.phone_e164 || ""); } catch (issue) { setError(localizedAccessError(issue, language, isArabic ? "تعذر تحميل حالة الطلب." : "Unable to load the application status.")); } }
-  useEffect(() => { load(); }, []);
-  async function saveContact() { setSaving(true); setError(""); setNotice(""); try { await base44.functions.invoke("authRegistration", { action: "update_pending_contact", full_name: name, phone_e164: phone }); await load(); setNotice(isArabic ? "تم حفظ الاسم ورقم الجوال وتأكيدهما." : "Your name and mobile number were saved and confirmed."); } catch (issue) { setError(localizedAccessError(issue, language, isArabic ? "تعذر حفظ بيانات التواصل." : "Unable to save contact details.")); } finally { setSaving(false); } }
+  async function load({ syncContact = false, quiet = false } = {}) { try { const response = await base44.functions.invoke("authRegistration", { action: "status" }); setData(response.data); if (syncContact) { setName(response.data?.profile?.full_name || ""); setPhone(response.data?.profile?.phone_e164 || ""); } if (!quiet) setError(""); return response.data; } catch (issue) { if (!quiet) setError(localizedAccessError(issue, language, isArabic ? "تعذر تحميل حالة الطلب." : "Unable to load the application status.")); return null; } }
+  useEffect(() => {
+    let active = true;
+    let timer = 0;
+    const refresh = async (syncContact = false) => {
+      if (!active) return;
+      const next = await load({ syncContact, quiet: !syncContact });
+      if (!active) return;
+      if (next?.profile?.account_status === "pending_owner_approval") timer = window.setTimeout(() => refresh(false), 45_000);
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") { window.clearTimeout(timer); refresh(false); } };
+    refresh(true);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { active = false; window.clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [language]);
+  async function saveContact() { setSaving(true); setError(""); setNotice(""); try { await base44.functions.invoke("authRegistration", { action: "update_pending_contact", full_name: name, phone_e164: phone }); await load({ syncContact: true }); setNotice(isArabic ? "تم حفظ الاسم ورقم الجوال وتأكيدهما." : "Your name and mobile number were saved and confirmed."); } catch (issue) { setError(localizedAccessError(issue, language, isArabic ? "تعذر حفظ بيانات التواصل." : "Unable to save contact details.")); } finally { setSaving(false); } }
   const profile = data?.profile; const pending = profile?.account_status === "pending_owner_approval";
   return <AuthLayout icon={ShieldCheck} title={isArabic ? "حالة طلب الوصول" : "Access application status"} subtitle="">
     {!data ? <p>{isArabic ? "جارٍ تحميل حالة الطلب…" : "Loading application status…"}</p> : !data.registered ? <SessionLink className="primary-button" to="/register">{isArabic ? "بدء التسجيل" : "Start registration"}</SessionLink> : <div className="space-y-4">

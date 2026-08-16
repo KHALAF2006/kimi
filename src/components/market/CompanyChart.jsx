@@ -16,6 +16,7 @@ import {
   persistSuccessfulChartSelection, readSuccessfulChartSelection,
 } from "@/lib/chart-timeframes";
 import { InvestorZonePrimitive } from "@/lib/investor-zone-primitive";
+import { localizedAccessError } from "@/lib/accessCopy";
 
 const intervalOptions = CHART_INTERVALS.map((item) => ({ ...item, ...CHART_INTERVAL_LABELS[item.value] }));
 const rangeOptions = CHART_RANGES.map((item) => ({ ...item, ...CHART_RANGE_LABELS[item.value] }));
@@ -493,7 +494,12 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       })
       .catch((reason) => {
         if (!active) return;
-        const failedMessage = reason?.response?.data?.error || reason?.message || "chart_fetch_failed";
+        const chartIssue = reason?.code ? reason : { response: reason?.response, status: reason?.status, code: reason?.response?.data?.code || "CHART_FETCH_FAILED" };
+        const failedMessage = localizedAccessError(
+          chartIssue,
+          isArabic ? "ar" : "en",
+          isArabic ? "تعذر تحميل بيانات الشارت الآن." : "Chart data could not be loaded right now.",
+        );
         const lastSuccessful = successfulSelectionRef.current;
         setError(failedMessage);
         if (lastSuccessful && (lastSuccessful.interval !== interval || lastSuccessful.range !== range)) {

@@ -7,10 +7,11 @@ import InstrumentSearchInput from "@/components/market/InstrumentSearchInput";
 import { invokeAppFunction } from "@/services/marketService";
 import { usePreferences } from "@/lib/preferences";
 import { useActiveMarket } from "@/lib/MarketContext";
+import { localizedAccessError } from "@/lib/accessCopy";
 
 const copy = {
-  ar: { title: "قوائم المتابعة", description: "أنشئ قوائمك وأضف الشركات وافتح شارت أي شركة مباشرة.", newList: "اسم القائمة الجديدة", create: "إنشاء قائمة", symbol: "رمز الشركة", add: "إضافة", empty: "لا توجد قوائم متابعة", noItems: "لم تُضف شركات بعد.", removeItem: "إزالة الشركة", deleteList: "حذف القائمة", confirmList: "هل تريد حذف القائمة وجميع شركاتها؟" },
-  en: { title: "Watchlists", description: "Create lists, add companies and open any company chart directly.", newList: "New list name", create: "Create list", symbol: "Company symbol", add: "Add", empty: "No watchlists yet", noItems: "No companies added yet.", removeItem: "Remove company", deleteList: "Delete list", confirmList: "Delete this list and all its companies?" },
+  ar: { title: "قوائم المتابعة", description: "أنشئ قوائمك وأضف الشركات وافتح شارت أي شركة مباشرة.", newList: "اسم القائمة الجديدة", create: "إنشاء قائمة", symbol: "رمز الشركة", add: "إضافة", empty: "لا توجد قوائم متابعة", noItems: "لم تُضف شركات بعد.", removeItem: "إزالة الشركة", deleteList: "حذف القائمة", confirmList: "هل تريد حذف القائمة وجميع شركاتها؟", noMarket: "لا يوجد سوق مفعّل لإنشاء قوائم المتابعة.", requestMarket: "طلب تفعيل سوق" },
+  en: { title: "Watchlists", description: "Create lists, add companies and open any company chart directly.", newList: "New list name", create: "Create list", symbol: "Company symbol", add: "Add", empty: "No watchlists yet", noItems: "No companies added yet.", removeItem: "Remove company", deleteList: "Delete list", confirmList: "Delete this list and all its companies?", noMarket: "No market is active for creating watchlists.", requestMarket: "Request market access" },
 };
 
 export default function Watchlists() {
@@ -28,11 +29,11 @@ export default function Watchlists() {
       const data = await invokeAppFunction("screeningWatchlists", { action: "list", market_code: marketCode });
       setState({ loading: false, data: data.watchlists || [], error: "", busy: "" });
     } catch (error) {
-      setState((value) => ({ ...value, loading: false, error: error?.response?.data?.error || error.message, busy: "" }));
+      setState((value) => ({ ...value, loading: false, error: localizedAccessError(error, language), busy: "" }));
     }
   }
 
-  useEffect(() => { setSymbols({}); if (marketCode) load(); }, [marketCode]);
+  useEffect(() => { setSymbols({}); if (marketCode) load(); else setState({ loading: false, data: [], error: "", busy: "" }); }, [marketCode]);
 
   async function mutate(key, payload) {
     setState((value) => ({ ...value, busy: key, error: "" }));
@@ -41,7 +42,7 @@ export default function Watchlists() {
       await load();
       return true;
     } catch (error) {
-      setState((value) => ({ ...value, busy: "", error: error?.response?.data?.error || error.message }));
+      setState((value) => ({ ...value, busy: "", error: localizedAccessError(error, language) }));
       return false;
     }
   }
@@ -60,12 +61,13 @@ export default function Watchlists() {
   }
 
   return <div className="space-y-5">
-    <PageHeader title={t.title} description={t.description} action={
+    <PageHeader title={t.title} description={t.description} action={marketCode ?
       <form onSubmit={createList} className="flex w-full gap-2 sm:w-auto">
         <input className="form-input min-w-0 flex-1 sm:w-64" value={name} onChange={(event) => setName(event.target.value)} minLength={2} maxLength={80} required placeholder={t.newList} aria-label={t.newList}/>
         <button className="primary-button shrink-0" disabled={state.busy === "create"}>{state.busy === "create" ? <Loader2 size={16} className="animate-spin"/> : <Plus size={16}/>}<span>{t.create}</span></button>
-      </form>
+      </form> : null
     }/>
+    {!marketCode ? <div className="content-card p-8 text-center"><p className="font-bold">{t.noMarket}</p><SessionLink className="primary-button mt-4 justify-center" to="/market-applications">{t.requestMarket}</SessionLink></div> : <>
     {state.error && <div className="error-banner" role="alert">{state.error}</div>}
     {state.loading ? <StatusPanel loading/> : state.data.length ? <div className="grid gap-4 lg:grid-cols-2">
       {state.data.map((watchlist) => <section key={watchlist.id} className="content-card overflow-hidden">
@@ -84,6 +86,6 @@ export default function Watchlists() {
           </div>) : <p className="px-4 pb-5 text-sm text-slate-500">{t.noItems}</p>}
         </div>
       </section>)}
-    </div> : <StatusPanel title={t.empty}/>}
+    </div> : <StatusPanel title={t.empty}/>}</>}
   </div>;
 }

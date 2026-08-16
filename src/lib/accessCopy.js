@@ -30,6 +30,8 @@ const ERRORS = {
     ACCESS_SNAPSHOT_NOT_CONFIRMED: "تمت العملية جزئياً لكن صلاحية السوق لم تتأكد. راجع سجل العملية.",
     COURSE_ACCESS_EXPIRED: "انتهت مدة مشاهدة هذه الدورة بعد 10 أيام من أول مشاهدة.",
     COURSE_ACCESS_NOT_CONFIRMED: "لم يؤكد الخادم بدء مدة مشاهدة الدورة؛ لم يبدأ التشغيل.",
+    CHART_DATA_NOT_AVAILABLE: "لا توجد شموع مكتملة لهذا السهم والفاصل حالياً. جرّب فاصلاً آخر أو حدّث العرض بعد اكتمال الشمعة التالية.",
+    CHART_FETCH_FAILED: "تعذر تحميل بيانات الشارت الآن. بقي آخر عرض سليم محفوظاً؛ أعد المحاولة بعد قليل.",
   },
   en: {
     RATE_LIMITED: "Requests were sent too quickly. No data was changed; wait briefly and try again.",
@@ -44,6 +46,8 @@ const ERRORS = {
     ACCESS_SNAPSHOT_NOT_CONFIRMED: "The operation was partial, but market access was not confirmed. Review the operation log.",
     COURSE_ACCESS_EXPIRED: "This course's 10-day viewing period has ended.",
     COURSE_ACCESS_NOT_CONFIRMED: "The server did not confirm the course viewing period, so playback did not start.",
+    CHART_DATA_NOT_AVAILABLE: "No completed candles are available for this symbol and interval yet. Try another interval or refresh after the next candle closes.",
+    CHART_FETCH_FAILED: "Chart data could not be loaded right now. The last working view was preserved; try again shortly.",
   },
 };
 

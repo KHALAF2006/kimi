@@ -156,6 +156,7 @@ function simplifyFreehand(points, tolerance = 1.6) {
 }
 
 function displayError(error, isArabic) {
+  if (error?.localBackupSaved) return isArabic ? "تعذرت المزامنة؛ حُفظ الرسم مؤقتاً على هذا الجهاز وسيبقى ظاهراً عند إعادة الفتح." : "Sync failed; the drawing was saved temporarily on this device and will remain available after reopening.";
   const code = error?.response?.data?.code;
   if (code === "DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED") return isArabic ? "هذا الرسم مرتبط بتنبيه. أكّد حذف الرسم والتنبيه معًا." : "This drawing has an alert. Confirm deleting both.";
   return error?.response?.data?.error || error?.message || (isArabic ? "تعذر حفظ الرسم." : "Drawing could not be saved.");
@@ -564,6 +565,17 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
     setStatus("");
     loadChartDrawings(marketCode, symbol, interval).then((values) => active && setDrawings(values)).catch((error) => active && setStatus(displayError(error, isArabic)));
     return () => { active = false; };
+  }, [marketCode, symbol, interval, isArabic]);
+
+  useEffect(() => {
+    const handler = (event) => {
+      const detail = event.detail || {};
+      if (detail.marketCode === marketCode && detail.symbol === symbol && detail.interval === interval) {
+        setStatus(isArabic ? "تعذر الاتصال؛ عُرضت آخر نسخة محفوظة من الرسومات على هذا الجهاز." : "Connection failed; the last drawings saved on this device are being shown.");
+      }
+    };
+    window.addEventListener("smart-investor:drawing-local-fallback", handler);
+    return () => window.removeEventListener("smart-investor:drawing-local-fallback", handler);
   }, [marketCode, symbol, interval, isArabic]);
 
   useEffect(() => {

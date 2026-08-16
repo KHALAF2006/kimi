@@ -936,6 +936,16 @@ assert.match(adminAccessFunction, /parsed\.protocol !== "https:"/, "trading-plat
 assert.match(adminAccessFunction, /function reconcileApplicationSubscriptions\(/, "concurrent application approvals must reconcile to one canonical subscription");
 assert.match(adminAccessFunction, /market_access\.duplicate_subscription_reconciled/, "duplicate approval cleanup must remain auditable");
 assert.match(authLoginFunction, /function secureSixDigitOtp\(/, "login OTP generation must use rejection sampling without modulo bias");
+const alertsPage = await readFile(new URL("../src/pages/Alerts.jsx", import.meta.url), "utf8");
+const watchlistsPage = await readFile(new URL("../src/pages/Watchlists.jsx", import.meta.url), "utf8");
+const applicationStatusPollingPage = await readFile(new URL("../src/pages/ApplicationStatus.jsx", import.meta.url), "utf8");
+const drawingService = await readFile(new URL("../src/services/drawingService.js", import.meta.url), "utf8");
+assert.match(alertsPage, /else setState\(\{ loading: false, rules: \[\]/, "alerts must leave loading state when no market is active");
+assert.match(watchlistsPage, /else setState\(\{ loading: false, data: \[\]/, "watchlists must leave loading state when no market is active");
+assert.match(applicationStatusPollingPage, /45_000/, "pending access status must refresh without requiring a manual page reload");
+assert.match(companyChart, /localizedAccessError\(/, "chart failures must be presented through localized customer-facing messages");
+assert.match(drawingService, /const localBackupSaved = replaceLocalDrawing/, "drawing saves must attempt a local backup before remote synchronization");
+assert.match(drawingService, /error\.localBackupSaved = localBackupSaved/, "drawing failures must disclose whether the local backup was actually saved");
 assert.equal(replayStartIndex(risingBars, risingBars[8].time), 8, "bar replay must resolve the selected historical candle deterministically");
 assert.equal(replayCandles(risingBars, 8).length, 9, "bar replay must hide every candle after the current replay cursor");
 assert.equal(nextReplayCursor(8, risingBars.length, -1), 7, "bar replay must step backwards one candle");
