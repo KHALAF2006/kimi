@@ -5,6 +5,7 @@ const MARKETS = new Set(["SA_MAIN", "US_OPTIONS", "US_BENCHMARKS"]);
 const VIDEO_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime", "video/x-msvideo", "video/x-matroska", "video/ogg", "video/3gpp", "video/3gpp2"]);
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 const SIGNED_URL_TTL_SECONDS = 15 * 60;
+const COURSE_ACCESS_DAYS = 10;
 
 function fail(message, code = "INVALID_TRAINING_REQUEST", status = 400) { throw Object.assign(new Error(message), { code, status }); }
 function required(value, max = 300) { const result = String(value || "").trim(); if (!result || result.length > max) fail("Required value is invalid"); return result; }
@@ -40,6 +41,29 @@ async function message(base44, payload) {
   return rows[0] || await base44.asServiceRole.entities.Message.create(payload);
 }
 
+async function courseGrant(base44, context, course) {
+  if (context.role === "owner" || course.visibility !== "market") return { status: "active", starts_at: null, ends_at: null };
+  const rows = await base44.asServiceRole.entities.CourseAccessGrant.filter({ customer_id: context.profile.id, course_id: course.id });
+  const existing = rows[0];
+  const now = new Date();
+  if (existing) {
+    if (existing.status !== "active" || new Date(existing.ends_at).getTime() <= now.getTime()) {
+      if (existing.status === "active") await base44.asServiceRole.entities.CourseAccessGrant.update(existing.id, { status: "expired", revision: Number(existing.revision || 1) + 1 });
+      fail("Course viewing period expired", "COURSE_ACCESS_EXPIRED", 403);
+    }
+    return existing;
+  }
+  const endsAt = new Date(now.getTime() + COURSE_ACCESS_DAYS * 24 * 60 * 60 * 1000);
+  const created = await base44.asServiceRole.entities.CourseAccessGrant.create({
+    customer_id: context.profile.id, auth_user_id: context.user.id, course_id: course.id, market_code: course.market_code,
+    status: "active", starts_at: now.toISOString(), ends_at: endsAt.toISOString(), source: "first_view", revision: 1,
+  });
+  const confirmed = await base44.asServiceRole.entities.CourseAccessGrant.get(created.id);
+  if (!confirmed?.id || confirmed.status !== "active") fail("Course access could not be confirmed", "COURSE_ACCESS_NOT_CONFIRMED", 500);
+  await audit(base44, context.user.id, "course.access_started", "CourseAccessGrant", confirmed.id, "success", `${COURSE_ACCESS_DAYS}-day viewing period`, {}, confirmed);
+  return confirmed;
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -63,7 +87,15 @@ Deno.serve(async (req) => {
       const all = await base44.asServiceRole.entities.Course.filter({ status: "published" }, "display_order", 200);
       const allowed = new Set(marketAccessForContext(context).map((item) => item.market_code));
       const courses = all.filter((course) => course.visibility === "public" || allowed.has(course.market_code));
-      return Response.json({ courses, lessons: await courseLessons(base44, courses) });
+      const grants = context.role === "owner" ? [] : await base44.asServiceRole.entities.CourseAccessGrant.filter({ customer_id: context.profile.id });
+      const grantsByCourse = Object.fromEntries(grants.map((grant) => [grant.course_id, grant]));
+      return Response.json({
+        courses: courses.map((course) => ({
+          ...course,
+          viewing_access: course.visibility === "public" ? { status: "public" } : grantsByCourse[course.id] || { status: "not_started", duration_days: COURSE_ACCESS_DAYS },
+        })),
+        lessons: await courseLessons(base44, courses),
+      });
     }
 
     if (body.action === "owner_list") {
@@ -153,6 +185,7 @@ Deno.serve(async (req) => {
       if (!course || course.status !== "published" || !lesson.published || lesson.storage_status !== "ready") fail("Lesson not available", "LESSON_NOT_AVAILABLE", 404);
       const allowed = new Set(marketAccessForContext(context).map((item) => item.market_code));
       if (course.visibility === "market" && !allowed.has(course.market_code)) fail("Market access required", "MARKET_SUBSCRIPTION_REQUIRED", 403);
+      const viewingAccess = await courseGrant(base44, context, course);
       const instance = required(body.player_instance_id, 120);
       const fingerprint = await sha256(String(body.session_id || ""));
       const now = Date.now();
@@ -179,7 +212,7 @@ Deno.serve(async (req) => {
       lease = lease
         ? await base44.asServiceRole.entities.PlaybackLease.update(lease.id, leasePayload)
         : await base44.asServiceRole.entities.PlaybackLease.create({ customer_id: context.profile.id, auth_user_id: context.user.id, lesson_id: lesson.id, player_instance_id: instance, ...leasePayload });
-      return Response.json({ playback: await signedPlayback(base44, lesson.file_uri), lease_id: lease.id, watermark: `${context.profile.full_name} · ${context.profile.phone_e164}` });
+      return Response.json({ playback: await signedPlayback(base44, lesson.file_uri), lease_id: lease.id, viewing_access: viewingAccess, watermark: `${context.profile.full_name} · ${context.profile.phone_e164}` });
     }
 
     if (body.action === "playback_heartbeat") {

@@ -5,13 +5,13 @@ import PageHeader from "@/components/PageHeader";
 import StatusPanel from "@/components/StatusPanel";
 import { invokeAppFunction } from "@/services/marketService";
 import { usePreferences } from "@/lib/preferences";
+import { localizedAccessError, localizedStatus } from "@/lib/accessCopy";
 
 const MARKETS = {
   SA_MAIN: { ar: "السوق السعودي", en: "Saudi Market" },
   US_OPTIONS: { ar: "الأسهم الأمريكية المؤهلة للخيارات", en: "U.S. Optionable Stocks" },
   US_BENCHMARKS: { ar: "المؤشرات والصناديق الأمريكية", en: "U.S. Indices & ETFs" },
 };
-function failure(error, fallback) { return error?.response?.data?.error || error?.message || fallback; }
 function dateLabel(value, language) { return value ? new Date(value).toLocaleDateString(language === "ar" ? "ar-SA" : "en-US", { year: "numeric", month: "long", day: "numeric" }) : "—"; }
 
 export default function MarketApplications() {
@@ -39,7 +39,7 @@ export default function MarketApplications() {
       setState((current) => ({ ...current, loading: false, error: "" }));
       return result;
     } catch (error) {
-      setState((current) => ({ ...current, loading: false, error: failure(error, t.loadFailed) }));
+      setState((current) => ({ ...current, loading: false, error: localizedAccessError(error, language, t.loadFailed) }));
       return null;
     }
   }, [isArabic]);
@@ -63,7 +63,7 @@ export default function MarketApplications() {
       setState((current) => ({ ...current, busy: false, notice: t.opened }));
     } catch (error) {
       popup?.close();
-      setState((current) => ({ ...current, busy: false, error: failure(error, t.loadFailed) }));
+      setState((current) => ({ ...current, busy: false, error: localizedAccessError(error, language, t.loadFailed) }));
     }
   }
 
@@ -73,7 +73,7 @@ export default function MarketApplications() {
       await invokeAppFunction("customerAccess", { action: "confirm_registration", application_id: application.id });
       await load();
       setState((current) => ({ ...current, busy: false, notice: t.confirmed }));
-    } catch (error) { setState((current) => ({ ...current, busy: false, error: failure(error, t.loadFailed) })); }
+    } catch (error) { setState((current) => ({ ...current, busy: false, error: localizedAccessError(error, language, t.loadFailed) })); }
   }
 
   return <>
@@ -93,7 +93,7 @@ export default function MarketApplications() {
       </section>
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-[#0d192a]">
         <h2 className="flex items-center gap-2 font-black"><ShieldCheck size={18} />{t.applications}</h2>
-        {state.loading ? <StatusPanel loading /> : <div className="mt-4 space-y-3">{data.applications.map((item) => <article key={item.id} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700"><div className="flex flex-wrap items-start justify-between gap-3"><div><small className="text-slate-500">{t.copy}</small><b className="mt-1 block font-mono text-sm">{item.unique_reference}</b><p className="mt-2 text-sm">{item.platform?.[isArabic ? "name_ar" : "name_en"] || "—"} · {MARKETS[item.market_code]?.[isArabic ? "ar" : "en"] || item.market_code}</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs dark:bg-slate-800">{t.status}: {item.status}</span></div>{item.platform?.referral_url && <a className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-sky-600 underline" href={item.platform.referral_url} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} />{isArabic ? "فتح رابط المنصة" : "Open platform link"}</a>}{item.status === "referral_opened" && <button type="button" className="primary-button mt-3 w-full justify-center" disabled={state.busy} onClick={() => confirm(item)}><Send size={15} />{t.confirm}</button>}{item.status === "approved" && <p className="mt-3 flex items-center gap-2 text-sm font-bold text-emerald-600"><CheckCircle2 size={16} />{isArabic ? "تم تفعيل السوق" : "Market activated"}</p>}</article>)}</div>}
+        {state.loading ? <StatusPanel loading /> : <div className="mt-4 space-y-3">{data.applications.map((item) => <article key={item.id} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700"><div className="flex flex-wrap items-start justify-between gap-3"><div><small className="text-slate-500">{t.copy}</small><b className="mt-1 block font-mono text-sm">{item.unique_reference}</b><p className="mt-2 text-sm">{item.platform?.[isArabic ? "name_ar" : "name_en"] || "—"} · {MARKETS[item.market_code]?.[isArabic ? "ar" : "en"] || item.market_code}</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs dark:bg-slate-800">{t.status}: {localizedStatus("application", item.status, language)}</span></div>{item.platform?.referral_url && <a className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-sky-600 underline" href={item.platform.referral_url} target="_blank" rel="noopener noreferrer"><ExternalLink size={13} />{isArabic ? "فتح رابط المنصة" : "Open platform link"}</a>}{item.status === "referral_opened" && <button type="button" className="primary-button mt-3 w-full justify-center" disabled={state.busy} onClick={() => confirm(item)}><Send size={15} />{t.confirm}</button>}{item.status === "approved" && <p className="mt-3 flex items-center gap-2 text-sm font-bold text-emerald-600"><CheckCircle2 size={16} />{isArabic ? "تم تفعيل السوق" : "Market activated"}</p>}</article>)}</div>}
       </section>
     </main>
     <DismissibleNotice message={state.error} tone="error" onDismiss={() => setState((current) => ({ ...current, error: "" }))} />

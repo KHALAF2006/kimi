@@ -169,7 +169,8 @@ assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh"
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
 const allEntityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc")).sort();
 const entityFiles = allEntityFiles.filter((name) => /^[A-Z][A-Za-z0-9]*\.jsonc$/.test(name));
-assert.equal(entityFiles.length, 57, "all 57 identity-preserving Base44 entity schemas must be present");
+assert.equal(entityFiles.length, 58, "all 58 identity-preserving Base44 entity schemas must be present");
+assert.ok(entityFiles.includes("CourseAccessGrant.jsonc"), "independent ten-day course access grants must have a canonical entity");
 assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "duplicate or identity-changing entity schema files must not remain beside the Base44 schemas");
 const entityNames = new Set();
 for (const name of entityFiles) {
@@ -245,6 +246,8 @@ const protectedRoute = await readFile(new URL("../src/components/ProtectedRoute.
 assert.match(protectedRoute, /!isReferencePreview\(\)\s*&&\s*!localStorage\.getItem\(['"]smart_investor_session_id['"]\)/, "protected market routes must require the verified SMART_INVESTOR device session");
 
 const loginPage = await readFile(new URL("../src/pages/Login.jsx", import.meta.url), "utf8");
+const accessAdminPage = await readFile(new URL("../src/pages/AccessAdmin.jsx", import.meta.url), "utf8");
+const applicationStatusPage = await readFile(new URL("../src/pages/ApplicationStatus.jsx", import.meta.url), "utf8");
 const registerPage = await readFile(new URL("../src/pages/Register.jsx", import.meta.url), "utf8");
 const authRegistrationFunction = await readFile(new URL("../base44/functions/authRegistration/entry.ts", import.meta.url), "utf8");
 const adminAccessFunction = await readFile(new URL("../base44/functions/adminAccess/entry.ts", import.meta.url), "utf8");
@@ -263,7 +266,12 @@ const authLayout = await readFile(new URL("../src/components/AuthLayout.jsx", im
 const siteStyles = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
 const registrationState = await readFile(new URL("../base44/shared/registrationState.mjs", import.meta.url), "utf8");
 const registrationLease = await readFile(new URL("../base44/shared/registrationLease.mjs", import.meta.url), "utf8");
-assert.match(loginPage, /appAuthenticated\?t\.sendCode:t\.next/, "an application-authenticated user must continue through SMART_INVESTOR email OTP");
+assert.match(loginPage, /awaitingApproval \?/, "a pending owner application must be separated from the active-customer OTP journey");
+assert.match(loginPage, /No sign-in code or market access will be issued before approval/, "pending login copy must describe the real approval state without promising an email");
+assert.doesNotMatch(accessAdminPage, /window\.prompt|window\.alert/, "owner decisions must use the accessible in-app dialog instead of browser prompts");
+assert.match(accessAdminPage, /decide_applications/, "the owner must be able to apply one confirmed decision to multiple selected applications");
+assert.match(applicationStatusPage, /phone_e164/, "a pending customer must be able to correct the registered mobile number as well as the name");
+assert.doesNotMatch(applicationStatusPage, /متابعة واضحة من التسجيل حتى تفعيل السوق/, "the removed application-status subtitle must not return");
 assert.match(registerPage, /marketing_consent:\s*form\.consent/, "registration must send the mandatory communication consent to the backend");
 assert.match(registerPage, /phone_accuracy_acknowledged/, "registration must require a clear mobile-number accuracy acknowledgement");
 assert.doesNotMatch(registerPage, /phone_code|start_phone_verification/, "registration must not request or send a mobile verification code");
@@ -275,7 +283,10 @@ assert.match(authRegistrationFunction, /acquireRegistrationLease/, "registration
 assert.match(registrationLease, /entities\.User\.update\(userId/, "the registration lease must use the Base44-supported single-user update path");
 assert.match(registrationLease, /registration_lock_token !== token/, "the registration lease must verify ownership after each single-user update");
 assert.match(adminAccessFunction, /context\.role !== "owner"/, "market application decisions must be owner-only");
-assert.match(adminAccessFunction, /10 \* 24 \* 60 \* 60 \* 1000/, "owner approval must create exactly ten free days");
+assert.match(adminAccessFunction, /ACCESS_DAYS = 30/, "owner approval must grant exactly thirty days of market access");
+assert.match(adminAccessFunction, /ACCESS_DAYS \* 24 \* 60 \* 60 \* 1000/, "market access expiry must be calculated from the thirty-day constant");
+assert.match(trainingContentFunction, /COURSE_ACCESS_DAYS = 10/, "course viewing must keep its independent ten-day duration");
+assert.match(trainingContentFunction, /CourseAccessGrant/, "course viewing must persist an independent confirmed access grant");
 assert.match(adminAccessFunction, /market_code:\s*application\.market_code/, "each approved application must stay bound to one market");
 assert.match(trainingContentFunction, /CreateFileSignedUrl/, "course playback must use temporary links for private Base44 files");
 assert.match(trainingContentFunction, /storage_provider:\s*"base44_private"/, "course videos must be stored in private Base44 storage");

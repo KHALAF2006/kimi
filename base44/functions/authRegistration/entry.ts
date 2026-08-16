@@ -67,17 +67,30 @@ Deno.serve(async (req) => {
       return Response.json({ registered: completed, needs_completion: !completed, profile: existingProfile, applications, platforms });
     }
 
-    if (body.action === "update_pending_name") {
+    if (body.action === "update_pending_name" || body.action === "update_pending_contact") {
       if (!existingProfile || existingProfile.account_status !== "pending_owner_approval") fail("Pending application not found", "PENDING_APPLICATION_NOT_FOUND", 404);
       const fullName = cleanName(body.full_name);
+      const phone = body.action === "update_pending_contact"
+        ? cleanPhone(body.phone_e164, existingProfile.country_code)
+        : existingProfile.phone_e164;
       const now = new Date().toISOString();
-      const updated = await base44.asServiceRole.entities.CustomerProfile.update(existingProfile.id, { full_name: fullName, name_last_updated_at: now });
+      const updated = await base44.asServiceRole.entities.CustomerProfile.update(existingProfile.id, {
+        full_name: fullName,
+        phone_e164: phone,
+        name_last_updated_at: now,
+      });
       const applications = await base44.asServiceRole.entities.MarketAccessApplication.filter({ customer_id: existingProfile.id, status: "pending" });
       for (const application of applications) {
-        await base44.asServiceRole.entities.MarketAccessApplication.update(application.id, { full_name_snapshot: fullName, revision: Number(application.revision || 1) + 1 });
+        await base44.asServiceRole.entities.MarketAccessApplication.update(application.id, {
+          full_name_snapshot: fullName,
+          phone_snapshot: phone,
+          revision: Number(application.revision || 1) + 1,
+        });
       }
-      await audit(base44, user.id, "registration.pending_name_updated", "CustomerProfile", existingProfile.id, "success", "customer correction", { full_name: existingProfile.full_name }, { full_name: fullName });
-      return Response.json({ profile: updated });
+      const confirmed = await base44.asServiceRole.entities.CustomerProfile.get(existingProfile.id);
+      if (confirmed.full_name !== fullName || confirmed.phone_e164 !== phone) fail("Contact update could not be confirmed", "CONTACT_UPDATE_NOT_CONFIRMED", 500);
+      await audit(base44, user.id, "registration.pending_contact_updated", "CustomerProfile", existingProfile.id, "success", "customer correction", { full_name: existingProfile.full_name, phone_e164: existingProfile.phone_e164 }, { full_name: fullName, phone_e164: phone });
+      return Response.json({ ok: true, confirmed: true, profile: confirmed });
     }
 
     if (body.action !== "complete_registration") fail("Unsupported action", "UNSUPPORTED_ACTION");

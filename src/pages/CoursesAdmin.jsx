@@ -5,6 +5,7 @@ import PageHeader from "@/components/PageHeader";
 import StatusPanel from "@/components/StatusPanel";
 import { usePreferences } from "@/lib/preferences";
 import { invokeAppFunction } from "@/services/marketService";
+import { localizedAccessError, localizedStatus } from "@/lib/accessCopy";
 
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 const emptyCourse = { code: "", title_ar: "", title_en: "", description_ar: "", description_en: "", visibility: "public", market_code: "SA_MAIN", display_order: 0 };
@@ -85,7 +86,7 @@ export default function CoursesAdmin() {
       setState((current) => ({ ...current, loading: false, ...data, error: "" }));
       setLesson((current) => ({ ...current, course_id: current.course_id || data.courses?.[0]?.id || "" }));
     } catch (error) {
-      setState((current) => ({ ...current, loading: false, error: error?.response?.data?.error || error.message }));
+      setState((current) => ({ ...current, loading: false, error: localizedAccessError(error, language, language === "ar" ? "تعذر تحميل الدورات." : "Unable to load courses.") }));
     }
   }
 
@@ -100,7 +101,7 @@ export default function CoursesAdmin() {
       await load();
       setState((current) => ({ ...current, saving: false, notice: t.courseSaved }));
     } catch (error) {
-      setState((current) => ({ ...current, saving: false, error: error?.response?.data?.error || error.message }));
+      setState((current) => ({ ...current, saving: false, error: localizedAccessError(error, language, language === "ar" ? "تعذر حفظ الدورة." : "Unable to save the course.") }));
     }
   }
 
@@ -130,7 +131,7 @@ export default function CoursesAdmin() {
       await load();
       setState((current) => ({ ...current, uploading: false, notice: t.uploaded }));
     } catch (error) {
-      setState((current) => ({ ...current, uploading: false, error: error?.response?.data?.error || error.message }));
+      setState((current) => ({ ...current, uploading: false, error: localizedAccessError(error, language, language === "ar" ? "تعذر رفع المقطع." : "Unable to upload the video.") }));
     }
   }
 
@@ -141,7 +142,7 @@ export default function CoursesAdmin() {
       await load();
       setState((current) => ({ ...current, publishing: "", notice: t.published }));
     } catch (error) {
-      setState((current) => ({ ...current, publishing: "", error: error?.response?.data?.error || error.message }));
+      setState((current) => ({ ...current, publishing: "", error: localizedAccessError(error, language, language === "ar" ? "تعذر نشر الدورة." : "Unable to publish the course.") }));
     }
   }
 
@@ -173,7 +174,7 @@ export default function CoursesAdmin() {
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-[#0d192a]">
         <h2 className="flex items-center gap-2 font-black"><ShieldCheck size={18} />{t.courses}</h2>
-        {state.loading ? <StatusPanel loading /> : <div className="mt-4 space-y-3">{state.courses.map((item) => <article key={item.id} className="rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-700"><b>{language === "ar" ? item.title_ar : item.title_en}</b><p className="text-slate-500">{item.visibility} · {item.status}</p><ul className="mt-2 text-xs">{(state.lessons[item.id] || []).map((video) => <li key={video.id}>{language === "ar" ? video.title_ar : video.title_en} — {video.storage_status === "ready" ? t.ready : video.storage_status}</li>)}</ul>{item.status === "draft" && <button className="secondary-button mt-3" disabled={state.publishing === item.id} onClick={() => publish(item.id)}>{state.publishing === item.id ? t.saving : t.publish}</button>}</article>)}</div>}
+        {state.loading ? <StatusPanel loading /> : <div className="mt-4 space-y-3">{state.courses.map((item) => <article key={item.id} className="rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-700"><b>{language === "ar" ? item.title_ar : item.title_en}</b><p className="text-slate-500">{localizedStatus("course", item.visibility, language)} · {localizedStatus("course", item.status, language)}</p><ul className="mt-2 text-xs">{(state.lessons[item.id] || []).map((video) => <li key={video.id}>{language === "ar" ? video.title_ar : video.title_en} — {localizedStatus("course", video.storage_status, language)}</li>)}</ul>{item.status === "draft" && <button className="secondary-button mt-3" disabled={state.publishing === item.id} onClick={() => publish(item.id)}>{state.publishing === item.id ? t.saving : t.publish}</button>}</article>)}</div>}
       </section>
     </div>
     {state.error && <div className="fixed bottom-4 end-4 z-[100] max-w-sm rounded-xl bg-red-950 p-4 text-sm text-red-200">{state.error}</div>}

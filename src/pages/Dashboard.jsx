@@ -28,7 +28,7 @@ function SummaryCard({ icon: Icon, label, value, tone, active, onClick }) {
 export default function Dashboard() {
   const { language, isArabic, text } = usePreferences();
   const [params, setParams] = useSearchParams();
-  const [state, setState] = useState({ loading: true, marketCodeLoaded: "", rows: [], total: 0, sources: [], markets: [], market: null, snapshot: null, sectorSummaries: [], error: "", refreshWarning: "", notice: "" });
+  const [state, setState] = useState({ loading: true, marketCodeLoaded: "", rows: [], total: 0, sources: [], markets: [], market: null, snapshot: null, sectorSummaries: [], error: "", errorCode: "", refreshWarning: "", notice: "" });
   const { loading: marketContextLoading, error: marketContextError, marketCode, availableMarkets, refresh: refreshMarketAccess } = useActiveMarket();
   const [query, setQuery] = useState("");
   const [sector, setSector] = useState(() => params.get("sector") || "");
@@ -52,13 +52,14 @@ export default function Dashboard() {
         ...value,
         loading: false,
         error: marketContextError || "market_access_unavailable",
+        errorCode: "MARKET_SUBSCRIPTION_REQUIRED",
       }));
       return;
     }
     const requestId = ++loadRequestRef.current;
     if (!silent) setState((value) => value.marketCodeLoaded === marketCode
-      ? { ...value, loading: true, error: "", refreshWarning: "" }
-      : { ...value, loading: true, marketCodeLoaded: "", rows: [], total: 0, sources: [], market: null, snapshot: null, sectorSummaries: [], error: "", refreshWarning: "", notice: "" });
+      ? { ...value, loading: true, error: "", errorCode: "", refreshWarning: "" }
+      : { ...value, loading: true, marketCodeLoaded: "", rows: [], total: 0, sources: [], market: null, snapshot: null, sectorSummaries: [], error: "", errorCode: "", refreshWarning: "", notice: "" });
     try {
       const [data, marketData] = await Promise.all([
         invokeAppFunction("marketRead", { limit: 500, market_code: marketCode, mode: activeTab === "momentum" ? "screener" : undefined }),
@@ -66,7 +67,7 @@ export default function Dashboard() {
       ]);
       if (requestId !== loadRequestRef.current) return;
       const markets = marketData.markets || state.markets;
-      setState((value) => ({ loading: false, marketCodeLoaded: marketCode, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, snapshot: data.snapshot || null, sectorSummaries: value.marketCodeLoaded === marketCode ? value.sectorSummaries : [], error: "", refreshWarning: "", notice: data.notice || "" }));
+      setState((value) => ({ loading: false, marketCodeLoaded: marketCode, rows: data.instruments || [], total: data.total || 0, sources: data.sources || [], markets, market: data.market || markets.find((market) => market.market_code === marketCode) || null, snapshot: data.snapshot || null, sectorSummaries: value.marketCodeLoaded === marketCode ? value.sectorSummaries : [], error: "", errorCode: "", refreshWarning: "", notice: data.notice || "" }));
       if (activeTab !== "momentum") {
         window.setTimeout(() => {
           readMarketSupplement({ action: "sector_summaries", market_code: marketCode })
@@ -86,7 +87,8 @@ export default function Dashboard() {
         return {
           ...value,
           loading: false,
-          error: retained ? "" : error?.response?.data?.error || error?.message || "market_fetch_failed",
+          error: retained ? "" : "market_fetch_failed",
+          errorCode: retained ? "" : String(error?.response?.data?.code || error?.code || "MARKET_DATA_UNAVAILABLE"),
           refreshWarning: retained ? "last_snapshot_retained" : "",
         };
       });
@@ -251,7 +253,9 @@ export default function Dashboard() {
         <div className="summary-card"><span className="summary-icon summary-neutral"><Database size={18} /></span><div><p>{isArabic ? "القيمة" : "Value"}</p><b>{formatCompact(summary.value, language)}</b></div></div>
       </section>
 
-      {state.error && <div className="error-banner" role="status">{isArabic
+      {state.error && <div className="error-banner" role="status">{state.errorCode === "MARKET_SUBSCRIPTION_REQUIRED"
+        ? (isArabic ? "هذا السوق غير مفعّل لحسابك. قدّم طلب تفعيل أو تواصل مع الإدارة." : "This market is not active for your account. Apply for access or contact support.")
+        : isArabic
         ? selectedIndexCode
           ? "تعذر تحديث ملخص مؤشر السوق؛ سيبقى آخر شارت محفوظ ظاهرًا إن كان متاحًا."
           : sector

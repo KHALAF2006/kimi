@@ -1,0 +1,17 @@
+{
+  "name": "CourseAccessGrant",
+  "type": "object",
+  "properties": {
+    "customer_id": { "type": "string" },
+    "auth_user_id": { "type": "string" },
+    "course_id": { "type": "string" },
+    "market_code": { "type": "string", "enum": ["SA_MAIN", "US_OPTIONS", "US_BENCHMARKS"] },
+    "status": { "type": "string", "enum": ["active", "expired", "revoked"], "default": "active" },
+    "starts_at": { "type": "string", "format": "date-time" },
+    "ends_at": { "type": "string", "format": "date-time" },
+    "source": { "type": "string", "enum": ["first_view", "manual"], "default": "first_view" },
+    "revision": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["customer_id", "auth_user_id", "course_id", "market_code", "status", "starts_at", "ends_at", "source", "revision"],
+  "rls": { "create": false, "read": false, "update": false, "delete": false }
+}
