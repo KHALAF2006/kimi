@@ -1,15 +1,15 @@
 {
   "definition": {
-    "document": { "dsl": "1.0.0", "name": "delivery_worker_every_fifteen_minutes", "version": "1.0", "namespace": "base44" },
+    "document": { "dsl": "1.0.0", "name": "delivery_worker_every_fifteen_minutes", "version": "1.1", "namespace": "base44" },
     "do": [{
       "process_delivery_queue": {
         "call": "invoke_backend_function",
-        "with": { "function_name": "deliveryWorker", "args": { "action": "scheduled" } },
+        "with": { "function_name": "deliveryWorker", "args": { "action": "scheduled", "dry_run": true } },
         "then": "end"
       }
     }]
   },
-  "description": "يعالج دفعات محدودة من تنبيهات تيليجرام وواتساب وحملات البريد مع استئناف آمن ومنع التكرار.",
+  "description": "يفحص طابور قنوات الإرسال المركزية دون إرسال حتى يعتمد المالك تفعيل المعالجة الفعلية.",
   "name": "معالجة قنوات الإرسال المركزية",
   "trigger": {
     "condition": null,

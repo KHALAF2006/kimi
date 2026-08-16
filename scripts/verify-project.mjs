@@ -257,6 +257,8 @@ const adminSubscriptionsPersistenceFunction = await readFile(new URL("../base44/
 const adminRolesPersistenceFunction = await readFile(new URL("../base44/functions/adminRoles/entry.ts", import.meta.url), "utf8");
 const deliveryCenterPage = await readFile(new URL("../src/pages/DeliveryCenterAdmin.jsx", import.meta.url), "utf8");
 const deliveryCenterFunction = await readFile(new URL("../base44/functions/adminDeliveryCenter/entry.ts", import.meta.url), "utf8");
+const deliveryWorkerFunction = await readFile(new URL("../base44/functions/deliveryWorker/entry.ts", import.meta.url), "utf8");
+const deliveryWorkerWorkflow = await readFile(new URL("../base44/workflows/DeliveryWorkerEveryFifteenMinutes.jsonc", import.meta.url), "utf8");
 const telegramDeliveryFunction = await readFile(new URL("../base44/functions/telegramDelivery/entry.ts", import.meta.url), "utf8");
 const whatsappDeliveryFunction = await readFile(new URL("../base44/functions/whatsappDelivery/entry.ts", import.meta.url), "utf8");
 const coursesAdminPage = await readFile(new URL("../src/pages/CoursesAdmin.jsx", import.meta.url), "utf8");
@@ -304,6 +306,10 @@ assert.match(deliveryCenterPage, /adminDeliveryCenter/, "the owner delivery page
 assert.doesNotMatch(deliveryCenterPage, /window\.(alert|confirm|prompt)/, "the owner delivery page must use accessible in-product confirmation instead of browser dialogs");
 assert.match(telegramDeliveryFunction, /requirePermission\(base44, payload\.session_id, "delivery\.channels\.manage"\)/, "manual Telegram delivery must require the owner-only centralized delivery permission");
 assert.match(whatsappDeliveryFunction, /requirePermission\(base44, payload\.session_id, "delivery\.channels\.manage"\)/, "manual WhatsApp delivery must require the owner-only centralized delivery permission");
+assert.match(deliveryWorkerFunction, /MAX_EVENT_AGE_MS = 60 \* 60 \* 1000/, "the centralized delivery worker must expire stale alerts before any real delivery");
+assert.match(deliveryWorkerFunction, /dryRun = args\.dry_run === true/, "the centralized delivery worker must support a non-sending diagnostic mode");
+assert.match(deliveryWorkerFunction, /unsupported_delivery_channel/, "unsupported queued channels must be closed instead of remaining pending forever");
+assert.match(deliveryWorkerWorkflow, /"dry_run": true/, "the centralized delivery workflow must remain in diagnostic mode until live delivery is explicitly approved");
 assert.match(adminSubscriptionsPersistenceFunction, /SUBSCRIPTION_PERSISTENCE_FAILED/, "subscription changes must be read back and confirmed before success");
 assert.match(adminRolesPersistenceFunction, /ROLE_ASSIGNMENT_PERSISTENCE_FAILED/, "role assignments must be read back and confirmed before success");
 assert.match(subscriptionsAdminPage, /transitionOptions\(item\.status\)/, "subscription status choices must only expose valid backend transitions");

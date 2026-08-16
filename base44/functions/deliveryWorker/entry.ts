@@ -3,6 +3,17 @@ import { audit, readJsonBody, replyError } from "../../shared/security.ts";
 
 const DELIVERY_BATCH = 10;
 const EMAIL_BATCH = 20;
+const MAX_EVENT_AGE_MS = 60 * 60 * 1000;
+
+function eventTime(event) {
+  const timestamp = Date.parse(String(event?.created_date || event?.next_attempt_at || ""));
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function isExpiredEvent(event, now) {
+  const timestamp = eventTime(event);
+  return timestamp > 0 && now - timestamp > MAX_EVENT_AGE_MS;
+}
 
 async function processEmailBatch(base44, campaign) {
   const pending = (await base44.asServiceRole.entities.EmailCampaignRecipient.filter({ campaign_id: campaign.id, status: "pending" }, "created_date", EMAIL_BATCH)).slice(0, EMAIL_BATCH);
@@ -40,22 +51,55 @@ Deno.serve(async (req) => {
     const automationUser = await base44.auth.me();
     if (!automationUser || automationUser.role !== "admin") return Response.json({ error: "Automation authentication required", code: "AUTOMATION_AUTH_REQUIRED" }, { status: 401 });
     const now = Date.now();
+    const dryRun = args.dry_run === true;
     const pending = await base44.asServiceRole.entities.DeliveryEvent.filter({ status: "pending" }, "created_date", DELIVERY_BATCH);
     const retry = (await base44.asServiceRole.entities.DeliveryEvent.filter({ status: "retry" }, "next_attempt_at", DELIVERY_BATCH)).filter((event) => !event.next_attempt_at || new Date(event.next_attempt_at).getTime() <= now);
     const events = [...new Map([...pending, ...retry].map((event) => [event.id, event])).values()].slice(0, DELIVERY_BATCH);
+    const expiredEvents = events.filter((event) => isExpiredEvent(event, now));
+    const deliverableEvents = events.filter((event) => !isExpiredEvent(event, now));
+    const campaigns = await base44.asServiceRole.entities.EmailCampaign.filter({ status: "sending" }, "created_date", 5);
+    if (dryRun) {
+      return Response.json({
+        status: "diagnostic_complete",
+        dry_run: true,
+        queue: {
+          inspected: events.length,
+          deliverable: deliverableEvents.length,
+          expired: expiredEvents.length,
+          unsupported: deliverableEvents.filter((event) => !["telegram", "whatsapp"].includes(event.channel)).length,
+          campaigns_sending: campaigns.length,
+        },
+      });
+    }
+    for (const event of expiredEvents) {
+      await base44.asServiceRole.entities.DeliveryEvent.update(event.id, {
+        status: "failed",
+        provider_code: "expired_before_delivery",
+      });
+      await audit(base44, automationUser.id, "delivery.event.expired", "DeliveryEvent", event.id, "success", `market:${event.market_code || "unknown"};age_limit_minutes:60`);
+    }
     const deliveryResults = [];
-    for (const event of events) {
+    for (const event of deliverableEvents) {
       const functionName = event.channel === "telegram" ? "telegramDelivery" : event.channel === "whatsapp" ? "whatsappDelivery" : "";
-      if (!functionName) continue;
+      if (!functionName) {
+        await base44.asServiceRole.entities.DeliveryEvent.update(event.id, { status: "failed", provider_code: "unsupported_delivery_channel" });
+        deliveryResults.push({ event_id: event.id, channel: event.channel, status: "failed", code: "UNSUPPORTED_DELIVERY_CHANNEL" });
+        continue;
+      }
       try {
         const response = await base44.functions.invoke(functionName, { action: "scheduled_delivery", event_id: event.id });
         deliveryResults.push({ event_id: event.id, channel: event.channel, status: response?.data?.status || "processed" });
       } catch (error) { deliveryResults.push({ event_id: event.id, channel: event.channel, status: "failed", code: String(error?.code || "invoke_failed") }); }
     }
-    const campaigns = await base44.asServiceRole.entities.EmailCampaign.filter({ status: "sending" }, "created_date", 5);
     const emailResults = [];
-    for (const campaign of campaigns) emailResults.push({ campaign_id: campaign.id, ...await processEmailBatch(base44, campaign) });
-    await audit(base44, automationUser.id, "delivery.worker.completed", "DeliveryEvent", "scheduled", "success", `events:${events.length};campaigns:${campaigns.length}`);
-    return Response.json({ status: "complete", delivery_results: deliveryResults, email_results: emailResults });
+    for (const campaign of campaigns) {
+      try {
+        emailResults.push({ campaign_id: campaign.id, ...await processEmailBatch(base44, campaign) });
+      } catch (error) {
+        emailResults.push({ campaign_id: campaign.id, processed: 0, complete: false, status: "failed", code: String(error?.code || "email_batch_failed") });
+      }
+    }
+    await audit(base44, automationUser.id, "delivery.worker.completed", "DeliveryEvent", "scheduled", "success", `events:${deliverableEvents.length};expired:${expiredEvents.length};campaigns:${campaigns.length}`);
+    return Response.json({ status: "complete", expired_count: expiredEvents.length, delivery_results: deliveryResults, email_results: emailResults });
   } catch (error) { return replyError(error); }
 });
