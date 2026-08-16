@@ -12,6 +12,9 @@ const FRESHNESS_GRACE_SECONDS = REFRESH_CADENCE_SECONDS + INGESTION_PROCESSING_G
 const PROVIDER_BAR_INTERVAL_MS = 5 * 60 * 1000;
 const CONCURRENCY = 8;
 const PROVIDER_MAX_ATTEMPTS = 4;
+function rawQuoteObservationPersistenceEnabled() {
+  return String(Deno.env.get("SMART_INVESTOR_PERSIST_RAW_QUOTE_OBSERVATIONS") || "").trim().toLowerCase() === "true";
+}
 const HOLIDAYS_2026 = new Map([
   ["2026-01-01", "New Year's Day"], ["2026-01-19", "Martin Luther King Jr. Day"],
   ["2026-02-16", "Washington's Birthday"], ["2026-04-03", "Good Friday"],
@@ -531,17 +534,19 @@ Deno.serve(async (req) => {
         });
       }
     }
-    const observations = acceptedQuotes.map((quote) => ({
-      run_id: quote.run_id, snapshot_version: quote.snapshot_version, market_code: quote.market_code,
-      session_date: quote.session_date, instrument_id: quote.instrument_id, symbol: quote.symbol,
-      last_price: quote.last_price, previous_close: quote.previous_close, change_value: quote.change_value,
-      change_percent: quote.change_percent, open: quote.open, high: quote.high, low: quote.low,
-      volume: quote.volume, market_cap: quote.market_cap, source_id: quote.source_id,
-      provider_as_of: quote.provider_as_of, last_trade_time: quote.last_trade_time,
-      received_time: quote.received_time, delay_seconds: quote.delay_seconds, market_phase: quote.market_phase,
-      freshness_status: quote.freshness_status, quality_status: quote.quality_status, is_final: quote.is_final,
-    }));
-    if (observations.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(observations);
+    if (rawQuoteObservationPersistenceEnabled()) {
+      const observations = acceptedQuotes.map((quote) => ({
+        run_id: quote.run_id, snapshot_version: quote.snapshot_version, market_code: quote.market_code,
+        session_date: quote.session_date, instrument_id: quote.instrument_id, symbol: quote.symbol,
+        last_price: quote.last_price, previous_close: quote.previous_close, change_value: quote.change_value,
+        change_percent: quote.change_percent, open: quote.open, high: quote.high, low: quote.low,
+        volume: quote.volume, market_cap: quote.market_cap, source_id: quote.source_id,
+        provider_as_of: quote.provider_as_of, last_trade_time: quote.last_trade_time,
+        received_time: quote.received_time, delay_seconds: quote.delay_seconds, market_phase: quote.market_phase,
+        freshness_status: quote.freshness_status, quality_status: quote.quality_status, is_final: quote.is_final,
+      }));
+      if (observations.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(observations);
+    }
     const coverage = acceptedQuotes.length / batchInstruments.length * 100;
     const status = coverage >= 99 ? "success" : coverage >= 95 ? "partial" : "failed";
     runDiagnostics = {

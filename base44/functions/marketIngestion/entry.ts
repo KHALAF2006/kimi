@@ -1,6 +1,10 @@
 // base44/functions/marketIngestion/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
 
+function rawQuoteObservationPersistenceEnabled() {
+  return String(Deno.env.get("SMART_INVESTOR_PERSIST_RAW_QUOTE_OBSERVATIONS") || "").trim().toLowerCase() === "true";
+}
+
 // Base44 scheduled functions cannot import files outside their own function
 // directory. Keep this narrow security boundary self-contained and verify it
 // against the canonical helpers in base44/shared/security.ts in acceptance tests.
@@ -6401,8 +6405,10 @@ Deno.serve(async (req) => {
     if (!await renewOwnedIngestionLease(base44, run)) {
       return Response.json({ status: "skipped", reason: "slot_lease_superseded", slot_key: slotKey });
     }
-    stage = "quote_observation_create";
-    if (normalized.accepted.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(normalized.accepted);
+    if (rawQuoteObservationPersistenceEnabled() && normalized.accepted.length) {
+      stage = "quote_observation_create";
+      await base44.asServiceRole.entities.QuoteObservation.bulkCreate(normalized.accepted);
+    }
     const publicSourceIssues = Array.isArray(payload?.rejected) ? payload.rejected : [];
     stage = "quality_issue_upsert";
     await recordQualityIssues(base44, provider.id, run.id, snapshotVersion, [...publicSourceIssues, ...normalized.rejected], {

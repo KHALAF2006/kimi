@@ -946,6 +946,13 @@ assert.match(applicationStatusPollingPage, /45_000/, "pending access status must
 assert.match(companyChart, /localizedAccessError\(/, "chart failures must be presented through localized customer-facing messages");
 assert.match(drawingService, /const localBackupSaved = replaceLocalDrawing/, "drawing saves must attempt a local backup before remote synchronization");
 assert.match(drawingService, /error\.localBackupSaved = localBackupSaved/, "drawing failures must disclose whether the local backup was actually saved");
+const marketIngestionRetention = await readFile(new URL("../base44/functions/marketIngestion/entry.ts", import.meta.url), "utf8");
+const usOptionsIngestionRetention = await readFile(new URL("../base44/functions/usOptionsMarketIngestion/source.ts", import.meta.url), "utf8");
+const usBenchmarksIngestionRetention = await readFile(new URL("../base44/functions/usBenchmarksMarketIngestion/source.ts", import.meta.url), "utf8");
+for (const source of [marketIngestionRetention, usOptionsIngestionRetention, usBenchmarksIngestionRetention]) {
+  assert.match(source, /SMART_INVESTOR_PERSIST_RAW_QUOTE_OBSERVATIONS/, "raw quote observations must be opt-in instead of growing without a reader or retention policy");
+  assert.match(source, /rawQuoteObservationPersistenceEnabled\(\)/, "raw quote observation writes must remain behind the explicit operational gate");
+}
 assert.equal(replayStartIndex(risingBars, risingBars[8].time), 8, "bar replay must resolve the selected historical candle deterministically");
 assert.equal(replayCandles(risingBars, 8).length, 9, "bar replay must hide every candle after the current replay cursor");
 assert.equal(nextReplayCursor(8, risingBars.length, -1), 7, "bar replay must step backwards one candle");

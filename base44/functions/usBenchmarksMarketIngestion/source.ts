@@ -7,6 +7,9 @@ import { earliestRecentGapByInstrument, incrementalProviderWindow, indexCandleCh
 
 const DELAY_SECONDS = 900;
 const FRESHNESS_GRACE_SECONDS = 60 * 60 + 10 * 60;
+function rawQuoteObservationPersistenceEnabled() {
+  return String(Deno.env.get("SMART_INVESTOR_PERSIST_RAW_QUOTE_OBSERVATIONS") || "").trim().toLowerCase() === "true";
+}
 const BASE_URL = "https://query1.finance.yahoo.com";
 const HOLIDAYS_2026 = new Set([
   "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25",
@@ -297,8 +300,10 @@ async function incremental(base44, catalog, source, now, options = {}) {
   }
   const coverage = output.length / catalog.length * 100;
   const status = coverage >= 99 ? "success" : coverage >= 95 ? "partial" : "failed";
-  const observations = quotes.map((quote) => ({ run_id: quote.run_id, snapshot_version: quote.snapshot_version, market_code: quote.market_code, session_date: quote.session_date, instrument_id: quote.instrument_id, symbol: quote.symbol, last_price: quote.last_price, previous_close: quote.previous_close, change_value: quote.change_value, change_percent: quote.change_percent, open: quote.open, high: quote.high, low: quote.low, volume: quote.volume, market_cap: quote.market_cap, source_id: quote.source_id, provider_as_of: quote.provider_as_of, last_trade_time: quote.last_trade_time, received_time: quote.received_time, delay_seconds: quote.delay_seconds, market_phase: quote.market_phase, freshness_status: quote.freshness_status, quality_status: quote.quality_status, is_final: quote.is_final }));
-  if (observations.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(observations);
+  if (rawQuoteObservationPersistenceEnabled()) {
+    const observations = quotes.map((quote) => ({ run_id: quote.run_id, snapshot_version: quote.snapshot_version, market_code: quote.market_code, session_date: quote.session_date, instrument_id: quote.instrument_id, symbol: quote.symbol, last_price: quote.last_price, previous_close: quote.previous_close, change_value: quote.change_value, change_percent: quote.change_percent, open: quote.open, high: quote.high, low: quote.low, volume: quote.volume, market_cap: quote.market_cap, source_id: quote.source_id, provider_as_of: quote.provider_as_of, last_trade_time: quote.last_trade_time, received_time: quote.received_time, delay_seconds: quote.delay_seconds, market_phase: quote.market_phase, freshness_status: quote.freshness_status, quality_status: quote.quality_status, is_final: quote.is_final }));
+    if (observations.length) await base44.asServiceRole.entities.QuoteObservation.bulkCreate(observations);
+  }
   const quoteResult = status === "failed" || !quotes.length ? { created: 0, updated: 0, preserved_last_good: status === "failed" } : await upsertMany(base44, "QuoteLatest", quotes, ["instrument_id"], { market_code: US_BENCHMARKS_MARKET_CODE });
   const candleResult = status === "failed" ? { created: 0, updated: 0, preserved_last_good: true } : await upsertMany(base44, "CandleChunk", chunks, ["instrument_id", "interval", "chunk_key"], { market_code: US_BENCHMARKS_MARKET_CODE, interval: "15m" });
   if (status !== "failed" && writeQuotes) {
