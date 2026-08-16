@@ -159,9 +159,9 @@ const saudiSignalSteps = marketTechnicalSignalsDaily.definition.do.map((entry) =
   return { key, step };
 });
 const saudiSignalCalls = saudiSignalSteps.filter(({ step }) => step.call === "invoke_backend_function");
-const saudiSignalWaits = saudiSignalSteps.filter(({ step }) => step.wait === "PT5M");
+const saudiSignalWaits = saudiSignalSteps.filter(({ step }) => step.wait === "PT1M");
 assert.equal(saudiSignalCalls.length, 35, "the Saudi workflow must resume 34 bounded batches and then finalize");
-assert.equal(saudiSignalWaits.length, 34, "the Saudi workflow must separate every projection call by five minutes");
+assert.equal(saudiSignalWaits.length, 34, "the Saudi workflow must separate every projection call by one minute");
 assert.equal(saudiSignalSteps.length, 69, "the Saudi workflow must remain a strictly sequential action/wait chain");
 for (const { step } of saudiSignalCalls) {
   assert.equal(step.with.function_name, "marketSignalRefresh");
