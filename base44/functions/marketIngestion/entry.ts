@@ -5847,14 +5847,28 @@ async function checksum(value) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
   return Array.from(new Uint8Array(bytes)).map((item) => item.toString(16).padStart(2, "0")).join("");
 }
+function upsertValueChanged(current, incoming) {
+  return Object.entries(incoming).some(([field, value]) => {
+    const existingValue = current?.[field];
+    if (value && typeof value === "object") return JSON.stringify(existingValue ?? null) !== JSON.stringify(value);
+    return existingValue !== value;
+  });
+}
 async function upsertMany(base44, entity, rows, keyFields) {
   if (!rows.length) return;
-  const existing = await base44.asServiceRole.entities[entity].list("-updated_date", 5e3);
   const key = (row) => keyFields.map((field) => row[field]).join("|");
-  const byKey = new Map(existing.map((row) => [key(row), row]));
   const uniqueRows = groupRowsByKey(rows, key).map((group) => group.row);
+  const filter = Object.fromEntries(keyFields.map((field) => {
+    const values = [...new Set(uniqueRows.map((row) => row[field]).filter((value) => value !== undefined && value !== null))];
+    return [field, values.length === 1 ? values[0] : { $in: values }];
+  }));
+  const readLimit = Math.min(5e3, Math.max(25, uniqueRows.length * 4));
+  const existing = await base44.asServiceRole.entities[entity].filter(filter, "-updated_date", readLimit);
+  const byKey = new Map(existing.map((row) => [key(row), row]));
   const creates = uniqueRows.filter((row) => !byKey.has(key(row)));
-  const updates = uniqueRows.filter((row) => byKey.has(key(row))).map((row) => ({ id: byKey.get(key(row)).id, ...row }));
+  const updates = uniqueRows
+    .filter((row) => byKey.has(key(row)) && upsertValueChanged(byKey.get(key(row)), row))
+    .map((row) => ({ id: byKey.get(key(row)).id, ...row }));
   if (creates.length) await base44.asServiceRole.entities[entity].bulkCreate(creates);
   await bulkUpdateUnique(base44.asServiceRole.entities[entity], updates);
 }
