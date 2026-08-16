@@ -2,7 +2,7 @@
 
 // base44/functions/marketRead/entry.ts
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { authorizationContext, marketAccessForContext, readJsonBody, replyError, requireMarketEntitlement } from "../../shared/security.ts";
+import { authorizationContext, marketAccessForContext, readJsonBody, replyError, requireMarketEntitlement, requireTrustedOwner } from "../../shared/security.ts";
 import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE, US_OPTIONS_SYMBOLS } from "../../shared/us-options-catalog.ts";
 import { US_BENCHMARKS_CATALOG, US_BENCHMARKS_MARKET_CODE, US_BENCHMARKS_SYMBOLS } from "../../shared/us-benchmarks-catalog.ts";
 import {
@@ -6073,6 +6073,22 @@ Deno.serve(async (req) => {
       interval: body?.interval || null,
       range: body?.range || null,
     };
+    if (body.action === "sector_chart_refresh") {
+      await requireTrustedOwner(base44);
+      const interval = String(body.interval || "1d");
+      const refreshRange = {
+        "15m": "1mo",
+        "1h": "3mo",
+        "2h": "3mo",
+        "3h": "3mo",
+        "4h": "3mo",
+        "1d": "max",
+        "1wk": "max",
+        "1mo": "max",
+      }[interval];
+      if (!refreshRange) throw Object.assign(new Error("Unsupported sector snapshot interval"), { status: 400 });
+      return Response.json(await sectorChartResponse(base44, { ...body, range: refreshRange }, { refreshSnapshot: true }));
+    }
     const accessContext = await requireMarketAccess(base44, body);
     if (body.action === "sector_summaries") {
       const requestedMarket = String(body.market_code || "").toUpperCase();
