@@ -6,11 +6,11 @@ import { US_OPTIONS_CATALOG, US_OPTIONS_MARKET_CODE, US_OPTIONS_SYMBOLS } from "
 import { closeExpiredIngestionRuns } from "../../shared/ingestion-run-lifecycle.ts";
 
 const MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
-// A 16-instrument batch keeps each backend call below Base44's three-minute
-// execution ceiling while reducing the scheduled workflow from 15 calls to 8.
-// The previous 8-instrument layout repeatedly reached the platform request
-// limit at call eight and left the market only partially projected.
-const PROJECTION_BATCH_SIZE = 16;
+// Base44 production history shows batches of 8 complete reliably, while 16-item
+// batches overrun the execution lease before the first scheduled step returns.
+// The workflow invokes each explicit batch directly and spaces calls by five
+// minutes so no nested worker request or workflow burst is required.
+const PROJECTION_BATCH_SIZE = 8;
 const PROJECTION_BATCH_COUNT = Math.ceil(US_OPTIONS_CATALOG.companies.length / PROJECTION_BATCH_SIZE);
 
 function rows(value) {

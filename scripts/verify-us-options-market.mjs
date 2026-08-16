@@ -246,7 +246,7 @@ assert.match(adminMarketData, /runsPerDay: 17, monthlyRuns: 390/);
 const signals = await source("base44/functions/usOptionsSignalRefresh/source.ts");
 assert.match(signals, /interval: "1d" \}, "-start_time", 1000\)/, "U.S. options projection must include the newest bounded daily history before chronological normalization");
 assert.match(signals, /dedupeDailyBars/);
-assert.match(signals, /const PROJECTION_BATCH_SIZE = 16/);
+assert.match(signals, /const PROJECTION_BATCH_SIZE = 8/, "production evidence shows that 8-item batches complete within the Base44 lease");
 assert.match(signals, /PROJECTION_BATCH_COUNT = Math\.ceil/);
 assert.match(signals, /body\.mode === "projection_batch"/);
 assert.match(signals, /body\.mode === "projection_finalize"/);
@@ -327,13 +327,24 @@ const usSignalSteps = signalWorkflow.definition.do.map((entry) => {
 });
 const usSignalCalls = usSignalSteps.filter(({ step }) => step.call === "invoke_backend_function");
 const usSignalWaits = usSignalSteps.filter(({ step }) => step.wait === "PT5M");
-assert.equal(usSignalCalls.length, 8, "the U.S. options workflow must resume 7 bounded batches and then finalize");
-assert.equal(usSignalWaits.length, 7, "the U.S. options workflow must separate every projection call by five minutes");
-assert.equal(usSignalSteps.length, 15, "the U.S. options workflow must remain a strictly sequential action/wait chain");
-for (const { step } of usSignalCalls) {
+assert.equal(usSignalCalls.length, 15, "the U.S. options workflow must run 14 bounded batches and then finalize");
+assert.equal(usSignalWaits.length, 14, "the U.S. options workflow must separate every projection call by five minutes");
+assert.equal(usSignalSteps.length, 29, "the U.S. options workflow must remain a strictly sequential action/wait chain");
+for (let batchIndex = 0; batchIndex < 14; batchIndex += 1) {
+  const step = usSignalCalls[batchIndex].step;
   assert.equal(step.with.function_name, "usOptionsSignalRefresh");
-  assert.deepEqual(step.with.args, { market_code: "US_OPTIONS", source: "daily_session_projection" });
+  assert.deepEqual(step.with.args, {
+    market_code: "US_OPTIONS",
+    source: "daily_session_projection",
+    mode: "projection_batch",
+    batch_index: batchIndex,
+  });
 }
+assert.deepEqual(usSignalCalls.at(-1).step.with.args, {
+  market_code: "US_OPTIONS",
+  source: "daily_session_projection",
+  mode: "projection_finalize",
+});
 for (let index = 0; index < usSignalSteps.length; index += 1) {
   assert.equal(usSignalSteps[index].step.then, usSignalSteps[index + 1]?.key || "end", "U.S. projection steps must never branch or run concurrently");
 }

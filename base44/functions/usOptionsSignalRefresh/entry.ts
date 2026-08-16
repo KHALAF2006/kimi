@@ -2336,7 +2336,7 @@ async function closeExpiredIngestionRuns(base44, marketCode, now = /* @__PURE__ 
 
 // base44/functions/usOptionsSignalRefresh/source.ts
 var MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
-var PROJECTION_BATCH_SIZE = 16;
+var PROJECTION_BATCH_SIZE = 8;
 var PROJECTION_BATCH_COUNT = Math.ceil(US_OPTIONS_CATALOG.companies.length / PROJECTION_BATCH_SIZE);
 function rows2(value) {
   if (Array.isArray(value)) return value;
