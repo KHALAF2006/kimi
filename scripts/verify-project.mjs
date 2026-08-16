@@ -266,8 +266,8 @@ assert.match(marketService, /localBrowserHosts\.has\(window\.location\.hostname\
 assert.doesNotMatch(marketService, /referenceApi\s*=\s*import\.meta\.env\.DEV/, "Base44 editor preview must not be mistaken for the local reference runtime");
 assert.match(marketService, /message\s*===\s*["']Active device session required["']/, "an expired or revoked SMART_INVESTOR session must be detected");
 assert.match(marketService, /localStorage\.removeItem\(["']smart_investor_session_id["']\)/, "an invalid SMART_INVESTOR session must be cleared before returning to login");
-assert.match(marketService, /marketReadQueue\.then\(factory, factory\)/, "market reads must be serialized so chart, company and sector requests do not exhaust the backend together");
-assert.match(marketService, /invokeWithTimeout\(invoke, 30_000\)/, "a healthy bounded market read must have enough time to finish without premature duplicate retries");
+assert.match(marketService, /if \(marketReadActive \|\| !marketReadQueue\.length\) return;/, "market reads must retain one active backend request at a time");
+assert.match(marketService, /invokeWithTimeout\(directInvoke, 30_000\)/, "a healthy bounded market read must have enough execution time without counting its queue wait");
 
 const appParamsSource = await readFile(new URL("../src/lib/app-params.js", import.meta.url), "utf8");
 assert.match(appParamsSource, /functionsVersion:[\s\S]*persist:\s*false,[\s\S]*useStored:\s*false/, "published pages must not reuse a stale preview function version");
@@ -389,6 +389,10 @@ assert.doesNotMatch(companyChart, /retryKey, isArabic\]\);/, "switching the inte
 assert.match(companyChart, /if \(replayState\.mode === "playing"\) return;[\s\S]*onMomentumChange/, "bar replay must not rerender the parent company panel on every playback tick");
 assert.match(marketLibSource, /const numberFormatters = new Map\(\)/, "frequent price and volume formatting must reuse Intl formatters");
 assert.match(marketService, /chartRequestInflight\.has\(key\)/, "identical in-flight chart reads must be deduplicated");
+assert.match(marketService, /MARKET_READ_SUPERSEDED/, "queued chart navigation must discard obsolete chart reads before they reach Base44");
+assert.match(marketService, /if \(navigation\) marketReadQueue\.unshift\(task\)/, "the currently requested chart must run before queued background market reads");
+assert.match(marketService, /enqueueMarketRead\(\(\) => invokeWithTimeout\(directInvoke, 30_000\)/, "a queued request timeout must begin only when the Base44 call actually starts");
+assert.doesNotMatch(marketService, /let marketReadQueue = Promise\.resolve\(\)/, "chart navigation must not accumulate behind an immutable global promise chain");
 assert.match(marketService, /CHART_CACHE_MAX_ENTRIES/, "the short chart cache must remain bounded");
 assert.match(marketService, /MARKET_SUPPLEMENT_MAX_AGE_MS = 15 \* 60_000/, "non-critical market supplements must be cached for the quarter-hour display cycle");
 assert.match(marketService, /marketSupplementInflight\.has\(key\)/, "identical sector-summary reads must be deduplicated");

@@ -8,7 +8,8 @@ const chartRequestCache = new Map();
 const chartRequestInflight = new Map();
 const marketSupplementCache = new Map();
 const marketSupplementInflight = new Map();
-let marketReadQueue = Promise.resolve();
+const marketReadQueue = [];
+let marketReadActive = false;
 const CHART_CACHE_MAX_AGE_MS = 60_000;
 const CHART_CACHE_MAX_ENTRIES = 80;
 const MARKET_SUPPLEMENT_MAX_AGE_MS = 15 * 60_000;
@@ -234,10 +235,33 @@ function invokeWithTimeout(factory, timeoutMs) {
   });
 }
 
-function enqueueMarketRead(factory) {
-  const operation = marketReadQueue.then(factory, factory);
-  marketReadQueue = operation.catch(() => undefined);
-  return operation;
+function runNextMarketRead() {
+  if (marketReadActive || !marketReadQueue.length) return;
+  marketReadActive = true;
+  const task = marketReadQueue.shift();
+  Promise.resolve()
+    .then(task.factory)
+    .then(task.resolve, task.reject)
+    .finally(() => {
+      marketReadActive = false;
+      runNextMarketRead();
+    });
+}
+
+function enqueueMarketRead(factory, { navigation = false } = {}) {
+  return new Promise((resolve, reject) => {
+    if (navigation) {
+      for (let index = marketReadQueue.length - 1; index >= 0; index -= 1) {
+        if (!marketReadQueue[index].navigation) continue;
+        const [superseded] = marketReadQueue.splice(index, 1);
+        superseded.reject(Object.assign(new Error("market_read_superseded"), { code: "MARKET_READ_SUPERSEDED" }));
+      }
+    }
+    const task = { factory, navigation, resolve, reject };
+    if (navigation) marketReadQueue.unshift(task);
+    else marketReadQueue.push(task);
+    runNextMarketRead();
+  });
 }
 
 export async function invokeAppFunction(functionName, payload = {}) {
@@ -248,12 +272,15 @@ export async function invokeAppFunction(functionName, payload = {}) {
       session_id: localStorage.getItem("smart_investor_session_id"),
       device_id: localStorage.getItem("smart_investor_device_id"),
     });
-    const invoke = () => functionName === "marketRead" ? enqueueMarketRead(directInvoke) : directInvoke();
+    const navigationRead = functionName === "marketRead" && ["chart", "sector_chart"].includes(String(payload.action || ""));
+    const invoke = () => functionName === "marketRead"
+      ? enqueueMarketRead(() => invokeWithTimeout(directInvoke, 30_000), { navigation: navigationRead })
+      : invokeWithTimeout(directInvoke, 30_000);
     const maxAttempts = functionName === "marketRead" ? 2 : 1;
     let lastError = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        const response = await invokeWithTimeout(invoke, 30_000);
+        const response = await invoke();
         return response.data;
       } catch (error) {
         lastError = error;
