@@ -14,6 +14,7 @@ const generatedFunctions = [
   "marketSignalProjectionWorker",
   "marketSignalRefresh",
   "operationsQuality",
+  "sectorChartRefresh",
   "usOptionsCompanyIntelligence",
   "usOptionsHistoricalBackfill",
   "usOptionsMarketIngestion",
