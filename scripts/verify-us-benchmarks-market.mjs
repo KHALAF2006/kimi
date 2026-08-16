@@ -1,7 +1,24 @@
 import assert from "node:assert/strict";
+import { build } from "esbuild";
 import { readFile } from "node:fs/promises";
-import { US_BENCHMARKS_CATALOG, US_BENCHMARKS_MARKET_CODE, US_BENCHMARKS_SYMBOLS } from "../base44/shared/us-benchmarks-catalog.ts";
+import path from "node:path";
 import { SUPPORTED_MARKETS, resolveAvailableMarkets } from "../src/lib/marketAccess.js";
+
+async function importTypeScriptModule(relativePath) {
+  const result = await build({
+    entryPoints: [path.resolve(relativePath)],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    target: "node20",
+    write: false,
+    logLevel: "silent",
+  });
+  const moduleUrl = "data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64");
+  return import(moduleUrl);
+}
+
+const { US_BENCHMARKS_CATALOG, US_BENCHMARKS_MARKET_CODE, US_BENCHMARKS_SYMBOLS } = await importTypeScriptModule("./base44/shared/us-benchmarks-catalog.ts");
 
 const source = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
