@@ -143,6 +143,8 @@ assert.match(sectorChartRefresh, /const INTERVALS = \["15m", "1h", "2h", "3h", "
 assert.match(sectorChartRefresh, /requireTrustedOwner\(base44\)/, "scheduled sector projection must require the trusted owner context");
 assert.equal(centralSectorChartWorkflow.trigger.config.cron_expression, "35 10-15 * * 0-4", "central sector charts must refresh after each Saudi ingestion cycle");
 assert.equal(centralSectorChartWorkflow.trigger.config.timezone, "Asia/Riyadh", "central sector projection must use Riyadh market time");
+assert.equal(centralSectorChartWorkflow.definition.document.version, "1.1", "central sector workflow must retain its bounded 22-sector batching contract");
+assert.equal(centralSectorChartWorkflow.definition.do.filter((step) => Object.keys(step)[0]?.startsWith("refresh_sector_batch_")).length, 11, "22 Saudi sectors must be refreshed in exactly 11 two-sector batches without empty calls");
 
 const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIngestion/function.jsonc", import.meta.url), "utf8"));
 assert.equal(schedule.name, "marketIngestion");
