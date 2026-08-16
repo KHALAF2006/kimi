@@ -474,7 +474,9 @@ async function fetchPublicDelayedCharts({
   attempts = 2,
   timeoutMilliseconds = 15e3
 }) {
-  const queue = [...new Set(symbols.map((value) => String(value).trim()).filter((value) => /^\d{4}$/.test(value)))];
+  const queue = [...new Set(symbols
+    .map((value) => String(value || "").trim().toUpperCase())
+    .filter(isSupportedPublicSaudiSymbol))];
   const results = [];
   const failures = [];
   let cursor = 0;
@@ -5882,7 +5884,12 @@ function exactInstrument(row) {
   };
 }
 function publicProviderSymbol(symbol) {
-  return symbol === "TASI" ? "^TASI.SR" : `${symbol}.SR`;
+  const normalized = String(symbol || "").trim().toUpperCase();
+  return normalized === "TASI" ? "^TASI.SR" : `${normalized}.SR`;
+}
+function isSupportedPublicSaudiSymbol(symbol) {
+  const normalized = String(symbol || "").trim().toUpperCase();
+  return /^\d{4}$/.test(normalized) || normalized === "TASI";
 }
 async function reconcileInstrumentTradingStatuses(base44, instruments) {
   const updates = [];
