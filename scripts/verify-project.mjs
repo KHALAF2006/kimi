@@ -865,6 +865,12 @@ assert.match(adminSubscriptionsFunction, /Array\.isArray\(body\.changes\)/, "pla
 assert.match(adminSubscriptionsFunction, /ACCOUNT_MEMBERSHIP_REQUIRED/, "manual subscription activation must enforce account membership");
 assert.match(adminSubscriptionsFunction, /ensurePersonalAccount/, "legacy customers must receive their personal account before manual activation");
 assert.match(adminSubscriptionsFunction, /REVISION_CONFLICT/, "subscription and plan mutations must reject stale administrative writes");
+assert.match(adminSubscriptionsFunction, /MARKET_ENTITLEMENTS\[marketCode\]/, "manual activation must validate one explicit supported market");
+assert.match(adminSubscriptionsFunction, /item\.market_code === marketCode/, "activation idempotency must be scoped to the requested market");
+assert.match(adminSubscriptionsFunction, /market_code:\s*marketCode/, "new subscriptions must persist their one-market identity");
+assert.match(adminSubscriptionsFunction, /if \(!acceptedEntitlements\) continue/, "legacy subscriptions without a market must never widen customer access");
+assert.match(subscriptionsAdminPage, /value=\{activation\.market_code\}/, "the owner activation form must require an explicit market selection");
+assert.match(subscriptionsAdminPage, /Legacy subscription without market/, "the subscription table must disclose legacy records instead of claiming all markets");
 const adminRolesFunction = await readFile(new URL("../base44/functions/adminRoles/entry.ts", import.meta.url), "utf8");
 assert.match(adminRolesFunction, /SELF_ASSIGNMENT_DENIED/, "an administrator must not elevate their own role assignments");
 assert.match(adminRolesFunction, /RESERVED_ROLE_IMMUTABLE/, "reserved administrative roles must remain immutable");

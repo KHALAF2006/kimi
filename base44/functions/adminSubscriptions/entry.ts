@@ -10,6 +10,12 @@ const TRANSITIONS = {
   banned: new Set([]),
 };
 
+const MARKET_ENTITLEMENTS = Object.freeze({
+  SA_MAIN: new Set(["market.saudi", "market.saudi.delayed", "market.saudi.realtime"]),
+  US_OPTIONS: new Set(["market.us.options"]),
+  US_BENCHMARKS: new Set(["market.us.benchmarks"]),
+});
+
 function bad(message, code = "INVALID_SUBSCRIPTION_REQUEST", status = 400) {
   throw Object.assign(new Error(message), { status, code });
 }
@@ -49,11 +55,12 @@ async function confirmedAccessSnapshot(base44, customerId) {
     .filter((item) => !item.ends_at || new Date(item.ends_at).getTime() > now);
   const markets = new Set();
   for (const subscription of subscriptions) {
+    const marketCode = String(subscription.market_code || "");
+    const acceptedEntitlements = MARKET_ENTITLEMENTS[marketCode];
+    if (!acceptedEntitlements) continue;
     const entitlements = await base44.asServiceRole.entities.PlanEntitlement.filter({ plan_id: subscription.plan_id, enabled: true });
     const codes = new Set(entitlements.map((item) => item.code));
-    if (["market.saudi", "market.saudi.delayed", "market.saudi.realtime"].some((code) => codes.has(code))) markets.add("SA_MAIN");
-    if (codes.has("market.us.options")) markets.add("US_OPTIONS");
-    if (codes.has("market.us.benchmarks")) markets.add("US_BENCHMARKS");
+    if ([...acceptedEntitlements].some((code) => codes.has(code))) markets.add(marketCode);
   }
   return { subscriptions, market_access: [...markets] };
 }
@@ -132,8 +139,14 @@ Deno.serve(async (req) => {
       const reason = reasonFrom(body.reason);
       const customer = await base44.asServiceRole.entities.CustomerProfile.get(String(body.customer_id || ""));
       const plan = await base44.asServiceRole.entities.SubscriptionPlan.get(String(body.plan_id || ""));
+      const marketCode = String(body.market_code || "").toUpperCase();
       if (!customer) bad("Customer not found", "CUSTOMER_NOT_FOUND", 404);
       if (!plan?.active) bad("Active plan not found", "PLAN_NOT_FOUND", 404);
+      if (!MARKET_ENTITLEMENTS[marketCode]) bad("Select one supported market", "MARKET_REQUIRED", 400);
+      const planEntitlements = await base44.asServiceRole.entities.PlanEntitlement.filter({ plan_id: plan.id, enabled: true });
+      if (!planEntitlements.some((item) => MARKET_ENTITLEMENTS[marketCode].has(item.code))) {
+        bad("The selected plan does not include the requested market", "PLAN_MARKET_MISMATCH", 409);
+      }
       if (Number(plan.price_sar || 0) > 0 && context.role !== "owner") bad("Only the platform owner can manually activate a paid plan", "OWNER_REQUIRED_FOR_PAID_ACTIVATION", 403);
       const memberships = await base44.asServiceRole.entities.AccountMember.filter({ customer_id: customer.id, status: "active" });
       const initialized = memberships[0] ? null : await ensurePersonalAccount(base44, customer, context.user.id);
@@ -148,7 +161,7 @@ Deno.serve(async (req) => {
       const startsAt = body.starts_at ? new Date(body.starts_at) : new Date();
       if (Number.isNaN(startsAt.getTime())) bad("Invalid subscription start date");
       const existing = (await base44.asServiceRole.entities.Subscription.filter({ customer_id: customer.id, status: "active" }))
-        .find((item) => item.plan_id === plan.id && String(item.account_id || "") === accountId && (!item.ends_at || new Date(item.ends_at).getTime() > Date.now()));
+        .find((item) => item.plan_id === plan.id && item.market_code === marketCode && String(item.account_id || "") === accountId && (!item.ends_at || new Date(item.ends_at).getTime() > Date.now()));
       if (existing) {
         const accessSnapshot = await confirmedAccessSnapshot(base44, customer.id);
         await audit(base44, context.user.id, "subscription.manual_activation_reused", "Subscription", existing.id, "success", reason, existing, existing);
@@ -158,6 +171,7 @@ Deno.serve(async (req) => {
         customer_id: customer.id,
         account_id: accountId,
         plan_id: plan.id,
+        market_code: marketCode,
         status: "active",
         starts_at: startsAt.toISOString(),
         ends_at: addMonths(startsAt, Number(plan.duration_months)),
