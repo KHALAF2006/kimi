@@ -116,8 +116,8 @@ async function requireTrustedOwner(base44) {
   return { user, profile, role: "owner" };
 }
 async function profileFor(base44, user) {
-  const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
-  return rows[0] || null;
+  const rows2 = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
+  return rows2[0] || null;
 }
 function hasTrustedOwnerMarker(user, profile) {
   return user?.role === "admin" && profile?.acquisition_source === "platform_owner_bootstrap" && Array.isArray(profile?.tags) && profile.tags.includes("owner");
@@ -511,6 +511,80 @@ function summarizeProviderWindows(windows) {
   return summary;
 }
 
+// base44/shared/personal-alert-message.ts
+var MARKET_DETAILS = {
+  SA_MAIN: { name_ar: "\u0627\u0644\u0633\u0648\u0642 \u0627\u0644\u0633\u0639\u0648\u062F\u064A\u0629 \u0627\u0644\u0631\u0626\u064A\u0633\u064A\u0629", name_en: "Saudi Main Market", currency: "SAR" },
+  US_OPTIONS: { name_ar: "\u0634\u0631\u0643\u0627\u062A \u0639\u0642\u0648\u062F \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A", name_en: "U.S. Optionable Companies", currency: "USD" },
+  US_BENCHMARKS: { name_ar: "\u0627\u0644\u0645\u0624\u0634\u0631\u0627\u062A \u0648\u0627\u0644\u0635\u0646\u0627\u062F\u064A\u0642 \u0627\u0644\u0623\u0645\u0631\u064A\u0643\u064A\u0629", name_en: "U.S. Indices & ETFs", currency: "USD" }
+};
+var CONDITION_COPY = {
+  crosses_above: { ar: "\u0627\u062E\u062A\u0631\u0642 \u0627\u0644\u0633\u0639\u0631 \u0627\u0644\u0642\u064A\u0645\u0629 \u0627\u0644\u0645\u062D\u062F\u062F\u0629 \u0635\u0639\u0648\u062F\u0627\u064B", en: "Price crossed above your threshold" },
+  crosses_below: { ar: "\u0643\u0633\u0631 \u0627\u0644\u0633\u0639\u0631 \u0627\u0644\u0642\u064A\u0645\u0629 \u0627\u0644\u0645\u062D\u062F\u062F\u0629 \u0647\u0628\u0648\u0637\u0627\u064B", en: "Price crossed below your threshold" },
+  crosses_drawing: { ar: "\u062A\u0642\u0627\u0637\u0639 \u0627\u0644\u0633\u0639\u0631 \u0645\u0639 \u0627\u0644\u0631\u0633\u0645 \u0627\u0644\u0645\u062D\u062F\u062F", en: "Price crossed your drawing" },
+  crosses_drawing_above: { ar: "\u0627\u062E\u062A\u0631\u0642 \u0627\u0644\u0633\u0639\u0631 \u0627\u0644\u0631\u0633\u0645 \u0627\u0644\u0645\u062D\u062F\u062F \u0635\u0639\u0648\u062F\u0627\u064B", en: "Price crossed above your drawing" },
+  crosses_drawing_below: { ar: "\u0643\u0633\u0631 \u0627\u0644\u0633\u0639\u0631 \u0627\u0644\u0631\u0633\u0645 \u0627\u0644\u0645\u062D\u062F\u062F \u0647\u0628\u0648\u0637\u0627\u064B", en: "Price crossed below your drawing" }
+};
+function rows(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.items)) return value.items;
+  return [];
+}
+function validObservedAt(value) {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : "";
+}
+async function queuePersonalAlertMessage(base44, rule, quote, bucket, options = {}) {
+  const marketCode = String(rule?.market_code || "").trim().toUpperCase();
+  const details = MARKET_DETAILS[marketCode];
+  const observedAt = validObservedAt(quote?.provider_as_of || quote?.source_time || quote?.quote_time);
+  const triggerPrice = Number(quote?.last_price);
+  if (!rule?.id || !rule.customer_id || !details || !observedAt || !Number.isFinite(triggerPrice)) {
+    return { created: false, reason: "invalid_alert_identity" };
+  }
+  if (quote?.market_code && quote.market_code !== marketCode) {
+    return { created: false, reason: "market_mismatch" };
+  }
+  const [profile, subscriptions, instrument] = await Promise.all([
+    base44.asServiceRole.entities.CustomerProfile.get(rule.customer_id).catch(() => null),
+    base44.asServiceRole.entities.Subscription.filter({ customer_id: rule.customer_id, market_code: marketCode, status: "active" }, "-updated_date", 100),
+    base44.asServiceRole.entities.Instrument.get(rule.instrument_id).catch(() => null)
+  ]);
+  const now = Date.now();
+  const hasAccess = rows(subscriptions).some((subscription) => !subscription.ends_at || Date.parse(subscription.ends_at) > now);
+  if (!profile || profile.role !== "user" || profile.account_status !== "active" || !profile.auth_user_id || !hasAccess) {
+    return { created: false, reason: "recipient_not_entitled" };
+  }
+  if (!instrument || instrument.market_code !== marketCode || instrument.symbol !== rule.symbol) {
+    return { created: false, reason: "instrument_market_mismatch" };
+  }
+  const dedupeKey = `personal-alert:${rule.id}:${bucket}`;
+  const existing = rows(await base44.asServiceRole.entities.Message.filter({ dedupe_key: dedupeKey }, "-created_date", 1));
+  if (existing.length) return { created: false, reason: "duplicate", message: existing[0] };
+  const condition = CONDITION_COPY[rule.condition] || { ar: "\u062A\u062D\u0642\u0642 \u0634\u0631\u0637 \u0627\u0644\u062A\u0646\u0628\u064A\u0647 \u0627\u0644\u0630\u064A \u062D\u062F\u062F\u062A\u0647", en: "Your alert condition was met" };
+  const threshold = Number(options.threshold ?? rule.threshold);
+  const thresholdAr = Number.isFinite(threshold) ? `\u060C \u0648\u0627\u0644\u0642\u064A\u0645\u0629 \u0627\u0644\u0645\u062D\u062F\u062F\u0629 ${threshold.toFixed(2)} ${details.currency}` : "";
+  const thresholdEn = Number.isFinite(threshold) ? `, with a threshold of ${threshold.toFixed(2)} ${details.currency}` : "";
+  const symbol = String(rule.symbol || instrument.symbol);
+  const instrumentAr = instrument.name_ar || instrument.name_en || symbol;
+  const instrumentEn = instrument.name_en || instrument.name_ar || symbol;
+  const message = await base44.asServiceRole.entities.Message.create({
+    recipient_auth_user_id: profile.auth_user_id,
+    recipient_customer_id: profile.id,
+    message_type: "system",
+    priority: "important",
+    title_ar: `\u062A\u062D\u0642\u0642 \u062A\u0646\u0628\u064A\u0647\u0643 \u0639\u0644\u0649 ${symbol}`,
+    title_en: `Your ${symbol} alert was triggered`,
+    body_ar: `${condition.ar} \u0641\u064A ${instrumentAr}. \u0633\u0639\u0631 \u0627\u0644\u062A\u062D\u0642\u0642 ${triggerPrice.toFixed(2)} ${details.currency}${thresholdAr}.`,
+    body_en: `${condition.en} for ${instrumentEn}. Trigger price: ${triggerPrice.toFixed(2)} ${details.currency}${thresholdEn}.`,
+    action_path: `/company?symbol=${encodeURIComponent(symbol)}&market=${encodeURIComponent(marketCode)}`,
+    feed_eligible: true,
+    dedupe_key: dedupeKey,
+    expires_at: new Date(now + 7 * 24 * 60 * 60 * 1e3).toISOString()
+  });
+  return { created: true, reason: "created", message, observed_at: observedAt };
+}
+
 // base44/functions/usBenchmarksMarketIngestion/source.ts
 var DELAY_SECONDS = 900;
 var FRESHNESS_GRACE_SECONDS = 60 * 60 + 10 * 60;
@@ -705,35 +779,14 @@ function normalizeIntraday(item2, result, now) {
   const marketCap = Math.max(0, Number(result?.meta?.marketCap || 0));
   return { item: item2, sessionDate, providerAsOf: canonicalProviderAsOf, sessions: [...sessions.entries()].map(([date, values]) => ({ date, bars: completeBars(values) })).filter((session) => session.bars.length), previousClose, marketCap, quote: quoteFromBars(currentBars, previousClose, marketCap) };
 }
-async function queueAlertDeliveries(base44, rule, quote, bucket, channels) {
-  if (rule.market_code !== US_BENCHMARKS_MARKET_CODE) throw new Error("alert_market_mismatch");
-  const candidates = [];
-  for (const channel of channels) {
-    const dedupeKey = await digest(`${rule.id}:${channel.id}:${bucket}`);
-    candidates.push({
-      alert_rule_id: rule.id,
-      destination_id: channel.id,
-      market_code: US_BENCHMARKS_MARKET_CODE,
-      dedupe_key: dedupeKey,
-      channel: channel.channel,
-      status: "pending",
-      attempt_count: 0,
-      trigger_price: Number(quote.last_price),
-      trigger_observed_at: quote.provider_as_of || quote.source_time || quote.quote_time,
-      trigger_condition: rule.condition,
-      trigger_threshold: Number(rule.threshold)
-    });
-  }
-  if (!candidates.length) return;
-  const existing = entityRows(await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: { $in: candidates.map((item2) => item2.dedupe_key) } }, "dedupe_key", candidates.length));
-  const existingKeys = new Set(existing.map((item2) => item2.dedupe_key));
-  const missing = candidates.filter((item2) => !existingKeys.has(item2.dedupe_key));
-  if (missing.length) await base44.asServiceRole.entities.DeliveryEvent.bulkCreate(missing);
+async function queueAlertDeliveries(base44, rule, quote, bucket) {
+  if (rule.market_code !== US_BENCHMARKS_MARKET_CODE || quote.market_code && quote.market_code !== US_BENCHMARKS_MARKET_CODE) throw new Error("alert_market_mismatch");
+  const result = await queuePersonalAlertMessage(base44, rule, quote, bucket);
+  return result.created ? 1 : 0;
 }
 async function evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate) {
   const byInstrument = new Map(acceptedQuotes.map((quote) => [quote.instrument_id, quote]));
   const rules = entityRows(await base44.asServiceRole.entities.AlertRule.filter({ market_code: US_BENCHMARKS_MARKET_CODE, enabled: true }, "-updated_date", 5e3)).filter((rule) => ["crosses_above", "crosses_below"].includes(rule.condition));
-  const channels = entityRows(await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: US_BENCHMARKS_MARKET_CODE, active: true })).filter((item2) => item2.verified_at && ["telegram", "whatsapp"].includes(item2.channel));
   for (const rule of rules) {
     const quote = byInstrument.get(rule.instrument_id);
     const current = Number(quote?.last_price);
@@ -747,7 +800,7 @@ async function evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate) 
     if (crossed) {
       const cooldown = Math.max(15, Number(rule.cooldown_minutes) || 15) * 6e4;
       if (!rule.last_triggered_at || Date.parse(quote.provider_as_of) - Date.parse(rule.last_triggered_at) >= cooldown) {
-        await queueAlertDeliveries(base44, rule, quote, bucket, channels);
+        await queueAlertDeliveries(base44, rule, quote, bucket);
         update.last_triggered_at = quote.provider_as_of;
         if (rule.frequency === "once") update.enabled = false;
       }
