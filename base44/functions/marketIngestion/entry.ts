@@ -5858,8 +5858,13 @@ async function upsertMany(base44, entity, rows, keyFields) {
   if (!rows.length) return;
   const key = (row) => keyFields.map((field) => row[field]).join("|");
   const uniqueRows = groupRowsByKey(rows, key).map((group) => group.row);
+  for (const field of keyFields) {
+    if (uniqueRows.some((row) => row[field] === undefined || row[field] === null || row[field] === "")) {
+      throw ingestionFailure(`Upsert row is missing key field: ${field}`, "INVALID_UPSERT_KEY");
+    }
+  }
   const filter = Object.fromEntries(keyFields.map((field) => {
-    const values = [...new Set(uniqueRows.map((row) => row[field]).filter((value) => value !== undefined && value !== null))];
+    const values = [...new Set(uniqueRows.map((row) => row[field]))];
     return [field, values.length === 1 ? values[0] : { $in: values }];
   }));
   const readLimit = Math.min(5e3, Math.max(25, uniqueRows.length * 4));
