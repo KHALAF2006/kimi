@@ -20,6 +20,7 @@ import { InvestorZonePrimitive } from "@/lib/investor-zone-primitive";
 const intervalOptions = CHART_INTERVALS.map((item) => ({ ...item, ...CHART_INTERVAL_LABELS[item.value] }));
 const rangeOptions = CHART_RANGES.map((item) => ({ ...item, ...CHART_RANGE_LABELS[item.value] }));
 const intradayIntervals = new Set(["15m", "1h", "2h", "3h", "4h"]);
+const chartDateFormatters = new Map();
 
 function ChartControlPopover({ open, onOpenChange, trigger, className, isArabic, portalContainer, children }) {
   return <Popover.Root open={open} onOpenChange={onOpenChange} modal={false}>
@@ -92,7 +93,36 @@ function formatChartDate(time, locale, includeTime = false) {
   const options = /** @type {Intl.DateTimeFormatOptions} */ (includeTime
     ? { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }
     : { day: "2-digit", month: "short" });
-  return new Intl.DateTimeFormat(locale, options).format(new Date(timestamp));
+  const formatterKey = `${locale}:${includeTime ? "datetime" : "date"}`;
+  if (!chartDateFormatters.has(formatterKey)) chartDateFormatters.set(formatterKey, new Intl.DateTimeFormat(locale, options));
+  return chartDateFormatters.get(formatterKey).format(new Date(timestamp));
+}
+
+function candleSeriesData(candles) {
+  return candles.map(({ volume: _volume, sourceOpen: _sourceOpen, sourceHigh: _sourceHigh, sourceLow: _sourceLow, sourceClose: _sourceClose, ...candle }) => candle);
+}
+
+function volumeSeriesData(candles) {
+  return candles.map((candle) => ({ time: candle.time, value: candle.volume, color: candle.close >= candle.open ? "#16a34acc" : "#dc2626cc" }));
+}
+
+function actualPriceSeriesData(candles) {
+  return candles.map((candle) => ({ time: candle.time, value: candle.close }));
+}
+
+function updateSeriesData(series, nextData, cache, key, signature = "") {
+  if (!series) return;
+  const previousEntry = cache[key];
+  const previous = previousEntry?.data || [];
+  const sameSignature = previousEntry?.signature === signature;
+  const sameLengthTail = sameSignature && nextData.length === previous.length && nextData.length > 0
+    && nextData.at(-1)?.time === previous.at(-1)?.time
+    && (nextData.length === 1 || nextData.at(-2)?.time === previous.at(-2)?.time);
+  const appendedTail = sameSignature && nextData.length === previous.length + 1 && previous.length > 0
+    && nextData.at(-2)?.time === previous.at(-1)?.time;
+  if (sameLengthTail || appendedTail) series.update(nextData.at(-1));
+  else series.setData(nextData);
+  cache[key] = { data: nextData, signature };
 }
 
 function normalizeCandles(values) {
@@ -159,8 +189,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const replayStartTimeRef = useRef(null);
   const replayTimerRef = useRef(0);
   const fittedDataScopeRef = useRef("");
+  const seriesDataCacheRef = useRef(/** @type {Record<string, {data: any[], signature: string}>} */ ({}));
   const chartTarget = sector || symbol;
   const chartTargetType = sector ? "sector" : symbol === "TASI" ? "market-index" : "instrument";
+  const seriesScope = `${marketCode}:${chartTargetType}:${chartTarget}`;
   const safeRequestedInterval = symbol === "TASI" && intradayIntervals.has(requestedInterval) ? "" : requestedInterval;
   const initialSelectionRef = useRef(readSuccessfulChartSelection(marketCode, chartTargetType, chartTarget, safeRequestedInterval));
   const successfulSelectionRef = useRef(readSuccessfulChartSelection(marketCode, chartTargetType, chartTarget));
@@ -612,7 +644,10 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         { text: identityName || "", color: colorWithOpacity(visual.textColor, 0.10), fontSize: 22, fontStyle: "bold", fontFamily: "Tajawal" },
       ].filter((line) => line.text) : [],
     });
-    candlesSeries.setData(displayCandlesRef.current.map(({ volume: _volume, sourceOpen: _sourceOpen, sourceHigh: _sourceHigh, sourceLow: _sourceLow, sourceClose: _sourceClose, ...candle }) => candle));
+    seriesDataCacheRef.current = {};
+    const initialCandleData = candleSeriesData(displayCandlesRef.current);
+    candlesSeries.setData(initialCandleData);
+    seriesDataCacheRef.current.candles = { data: initialCandleData, signature: "" };
     const scheduleOverlayUpdate = () => {
       if (overlayFrameRef.current) window.cancelAnimationFrame(overlayFrameRef.current);
       overlayFrameRef.current = window.requestAnimationFrame(() => {
@@ -692,9 +727,13 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       lastValueVisible: chartPreferences.candleType === "heikin_ashi",
       title: isArabic ? "السعر الفعلي" : "Actual price",
     }, 0);
-    actualPriceSeriesRef.current.setData(orderedCandlesRef.current.map((candle) => ({ time: candle.time, value: candle.close })));
+    const initialActualPriceData = actualPriceSeriesData(orderedCandlesRef.current);
+    actualPriceSeriesRef.current.setData(initialActualPriceData);
+    seriesDataCacheRef.current.actualPrice = { data: initialActualPriceData, signature: "" };
     sma20SeriesRef.current.setData(sma20DataRef.current);
     sma50SeriesRef.current.setData(sma50DataRef.current);
+    seriesDataCacheRef.current.sma20 = { data: sma20DataRef.current, signature: "" };
+    seriesDataCacheRef.current.sma50 = { data: sma50DataRef.current, signature: "" };
     setChartRevision((value) => value + 1);
     volumeSeriesRef.current = null;
     rsiSeriesRef.current = null;
@@ -724,6 +763,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
       watermarkRef.current = null;
       investorZonePrimitiveRef.current = null;
       momentumLinesRef.current = [];
+      seriesDataCacheRef.current = {};
     };
   }, [theme, language]);
 
@@ -797,6 +837,8 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     if (volumeSeriesRef.current) chart.removeSeries(volumeSeriesRef.current);
     rsiSeriesRef.current = null;
     volumeSeriesRef.current = null;
+    delete seriesDataCacheRef.current.rsi;
+    delete seriesDataCacheRef.current.volume;
 
     let nextPane = 1;
     if (showVolume) {
@@ -806,7 +848,9 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         lastValueVisible: true,
         priceLineVisible: false,
       }, nextPane++);
-      volumeSeriesRef.current.setData(orderedCandlesRef.current.map((candle) => ({ time: candle.time, value: candle.volume, color: candle.close >= candle.open ? "#16a34acc" : "#dc2626cc" })));
+      const initialVolumeData = volumeSeriesData(orderedCandlesRef.current);
+      volumeSeriesRef.current.setData(initialVolumeData);
+      seriesDataCacheRef.current.volume = { data: initialVolumeData, signature: "" };
     }
 
     if (showRsi) {
@@ -820,6 +864,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
       }, nextPane++);
       rsiSeriesRef.current.setData(rsiDataRef.current);
+      seriesDataCacheRef.current.rsi = { data: rsiDataRef.current, signature: "" };
       rsiSeriesRef.current.createPriceLine({ price: Number(rsiSettings.upper), color: rsiSettings.upperColor, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: isArabic ? "تشبع شرائي" : "Overbought" });
       rsiSeriesRef.current.createPriceLine({ price: 50, color: dark ? "#475569" : "#94a3b8", lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: "50" });
       rsiSeriesRef.current.createPriceLine({ price: Number(rsiSettings.lower), color: rsiSettings.lowerColor, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: isArabic ? "تشبع بيعي" : "Oversold" });
@@ -838,12 +883,14 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   }, [showVolume, showRsi, rsiSettings.lineColor, rsiSettings.lineWidth, rsiSettings.upper, rsiSettings.lower, rsiSettings.upperColor, rsiSettings.lowerColor, chartHeight, mainPaneTarget, volumePaneTarget, rsiPaneTarget, theme, language, interval, isArabic]);
 
   useEffect(() => {
-    candleSeriesRef.current?.setData(displayCandles.map(({ volume: _volume, sourceOpen: _sourceOpen, sourceHigh: _sourceHigh, sourceLow: _sourceLow, sourceClose: _sourceClose, ...candle }) => candle));
-  }, [displayCandles]);
+    const signature = `${seriesScope}:${interval}:${range}:${theme}:${chartPreferences.candleType}:${JSON.stringify(surfacePreferences)}:${JSON.stringify(chartPreferences.reversal)}`;
+    updateSeriesData(candleSeriesRef.current, candleSeriesData(displayCandles), seriesDataCacheRef.current, "candles", signature);
+  }, [displayCandles, seriesScope, interval, range, theme, chartPreferences.candleType, chartPreferences.reversal, surfacePreferences]);
 
   useEffect(() => {
-    volumeSeriesRef.current?.setData(visibleOrderedCandles.map((candle) => ({ time: candle.time, value: candle.volume, color: candle.close >= candle.open ? "#16a34acc" : "#dc2626cc" })));
-    actualPriceSeriesRef.current?.setData(visibleOrderedCandles.map((candle) => ({ time: candle.time, value: candle.close })));
+    const signature = `${seriesScope}:${interval}:${range}`;
+    updateSeriesData(volumeSeriesRef.current, volumeSeriesData(visibleOrderedCandles), seriesDataCacheRef.current, "volume", signature);
+    updateSeriesData(actualPriceSeriesRef.current, actualPriceSeriesData(visibleOrderedCandles), seriesDataCacheRef.current, "actualPrice", signature);
     const dataScope = `${marketCode}:${chartTargetType}:${chartTarget}:${interval}:${range}`;
     if (visibleOrderedCandles.length && fittedDataScopeRef.current !== dataScope) {
       fittedDataScopeRef.current = dataScope;
@@ -853,9 +900,9 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     window.requestAnimationFrame(() => overlayUpdateRef.current());
   }, [visibleOrderedCandles, replayActive, marketCode, chartTargetType, chartTarget, interval, range]);
 
-  useEffect(() => { rsiSeriesRef.current?.setData(rsiData); }, [rsiData]);
-  useEffect(() => { sma20SeriesRef.current?.setData(sma20Data); }, [sma20Data]);
-  useEffect(() => { sma50SeriesRef.current?.setData(sma50Data); }, [sma50Data]);
+  useEffect(() => { updateSeriesData(rsiSeriesRef.current, rsiData, seriesDataCacheRef.current, "rsi", `${seriesScope}:${interval}:${range}:${rsiSettings.length}:${rsiSettings.source}`); }, [rsiData, seriesScope, interval, range, rsiSettings.length, rsiSettings.source]);
+  useEffect(() => { updateSeriesData(sma20SeriesRef.current, sma20Data, seriesDataCacheRef.current, "sma20", `${seriesScope}:${interval}:${range}:${chartPreferences.sma.fast.length}`); }, [sma20Data, seriesScope, interval, range, chartPreferences.sma.fast.length]);
+  useEffect(() => { updateSeriesData(sma50SeriesRef.current, sma50Data, seriesDataCacheRef.current, "sma50", `${seriesScope}:${interval}:${range}:${chartPreferences.sma.slow.length}`); }, [sma50Data, seriesScope, interval, range, chartPreferences.sma.slow.length]);
 
   useEffect(() => {
     const series = candleSeriesRef.current;

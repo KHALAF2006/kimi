@@ -536,28 +536,25 @@ export default function ChartDrawingTools({ chart, series, marketCode = "SA_MAIN
 
   useEffect(() => {
     if (!chart || !canvasRef.current) return undefined;
-    let firstFrame = 0;
-    let secondFrame = 0;
+    let frame = 0;
     const handler = () => {
-      window.cancelAnimationFrame(firstFrame);
-      window.cancelAnimationFrame(secondFrame);
-      firstFrame = window.requestAnimationFrame(() => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
         redraw();
-        secondFrame = window.requestAnimationFrame(redraw);
       });
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(handler);
     const observer = new ResizeObserver(handler);
     observer.observe(canvasRef.current.parentElement || canvasRef.current);
     const interactionTarget = canvasRef.current.parentElement;
-    const interactionEvents = ["wheel", "pointermove", "pointerdown", "pointerup", "touchmove", "dblclick"];
+    const interactionEvents = ["wheel", "pointerdown", "pointerup", "touchmove", "dblclick"];
     interactionEvents.forEach((eventName) => interactionTarget?.addEventListener(eventName, handler, { passive: true }));
     return () => {
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handler);
       observer.disconnect();
       interactionEvents.forEach((eventName) => interactionTarget?.removeEventListener(eventName, handler));
-      window.cancelAnimationFrame(firstFrame);
-      window.cancelAnimationFrame(secondFrame);
+      window.cancelAnimationFrame(frame);
     };
   }, [chart, redraw]);
 

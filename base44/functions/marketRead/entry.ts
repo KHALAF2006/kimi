@@ -5260,19 +5260,21 @@ async function requireMarketAccess(base44, body) {
   if (body.action !== "markets") requireMarketEntitlement(context, body.market_code);
   return context;
 }
+var US_MARKET_CLOCK_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23"
+});
+var MARKET_SESSION_DATE_FORMATTERS = new Map();
 function marketClockFor(marketCode, now = new Date()) {
   if (marketCode === "SA_MAIN") return riyadhClock(now);
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23"
-  }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  const parts = Object.fromEntries(US_MARKET_CLOCK_FORMATTER.formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
   return { date: `${parts.year}-${parts.month}-${parts.day}`, weekday: parts.weekday, hour: Number(parts.hour), minute: Number(parts.minute), second: Number(parts.second) };
 }
 function marketPhaseFor(marketCode, clock) {
@@ -5358,12 +5360,16 @@ function marketCandleOptions(marketCode) {
   return marketCode === "SA_MAIN" ? { timeZone: "Asia/Riyadh", sessionStartMinutes: 600, weekStartsOn: 0 } : { timeZone: "America/New_York", sessionStartMinutes: 570, weekStartsOn: 1 };
 }
 function marketSessionDate(value, marketCode) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: marketCandleOptions(marketCode).timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(new Date(value));
+  const timeZone = marketCandleOptions(marketCode).timeZone;
+  if (!MARKET_SESSION_DATE_FORMATTERS.has(timeZone)) {
+    MARKET_SESSION_DATE_FORMATTERS.set(timeZone, new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }));
+  }
+  return MARKET_SESSION_DATE_FORMATTERS.get(timeZone).format(new Date(value));
 }
 function normalizedStoredBars(chunks, marketCode) {
   const byTime = new Map();

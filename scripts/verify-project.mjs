@@ -921,7 +921,12 @@ assert.deepEqual(upgradedLegacyMomentum.zones.slice(5).map((zone) => zone.active
 assert.deepEqual(upgradedLegacyMomentum.zones.slice(0, 2).map((zone) => zone.displayNameAr), ["قاع رقمي يومي", "قاع رقمي أسبوعي"], "legacy snapshot labels must migrate to the digital naming model at read time");
 const hiddenWatermark = chartPreferencePayload({ ...sanitizeChartPreferences({}), watermarkVisible: false });
 assert.equal(hiddenWatermark.watermarkVisible, false, "watermark opt-out must survive the exact persisted chart-preference payload");
-assert.deepEqual(CHART_REPLAY_SPEEDS.map((speed) => speed.value), [10, 3000, 5000, 10000], "bar replay must implement the approved milliseconds-per-candle presets exactly");
+assert.deepEqual(CHART_REPLAY_SPEEDS.map((speed) => speed.value), [250, 3000, 5000, 10000], "bar replay must avoid a frame-saturating 10ms preset while retaining practical playback speeds");
+assert.match(companyChart, /function updateSeriesData\(/, "chart series must support incremental tail updates instead of replacing full history on every replay step");
+assert.match(companyChart, /series\.update\(nextData\.at\(-1\)\)/, "chart replay must append or revise only the latest bar when the series identity is unchanged");
+assert.doesNotMatch(drawingTools, /secondFrame/, "drawing overlays must not schedule duplicate animation frames for one interaction");
+assert.doesNotMatch(drawingTools, /\["wheel", "pointermove"/, "drawing overlays must not redraw unconditionally for every pointer movement");
+assert.match(marketReadFunction, /MARKET_SESSION_DATE_FORMATTERS/, "market reads must reuse timezone formatters instead of allocating one for every candle");
 assert.equal(replayStartIndex(risingBars, risingBars[8].time), 8, "bar replay must resolve the selected historical candle deterministically");
 assert.equal(replayCandles(risingBars, 8).length, 9, "bar replay must hide every candle after the current replay cursor");
 assert.equal(nextReplayCursor(8, risingBars.length, -1), 7, "bar replay must step backwards one candle");

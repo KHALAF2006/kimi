@@ -1,5 +1,5 @@
 export const CHART_REPLAY_SPEEDS = Object.freeze([
-  { value: 10, ar: "0.01 ث/شمعة", en: "0.01s / bar" },
+  { value: 250, ar: "0.25 ث/شمعة", en: "0.25s / bar" },
   { value: 3000, ar: "3 ث/شمعة", en: "3s / bar" },
   { value: 5000, ar: "5 ث/شمعة", en: "5s / bar" },
   { value: 10000, ar: "10 ث/شمعة", en: "10s / bar" },
