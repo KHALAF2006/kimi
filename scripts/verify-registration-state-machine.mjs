@@ -1,10 +1,26 @@
 import assert from "node:assert/strict";
+import { build } from "esbuild";
 import { webcrypto } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { reconcileRegistrationGraph } from "../base44/shared/registrationState.mjs";
-import { uniqueApplicationReference } from "../base44/shared/marketAccess.ts";
 import { acquireRegistrationLease, releaseRegistrationLease } from "../base44/shared/registrationLease.mjs";
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
+
+async function importTypeScriptModule(moduleUrl) {
+  const result = await build({
+    entryPoints: [fileURLToPath(moduleUrl)],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    write: false,
+  });
+  const bundledSource = result.outputFiles[0]?.text;
+  assert.ok(bundledSource, `TypeScript verification bundle is empty: ${moduleUrl}`);
+  return import(`data:text/javascript;base64,${Buffer.from(bundledSource).toString("base64")}`);
+}
+
+const { uniqueApplicationReference } = await importTypeScriptModule(new URL("../base44/shared/marketAccess.ts", import.meta.url));
 
 function mockBase44({ failApplicationOnce = false } = {}) {
   const collections = new Map();
