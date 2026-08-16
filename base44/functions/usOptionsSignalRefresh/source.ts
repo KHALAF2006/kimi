@@ -185,7 +185,7 @@ Deno.serve(async (req) => {
     const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...(requestBody.args || {}) };
     const authContext = body.session_id
-      ? await requirePermission(base44, body.session_id, "data.ingestion.run")
+      ? await requirePermission(base44, body.session_id, body.device_id, "data.ingestion.run")
       : await requireTrustedOwner(base44);
     await closeExpiredIngestionRuns(base44, US_OPTIONS_MARKET_CODE);
     const sessionDate = String(body.session_date || nyDate());
@@ -308,14 +308,14 @@ Deno.serve(async (req) => {
       }
       if (nextBatchIndex >= 0) {
         const response = await base44.functions.invoke("usOptionsSignalProjectionWorker", {
-          session_id: body.session_id, source: body.source || "daily_session_projection", reason: body.reason,
+          session_id: body.session_id, device_id: body.device_id, source: body.source || "daily_session_projection", reason: body.reason,
           force: false, mode: "projection_batch", batch_index: nextBatchIndex, batch_count: PROJECTION_BATCH_COUNT, session_date: sessionDate,
         });
         const batch = response?.data || response;
         return Response.json({ status: batch?.status || "success", stage: "projection_batch", market_code: US_OPTIONS_MARKET_CODE, session_date: sessionDate, batch_index: nextBatchIndex, batch_count: PROJECTION_BATCH_COUNT, completed_batches: nextBatchIndex + 1, remaining_batches: Math.max(0, PROJECTION_BATCH_COUNT - nextBatchIndex - 1), batch });
       }
       const response = await base44.functions.invoke("usOptionsSignalProjectionWorker", {
-        session_id: body.session_id, source: body.source || "daily_session_projection", reason: body.reason,
+        session_id: body.session_id, device_id: body.device_id, source: body.source || "daily_session_projection", reason: body.reason,
         force: false, mode: "projection_finalize", batch_count: PROJECTION_BATCH_COUNT, session_date: sessionDate,
       });
       return Response.json({ status: response?.data?.status || response?.status || "success", stage: "projection_finalize", market_code: US_OPTIONS_MARKET_CODE, session_date: sessionDate, final: response?.data || response });

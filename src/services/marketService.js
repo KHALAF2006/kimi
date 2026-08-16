@@ -243,7 +243,11 @@ function enqueueMarketRead(factory) {
 export async function invokeAppFunction(functionName, payload = {}) {
   if (referenceApi && functionName === "marketRead") return referenceMarketRead(payload);
   try {
-    const directInvoke = () => base44.functions.invoke(functionName, { ...payload, session_id: localStorage.getItem("smart_investor_session_id") });
+    const directInvoke = () => base44.functions.invoke(functionName, {
+      ...payload,
+      session_id: localStorage.getItem("smart_investor_session_id"),
+      device_id: localStorage.getItem("smart_investor_device_id"),
+    });
     const invoke = () => functionName === "marketRead" ? enqueueMarketRead(directInvoke) : directInvoke();
     const maxAttempts = functionName === "marketRead" ? 2 : 1;
     let lastError = null;

@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req);
-    const context = await authorizationContext(base44, body.session_id);
+    const context = await authorizationContext(base44, body.session_id, body.device_id);
     if (context.role !== "owner") bad("Owner access required", "OWNER_ONLY", 403);
     const canReadFull = context.permissions.has("customers.full.read");
     if (!context.permissions.has("customers.masked.read") && !canReadFull) bad("Forbidden", "PERMISSION_DENIED", 403);
@@ -154,7 +154,7 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === "status") {
-      await requirePermission(base44, body.session_id, "customers.status.manage");
+      await requirePermission(base44, body.session_id, body.device_id, "customers.status.manage");
       const reason = reasonFrom(body.reason);
       const status = String(body.status || "");
       if (!ACCOUNT_STATUSES.has(status)) bad("Unsupported account status");
@@ -170,7 +170,7 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === "revoke_sessions") {
-      await requirePermission(base44, body.session_id, "customers.sessions.revoke");
+      await requirePermission(base44, body.session_id, body.device_id, "customers.sessions.revoke");
       const reason = reasonFrom(body.reason);
       const customer = await managedCustomer(base44, body.id);
       if (customer.id === context.profile.id) bad("Use sign out to revoke the current administrator session", "SELF_SESSION_REVOKE_DENIED", 403);
@@ -180,7 +180,7 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === "add_note") {
-      await requirePermission(base44, body.session_id, "customers.notes.manage");
+      await requirePermission(base44, body.session_id, body.device_id, "customers.notes.manage");
       const reason = reasonFrom(body.reason);
       const customer = await managedCustomer(base44, body.id);
       const text = String(body.note || "").trim();
@@ -192,7 +192,7 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === "audit") {
-      await requirePermission(base44, body.session_id, "audit.read");
+      await requirePermission(base44, body.session_id, body.device_id, "audit.read");
       const logs = await base44.asServiceRole.entities.AuditLog.list("-created_date", Math.min(Math.max(Number(body.limit) || 50, 1), 200));
       return Response.json({ logs });
     }

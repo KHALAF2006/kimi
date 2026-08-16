@@ -5784,10 +5784,11 @@ var official_main_market_catalog_2026_07_21_default = {
     }
   ]
 };
-async function requireDataIngestionPermission(base44, sessionId) {
+async function requireDataIngestionPermission(base44, sessionId, deviceId) {
   const response = await base44.functions.invoke("identityContext", {
     action: "get",
-    session_id: sessionId
+    session_id: sessionId,
+    device_id: deviceId
   });
   const context = response?.data || response;
   if (!Array.isArray(context?.permissions) || !context.permissions.includes("data.ingestion.run")) {
@@ -6306,7 +6307,7 @@ Deno.serve(async (req) => {
     const isServiceInvocation = !body.session_id && scheduledSources.has(String(body.source || "")) && body.force !== true;
     const identity = isServiceInvocation
       ? await requireTrustedOwner(base44)
-      : await requireDataIngestionPermission(base44, body.session_id);
+      : await requireDataIngestionPermission(base44, body.session_id, body.device_id);
     const user = identity.user || identity.identity;
     const effectiveSource = isServiceInvocation
       ? `scheduled_${String(body.source || "experimental_t15").replace(/^scheduled_/, "")}`

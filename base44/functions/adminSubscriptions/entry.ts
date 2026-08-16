@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req);
-    const context = await authorizationContext(base44, body.session_id);
+    const context = await authorizationContext(base44, body.session_id, body.device_id);
     requireContextPermission(context, "subscriptions.read");
 
     if (body.action === "plans") {

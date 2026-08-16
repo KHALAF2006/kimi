@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
       return Response.json({ playback: await signedPlayback(base44, lesson.file_uri), watermark: "Smart Investor" });
     }
 
-    const context = await authorizationContext(base44, body.session_id);
+    const context = await authorizationContext(base44, body.session_id, body.device_id);
 
     if (body.action === "list") {
       const all = await base44.asServiceRole.entities.Course.filter({ status: "published" }, "display_order", 200);

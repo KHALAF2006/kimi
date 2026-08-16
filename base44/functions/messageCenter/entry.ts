@@ -189,7 +189,7 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req, 48 * 1024);
-    const context = await authorizationContext(base44, body.session_id);
+    const context = await authorizationContext(base44, body.session_id, body.device_id);
     const staff = isStaff(context);
 
     if (body.action === "list_customers") {

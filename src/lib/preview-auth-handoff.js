@@ -57,12 +57,14 @@ function safePreviewAuthPayload(storage) {
   if (!storage) return null;
   const accessToken = String(storage.getItem("base44_access_token") || "");
   const sessionId = String(storage.getItem("smart_investor_session_id") || "");
+  const deviceId = String(storage.getItem("smart_investor_device_id") || "");
   const expiresAt = String(storage.getItem("smart_investor_session_expires_at") || "");
   const expiry = Date.parse(expiresAt);
   if (!accessToken || accessToken.length > 8192 || /\s/u.test(accessToken)) return null;
   if (!sessionId || sessionId.length > 512 || /\s/u.test(sessionId)) return null;
+  if (!/^[A-Fa-f0-9-]{36}$/.test(deviceId)) return null;
   if (!Number.isFinite(expiry) || expiry <= Date.now()) return null;
-  return { v: 1, access_token: accessToken, session_id: sessionId, expires_at: new Date(expiry).toISOString() };
+  return { v: 2, access_token: accessToken, session_id: sessionId, device_id: deviceId, expires_at: new Date(expiry).toISOString() };
 }
 
 /** Preserve non-secret Base44 preview routing context for same-origin tabs. */
@@ -132,11 +134,13 @@ export function consumePreviewAuthHandoff(options = {}) {
   try {
     const payload = JSON.parse(decodeBase64Url(encoded));
     const expiry = Date.parse(payload?.expires_at || "");
-    if (payload?.v !== 1 || typeof payload?.access_token !== "string" || !payload.access_token || payload.access_token.length > 8192 || /\s/u.test(payload.access_token)) return false;
+    if (payload?.v !== 2 || typeof payload?.access_token !== "string" || !payload.access_token || payload.access_token.length > 8192 || /\s/u.test(payload.access_token)) return false;
     if (typeof payload?.session_id !== "string" || !payload.session_id || payload.session_id.length > 512 || /\s/u.test(payload.session_id)) return false;
+    if (typeof payload?.device_id !== "string" || !/^[A-Fa-f0-9-]{36}$/.test(payload.device_id)) return false;
     if (!Number.isFinite(expiry) || expiry <= Date.now()) return false;
     storage.setItem("base44_access_token", payload.access_token);
     storage.setItem("smart_investor_session_id", payload.session_id);
+    storage.setItem("smart_investor_device_id", payload.device_id);
     storage.setItem("smart_investor_session_expires_at", new Date(expiry).toISOString());
     return true;
   } catch {

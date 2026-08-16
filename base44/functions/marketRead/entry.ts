@@ -5256,7 +5256,7 @@ function stateFor(value, source, now = Date.now(), options = {}) {
   };
 }
 async function requireMarketAccess(base44, body) {
-  const context = await authorizationContext(base44, body.session_id);
+  const context = await authorizationContext(base44, body.session_id, body.device_id);
   if (body.action !== "markets") requireMarketEntitlement(context, body.market_code);
   return context;
 }

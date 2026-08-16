@@ -92,9 +92,11 @@ assert.equal(safePreviewServerUrl(`https://${previewHost}/functions`, previewHos
 assert.equal(safePreviewServerUrl("https://malicious.example/functions", previewHost), "", "preview tokens must never be sent to an untrusted server_url");
 const previewContextSearch = `?functions_version=preview-functions-v3&server_url=${encodeURIComponent(`https://${previewHost}`)}&base44_data_env=preview-data&_b44_commit=commit-123`;
 const previewExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+const previewDeviceId = "12345678-1234-1234-1234-123456789012";
 const sourcePreviewStorage = memoryStorage([
   ["base44_access_token", "test-access-token"],
   ["smart_investor_session_id", "test-session-id"],
+  ["smart_investor_device_id", previewDeviceId],
   ["smart_investor_session_expires_at", previewExpiry],
 ]);
 const handedOffHref = previewSafeHref("/screener?timeframe=1wk", { hostname: previewHost, search: previewContextSearch, storage: sourcePreviewStorage });
@@ -128,6 +130,7 @@ const restored = consumePreviewAuthHandoff({
 assert.equal(restored, true);
 assert.equal(targetPreviewStorage.getItem("base44_access_token"), "test-access-token");
 assert.equal(targetPreviewStorage.getItem("smart_investor_session_id"), "test-session-id");
+assert.equal(targetPreviewStorage.getItem("smart_investor_device_id"), previewDeviceId);
 assert.equal(targetPreviewStorage.getItem("smart_investor_session_expires_at"), previewExpiry);
 assert.equal(cleanedPreviewUrl, `/screener${handedOffUrl.search}`, "credential fragments must be consumed and removed before the page continues");
 let malformedCleanUrl = "";

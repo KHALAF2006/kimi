@@ -5,7 +5,7 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req, 16 * 1024);
-    const context = await authorizationContext(base44, body.session_id);
+    const context = await authorizationContext(base44, body.session_id, body.device_id);
     return Response.json({
       identity: {
         user_id: context.user.id,

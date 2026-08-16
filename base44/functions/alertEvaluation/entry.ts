@@ -5,7 +5,7 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req);
-    const { user } = await requirePermission(base44, body.session_id, "alerts.operations.manage");
+    const { user } = await requirePermission(base44, body.session_id, body.device_id, "alerts.operations.manage");
     if (!body.rule_id || !body.quote_time) return Response.json({ error: "rule_id and quote_time required", code: "REQUIRED_FIELDS_MISSING" }, { status: 400 });
     const rule = await base44.asServiceRole.entities.AlertRule.get(String(body.rule_id));
     if (!rule?.enabled || !rule.market_code) return Response.json({ error: "Active market-bound alert rule required", code: "ALERT_NOT_MARKET_BOUND" }, { status: 422 });

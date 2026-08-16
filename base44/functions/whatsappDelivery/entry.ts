@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
     const body = await readJsonBody(req);
     const payload = body.args && typeof body.args === "object" ? body.args : body;
     const automated = payload.action === "scheduled_delivery";
-    const user = automated ? await base44.auth.me() : (await requirePermission(base44, payload.session_id, "delivery.channels.manage")).user;
+    const user = automated ? await base44.auth.me() : (await requirePermission(base44, payload.session_id, payload.device_id, "delivery.channels.manage")).user;
     if (!user || (automated && user.role !== "admin")) return Response.json({ error: "Automation authentication required", code: "AUTOMATION_AUTH_REQUIRED" }, { status: 401 });
     event = await base44.asServiceRole.entities.DeliveryEvent.get(String(payload.event_id || ""));
     if (!event || event.channel !== "whatsapp") return Response.json({ error: "WhatsApp delivery event not found" }, { status: 404 });

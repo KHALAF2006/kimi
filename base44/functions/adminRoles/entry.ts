@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req);
-    const context = await requirePermission(base44, body.session_id, "roles.manage");
+    const context = await requirePermission(base44, body.session_id, body.device_id, "roles.manage");
     if (context.role !== "owner") bad("Only the platform owner can manage administrative roles", "OWNER_REQUIRED", 403);
 
     if (body.action === "bootstrap") {

@@ -141,8 +141,8 @@ async function ensureAdministrativeProfile(base44, user) {
   }
   return profile;
 }
-async function requireActiveSession(base44, profile, sessionId) {
-  if (!profile || !sessionId) throw Object.assign(new Error("Active device session required"), { status: 403 });
+async function requireActiveSession(base44, profile, sessionId, deviceId) {
+  if (!profile || !sessionId || !deviceId) throw Object.assign(new Error("Active device session required"), { status: 403, code: "DEVICE_SESSION_REQUIRED" });
   const token = parseSessionToken(sessionId);
   if (!token) throw Object.assign(new Error("Active device session required"), { status: 403 });
   let session = null;
@@ -152,8 +152,9 @@ async function requireActiveSession(base44, profile, sessionId) {
     session = null;
   }
   const presentedHash = session ? await sha256(token.secret) : "";
-  if (!session || session.customer_id !== profile.id || session.revoked_at || new Date(session.expires_at) <= /* @__PURE__ */ new Date() || !fixedTimeEqual(presentedHash, session.session_hash)) {
-    throw Object.assign(new Error("Active device session required"), { status: 403 });
+  const presentedDeviceHash = session ? await sha256(String(deviceId)) : "";
+  if (!session || session.customer_id !== profile.id || session.revoked_at || new Date(session.expires_at) <= /* @__PURE__ */ new Date() || !fixedTimeEqual(presentedHash, session.session_hash) || !fixedTimeEqual(presentedDeviceHash, session.device_hash)) {
+    throw Object.assign(new Error("Active device session required"), { status: 403, code: "DEVICE_SESSION_MISMATCH" });
   }
   const now = Date.now();
   const lastSeen = new Date(session.last_seen_at || 0).getTime();
@@ -277,11 +278,11 @@ async function subscriptionContext(base44, profile, account) {
     marketAccess
   };
 }
-async function authorizationContext(base44, sessionId) {
+async function authorizationContext(base44, sessionId, deviceId) {
   const user = await requireUser(base44);
   const profile = await ensureAdministrativeProfile(base44, user);
   if (!profile) throw Object.assign(new Error("Profile not found"), { status: 404, code: "PROFILE_NOT_FOUND" });
-  await requireActiveSession(base44, profile, sessionId);
+  await requireActiveSession(base44, profile, sessionId, deviceId);
   const role = resolvedRole(user, profile);
   const { account, membership } = await ensurePersonalAccount(base44, profile, user.id);
   const assigned = await assignedPermissions(base44, membership);
@@ -299,8 +300,8 @@ async function authorizationContext(base44, sessionId) {
     ...subscription
   };
 }
-async function requirePermission(base44, sessionId, permissionCode) {
-  const context = await authorizationContext(base44, sessionId);
+async function requirePermission(base44, sessionId, deviceId, permissionCode) {
+  const context = await authorizationContext(base44, sessionId, deviceId);
   if (!context.permissions.has(permissionCode)) {
     throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
   }
@@ -2540,7 +2541,7 @@ Deno.serve(async (req) => {
     base44 = createClientFromRequest(req);
     const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...requestBody.args || {} };
-    const authContext = body.session_id ? await requirePermission(base44, body.session_id, "data.ingestion.run") : await requireTrustedOwner(base44);
+    const authContext = body.session_id ? await requirePermission(base44, body.session_id, body.device_id, "data.ingestion.run") : await requireTrustedOwner(base44);
     await closeExpiredIngestionRuns(base44, US_OPTIONS_MARKET_CODE);
     const sessionDate = String(body.session_date || nyDate());
     if (body.mode === "projection_batch") {
@@ -2676,6 +2677,7 @@ Deno.serve(async (req) => {
       if (nextBatchIndex >= 0) {
         const response2 = await base44.functions.invoke("usOptionsSignalProjectionWorker", {
           session_id: body.session_id,
+          device_id: body.device_id,
           source: body.source || "daily_session_projection",
           reason: body.reason,
           force: false,
@@ -2689,6 +2691,7 @@ Deno.serve(async (req) => {
       }
       const response = await base44.functions.invoke("usOptionsSignalProjectionWorker", {
         session_id: body.session_id,
+        device_id: body.device_id,
         source: body.source || "daily_session_projection",
         reason: body.reason,
         force: false,

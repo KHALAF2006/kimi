@@ -462,7 +462,7 @@ export default async function(req) {
     const base44 = createClientFromRequest(req);
     const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...(requestBody.args || {}) };
-    if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run"); else await requireTrustedOwner(base44);
+    if (body.session_id) await requirePermission(base44, body.session_id, body.device_id, "data.ingestion.run"); else await requireTrustedOwner(base44);
     if (String(body.market_code || US_BENCHMARKS_MARKET_CODE) !== US_BENCHMARKS_MARKET_CODE) throw Object.assign(new Error("Wrong market"), { status: 400, code: "MARKET_MISMATCH" });
     const now = new Date();
     const { source, instruments } = await ensureCatalog(base44, now);

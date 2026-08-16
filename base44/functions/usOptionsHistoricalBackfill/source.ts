@@ -183,7 +183,7 @@ Deno.serve(async (req) => {
     base44 = createClientFromRequest(req);
     const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...(requestBody.args || {}) };
-    if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
+    if (body.session_id) await requirePermission(base44, body.session_id, body.device_id, "data.ingestion.run");
     else await requireTrustedOwner(base44);
     const catalogInstruments = await ensureCatalog(base44);
     const syncRows = rows(await base44.asServiceRole.entities.HistoricalCandleSync.filter({ market_code: US_OPTIONS_MARKET_CODE, interval: "1d" }));

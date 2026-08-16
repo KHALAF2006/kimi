@@ -126,8 +126,8 @@ async function ensureAdministrativeProfile(base44, user) {
   }
   return profile;
 }
-async function requireActiveSession(base44, profile, sessionId) {
-  if (!profile || !sessionId) throw Object.assign(new Error("Active device session required"), { status: 403 });
+async function requireActiveSession(base44, profile, sessionId, deviceId) {
+  if (!profile || !sessionId || !deviceId) throw Object.assign(new Error("Active device session required"), { status: 403, code: "DEVICE_SESSION_REQUIRED" });
   const token = parseSessionToken(sessionId);
   if (!token) throw Object.assign(new Error("Active device session required"), { status: 403 });
   let session = null;
@@ -137,8 +137,9 @@ async function requireActiveSession(base44, profile, sessionId) {
     session = null;
   }
   const presentedHash = session ? await sha256(token.secret) : "";
-  if (!session || session.customer_id !== profile.id || session.revoked_at || new Date(session.expires_at) <= /* @__PURE__ */ new Date() || !fixedTimeEqual(presentedHash, session.session_hash)) {
-    throw Object.assign(new Error("Active device session required"), { status: 403 });
+  const presentedDeviceHash = session ? await sha256(String(deviceId)) : "";
+  if (!session || session.customer_id !== profile.id || session.revoked_at || new Date(session.expires_at) <= /* @__PURE__ */ new Date() || !fixedTimeEqual(presentedHash, session.session_hash) || !fixedTimeEqual(presentedDeviceHash, session.device_hash)) {
+    throw Object.assign(new Error("Active device session required"), { status: 403, code: "DEVICE_SESSION_MISMATCH" });
   }
   const now = Date.now();
   const lastSeen = new Date(session.last_seen_at || 0).getTime();
@@ -262,11 +263,11 @@ async function subscriptionContext(base44, profile, account) {
     marketAccess
   };
 }
-async function authorizationContext(base44, sessionId) {
+async function authorizationContext(base44, sessionId, deviceId) {
   const user = await requireUser(base44);
   const profile = await ensureAdministrativeProfile(base44, user);
   if (!profile) throw Object.assign(new Error("Profile not found"), { status: 404, code: "PROFILE_NOT_FOUND" });
-  await requireActiveSession(base44, profile, sessionId);
+  await requireActiveSession(base44, profile, sessionId, deviceId);
   const role = resolvedRole(user, profile);
   const { account, membership } = await ensurePersonalAccount(base44, profile, user.id);
   const assigned = await assignedPermissions(base44, membership);
@@ -500,7 +501,7 @@ Deno.serve(async (req) => {
       const automationUser = await base44.auth.me();
       if (!automationUser || automationUser.role !== "admin") throw Object.assign(new Error("Automation authentication required"), { status: 401, code: "AUTOMATION_AUTH_REQUIRED" });
     } else {
-      const context = await authorizationContext(base44, body.session_id);
+      const context = await authorizationContext(base44, body.session_id, body.device_id);
       if (context.role !== "owner") throw Object.assign(new Error("Owner access required"), { status: 403, code: "OWNER_ONLY" });
       actor = context.user.id;
     }

@@ -6,7 +6,7 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...(requestBody.args || {}) };
-    if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
+    if (body.session_id) await requirePermission(base44, body.session_id, body.device_id, "data.ingestion.run");
     else await requireTrustedOwner(base44);
     if (!["projection_batch", "projection_finalize"].includes(body.mode)) {
       throw Object.assign(new Error("A bounded projection worker mode is required"), {

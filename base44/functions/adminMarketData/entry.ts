@@ -34,9 +34,10 @@ function earliestByDate(rows, field) {
   return [...rows].sort((a, b) => new Date(a[field] || 0).getTime() - new Date(b[field] || 0).getTime())[0] || null;
 }
 
-async function refreshSaudiSignalProjection(base44, { sessionId, reason }) {
+async function refreshSaudiSignalProjection(base44, { sessionId, deviceId, reason }) {
   const response = await base44.functions.invoke("marketSignalRefresh", {
     session_id: sessionId,
+    device_id: deviceId,
     market_code: "SA_MAIN",
     force: true,
     reason,
@@ -153,7 +154,7 @@ Deno.serve(async (req) => {
     const action = String(body.action || "health");
     const config = marketConfig(body.market_code);
     const MARKET_CODE = config.marketCode;
-    await requirePermission(base44, body.session_id, "data.operations.read");
+    await requirePermission(base44, body.session_id, body.device_id, "data.operations.read");
 
     if (action === "health") return Response.json(await health(base44, MARKET_CODE));
     if (action === "runs") {
@@ -177,7 +178,7 @@ Deno.serve(async (req) => {
       throw Object.assign(new Error("Unsupported market-data admin action"), { status: 400, code: "INVALID_ACTION" });
     }
 
-    const writeContext = await requirePermission(base44, body.session_id, "data.ingestion.run");
+    const writeContext = await requirePermission(base44, body.session_id, body.device_id, "data.ingestion.run");
     const reason = reasonFrom(body.reason);
     if (action === "refresh_company_intelligence" && MARKET_CODE !== US_OPTIONS_MARKET_CODE) {
       throw Object.assign(new Error("Company intelligence refresh is available for the U.S. options market only"), { status: 400, code: "INVALID_MARKET" });
@@ -193,6 +194,7 @@ Deno.serve(async (req) => {
     const response = action === "refresh_company_intelligence"
       ? await base44.functions.invoke("usOptionsCompanyIntelligence", {
         session_id: body.session_id,
+        device_id: body.device_id,
         reason,
         force: true,
         batch_size: 10,
@@ -200,6 +202,7 @@ Deno.serve(async (req) => {
       : action === "backfill_history"
       ? await base44.functions.invoke(historyFunction, {
         session_id: body.session_id,
+        device_id: body.device_id,
         reason,
         force: false,
         symbols: Array.isArray(body.symbols) ? body.symbols.slice(0, 15) : undefined,
@@ -209,9 +212,10 @@ Deno.serve(async (req) => {
       })
       : action === "refresh_signals"
       ? MARKET_CODE === "SA_MAIN"
-        ? await refreshSaudiSignalProjection(base44, { sessionId: body.session_id, reason })
+        ? await refreshSaudiSignalProjection(base44, { sessionId: body.session_id, deviceId: body.device_id, reason })
         : await base44.functions.invoke(signalFunction, {
         session_id: body.session_id,
+        device_id: body.device_id,
         market_code: MARKET_CODE,
         force: MARKET_CODE === US_OPTIONS_MARKET_CODE ? false : true,
         reason,
@@ -219,6 +223,7 @@ Deno.serve(async (req) => {
       : await base44.functions.invoke(ingestionFunction, {
         source: action === "reconcile_close" ? "manual_close_reconciliation" : "manual_retry",
         session_id: body.session_id,
+        device_id: body.device_id,
         market_code: MARKET_CODE,
         slot_kind: slotKind,
         scheduled_for: body.scheduled_for || null,

@@ -41,7 +41,7 @@ assert.match(ingestion, /name_ar:\s*row\.nameAr/);
 assert.match(ingestion, /name_en:\s*row\.nameEn/);
 assert.match(ingestion, /upsertMany\(base44,\s*["']Instrument["']/);
 assert.match(ingestion, /requireTrustedOwner\(base44\)/, "scheduled market ingestion must require the centralized trusted-owner policy");
-assert.match(ingestion, /requireDataIngestionPermission\(base44, body\.session_id\)/, "manual market ingestion must require an opaque session and the dedicated server permission");
+assert.match(ingestion, /requireDataIngestionPermission\(base44, body\.session_id, body\.device_id\)/, "manual market ingestion must require an opaque session, its registered device, and the dedicated server permission");
 assert.match(ingestion, /identityContext/, "manual market ingestion must resolve identity and entitlements on the server");
 assert.doesNotMatch(ingestion, /Base44-Service-Authorization/, "market ingestion must not trust a client-supplied service header");
 assert.match(ingestion, /MAIN_MARKET_SYMBOLS\.has\(row\.symbol\)/, "ingestion must exclude records outside the verified main-market catalog");
@@ -340,8 +340,8 @@ assert.match(deliveryCenterFunction, /Subscription\.filter\(\{ market_code: mark
 assert.match(deliveryCenterFunction, /20_000/, "email campaigns must enforce the approved twenty-thousand-line limit");
 assert.match(deliveryCenterPage, /adminDeliveryCenter/, "the owner delivery page must use the centralized backend contract");
 assert.doesNotMatch(deliveryCenterPage, /window\.(alert|confirm|prompt)/, "the owner delivery page must use accessible in-product confirmation instead of browser dialogs");
-assert.match(telegramDeliveryFunction, /requirePermission\(base44, payload\.session_id, "delivery\.channels\.manage"\)/, "manual Telegram delivery must require the owner-only centralized delivery permission");
-assert.match(whatsappDeliveryFunction, /requirePermission\(base44, payload\.session_id, "delivery\.channels\.manage"\)/, "manual WhatsApp delivery must require the owner-only centralized delivery permission");
+assert.match(telegramDeliveryFunction, /requirePermission\(base44, payload\.session_id, payload\.device_id, "delivery\.channels\.manage"\)/, "manual Telegram delivery must require the owner-only centralized delivery permission from its registered device");
+assert.match(whatsappDeliveryFunction, /requirePermission\(base44, payload\.session_id, payload\.device_id, "delivery\.channels\.manage"\)/, "manual WhatsApp delivery must require the owner-only centralized delivery permission from its registered device");
 assert.match(deliveryWorkerFunction, /MAX_EVENT_AGE_MS = 60 \* 60 \* 1000/, "the centralized delivery worker must expire stale alerts before any real delivery");
 assert.match(deliveryWorkerFunction, /dryRun = args\.dry_run === true/, "the centralized delivery worker must support a non-sending diagnostic mode");
 assert.match(deliveryWorkerFunction, /unsupported_delivery_channel/, "unsupported queued channels must be closed instead of remaining pending forever");
@@ -456,7 +456,7 @@ assert.deepEqual(chartControlTransition({ menu: "", panel: "momentum" }, { type:
 assert.deepEqual(chartControlTransition({ menu: "indicators", panel: "" }, { type: "toggle-panel", panel: "momentum" }), { menu: "", panel: "momentum" }, "opening zone settings must close the indicator popover");
 
 const chartDrawingsFunction = await readFile(new URL("../base44/functions/chartDrawings/entry.ts", import.meta.url), "utf8");
-assert.match(chartDrawingsFunction, /authorizationContext\(base44, body\.session_id\)/, "drawing storage must require the verified SMART_INVESTOR session and authorization context");
+assert.match(chartDrawingsFunction, /authorizationContext\(base44, body\.session_id, body\.device_id\)/, "drawing storage must require the verified SMART_INVESTOR session, device, and authorization context");
 assert.match(chartDrawingsFunction, /requireMarketEntitlement\(context, body\.market_code\)/, "drawing storage must enforce the selected market subscription");
 assert.match(chartDrawingsFunction, /row\.customer_id !== profile\.id/, "drawing mutations must enforce object ownership");
 assert.match(chartDrawingsFunction, /DRAWING_ALERT_DELETE_CONFIRMATION_REQUIRED/, "a drawing with an alert must not be deleted without explicit confirmation");
@@ -513,7 +513,7 @@ assert.match(drawingTools, /function wheelZoom\(event\)/, "mouse-wheel zoom must
 assert.match(drawingTools, /aria-orientation/, "the drawing toolbar must expose its orientation");
 
 const customerSelfService = await readFile(new URL("../base44/functions/customerSelfService/entry.ts", import.meta.url), "utf8");
-assert.match(customerSelfService, /authorizationContext\(base44, body\.session_id\)/, "chart preferences must require the verified customer session");
+assert.match(customerSelfService, /authorizationContext\(base44, body\.session_id, body\.device_id\)/, "chart preferences must require the verified customer session and device");
 assert.match(customerSelfService, /body\.action === "save_chart_preferences"/, "chart preferences must have a protected save action");
 assert.match(customerSelfService, /chart\.preferences\.update/, "chart preference changes must be audited");
 assert.match(drawingTools, /LayoutList/, "the drawing object tree must be available");
@@ -652,6 +652,7 @@ assert.match(previewAwareBase44Client, /serverUrl,/, "the Base44 SDK must receiv
 assert.match(previewAuthHandoff, /browserHistory\.replaceState/, "preview credential fragments must be removed before the page continues");
 assert.match(previewAuthHandoff, /storage\.setItem\("base44_access_token"/, "a Base44 preview tab must restore the authenticated SDK session before client creation");
 assert.match(previewAuthHandoff, /storage\.setItem\("smart_investor_session_id"/, "a Base44 preview tab must restore the protected application session before route guards run");
+assert.match(previewAuthHandoff, /storage\.setItem\("smart_investor_device_id"/, "a Base44 preview tab must restore the bound device identity before route guards run");
 assert.match(previewAuthHandoff, /expiry <= Date\.now\(\)/, "expired preview handoffs must fail closed");
 assert.match(appParams, /persist:\s*false[\s\S]*useStored:\s*false/, "the one-shot clear_access_token flag must never be replayed from browser storage");
 assert.match(appParams, /allowUrlValue:\s*isBase44PreviewHost\(window\.location\.hostname\)/, "published pages must ignore access_token values supplied through the URL");
@@ -800,15 +801,18 @@ assert.match(sharedSecurity, /profile\.tags\.includes\("owner"\)/, "owner access
 assert.doesNotMatch(sharedSecurity, /if \(profile\.role !== "admin"/, "administrative login must never downgrade the owner to admin");
 assert.match(sharedSecurity, /ActiveDeviceSession\.get\(token\.sessionId\)/, "device sessions must resolve only a versioned opaque bearer token");
 assert.match(sharedSecurity, /fixedTimeEqual\(presentedHash, session\.session_hash\)/, "the session secret must be verified against its stored hash");
+assert.match(sharedSecurity, /fixedTimeEqual\(presentedDeviceHash, session\.device_hash\)/, "every authenticated request must verify the registered browser device");
 assert.doesNotMatch(sharedSecurity, /ActiveDeviceSession\.get\(sessionId\)/, "a raw entity identifier must never be accepted as a device session credential");
 assert.match(sharedSecurity, /readJsonBody/, "backend functions must share bounded JSON request parsing");
 const { createSessionToken, readJsonBody, requireActiveSession, sha256 } = await import(new URL("../base44/shared/security.ts", import.meta.url));
 const sessionRecordId = "session_record_1234567890";
 const sessionSecret = "12345678-1234-1234-1234-123456789012abcdef0123456789abcdef0123456789";
+const registeredDeviceId = "12345678-1234-1234-1234-123456789012";
 const activeSession = {
   id: sessionRecordId,
   customer_id: "customer-1",
   session_hash: await sha256(sessionSecret),
+  device_hash: await sha256(registeredDeviceId),
   revoked_at: null,
   expires_at: new Date(Date.now() + 60_000).toISOString(),
   last_seen_at: new Date().toISOString(),
@@ -824,9 +828,11 @@ const sessionBase44 = {
   },
 };
 const opaqueSessionToken = createSessionToken(sessionRecordId, sessionSecret);
-assert.equal((await requireActiveSession(sessionBase44, { id: "customer-1" }, opaqueSessionToken)).id, sessionRecordId, "a valid opaque session bearer must be accepted");
-await assert.rejects(() => requireActiveSession(sessionBase44, { id: "customer-1" }, sessionRecordId), /Active device session required/, "a raw entity ID must be rejected");
-await assert.rejects(() => requireActiveSession(sessionBase44, { id: "customer-1" }, createSessionToken(sessionRecordId, `${sessionSecret}0`)), /Active device session required/, "a session token with the wrong secret must be rejected");
+assert.equal((await requireActiveSession(sessionBase44, { id: "customer-1" }, opaqueSessionToken, registeredDeviceId)).id, sessionRecordId, "a valid opaque session bearer from its registered device must be accepted");
+await assert.rejects(() => requireActiveSession(sessionBase44, { id: "customer-1" }, sessionRecordId, registeredDeviceId), /Active device session required/, "a raw entity ID must be rejected");
+await assert.rejects(() => requireActiveSession(sessionBase44, { id: "customer-1" }, createSessionToken(sessionRecordId, `${sessionSecret}0`), registeredDeviceId), /Active device session required/, "a session token with the wrong secret must be rejected");
+await assert.rejects(() => requireActiveSession(sessionBase44, { id: "customer-1" }, opaqueSessionToken, "87654321-4321-4321-4321-210987654321"), /Active device session required/, "a valid session bearer replayed from another device must be rejected");
+await assert.rejects(() => requireActiveSession(sessionBase44, { id: "customer-1" }, opaqueSessionToken, ""), /Active device session required/, "a request without its device identity must be rejected");
 assert.deepEqual(await readJsonBody(new Request("https://example.test/function", { method: "POST", body: JSON.stringify({ action: "status" }) })), { action: "status" });
 await assert.rejects(() => readJsonBody(new Request("https://example.test/function", { method: "GET" })), /Method not allowed/);
 await assert.rejects(() => readJsonBody(new Request("https://example.test/function", { method: "POST", body: "[1,2,3]" })), /JSON object required/);

@@ -28,8 +28,8 @@ function platformCode(value) {
   if (!/^[a-z0-9][a-z0-9_-]{0,59}$/.test(result)) fail("Platform code must contain English letters or numbers", "INVALID_PLATFORM_CODE");
   return result;
 }
-async function ownerContext(base44, sessionId) {
-  const context = await authorizationContext(base44, sessionId);
+async function ownerContext(base44, sessionId, deviceId) {
+  const context = await authorizationContext(base44, sessionId, deviceId);
   if (context.role !== "owner") fail("Owner access required", "OWNER_ONLY", 403);
   return context;
 }
@@ -220,7 +220,7 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req, 64 * 1024);
-    const context = await ownerContext(base44, body.session_id);
+    const context = await ownerContext(base44, body.session_id, body.device_id);
 
     if (body.action === "list_platforms") {
       return Response.json({ platforms: await base44.asServiceRole.entities.TradingPlatform.list("display_order", 200) });

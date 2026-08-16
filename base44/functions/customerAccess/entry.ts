@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req, 16 * 1024);
-    const context = await authorizationContext(base44, body.session_id);
+    const context = await authorizationContext(base44, body.session_id, body.device_id);
     const applications = await base44.asServiceRole.entities.MarketAccessApplication.filter({ customer_id: context.profile.id }, "-created_date", MARKET_APPLICATION_LIMIT);
     const allPlatforms = await base44.asServiceRole.entities.TradingPlatform.list("display_order", MARKET_APPLICATION_LIMIT);
     const platformsById = Object.fromEntries(allPlatforms.map((platform) => [platform.id, platform]));

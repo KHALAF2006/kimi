@@ -366,7 +366,7 @@ Deno.serve(async (req) => {
     base44 = createClientFromRequest(req);
     const requestBody = await readJsonBody(req);
     const body = { ...requestBody, ...(requestBody.args || {}) };
-    if (body.session_id) await requirePermission(base44, body.session_id, "data.ingestion.run");
+    if (body.session_id) await requirePermission(base44, body.session_id, body.device_id, "data.ingestion.run");
     else await requireTrustedOwner(base44);
     await ensureTasiInstrument(base44);
     const provider = historyProvider();
@@ -387,6 +387,7 @@ Deno.serve(async (req) => {
         runId: String(body.run_id),
         force: body.force === true,
         session_id: body.session_id || undefined,
+        device_id: body.device_id || undefined,
       }));
     }
 

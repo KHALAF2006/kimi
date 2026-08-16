@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
     const profile = await ensureAdministrativeProfile(base44, user);
     if (!profile) return Response.json({ error: "Complete registration before signing in", code: "PROFILE_SETUP_REQUIRED" }, { status: 428 });
     if (body.action === "logout") {
-      const session = await requireActiveSession(base44, profile, body.session_id);
+      const session = await requireActiveSession(base44, profile, body.session_id, body.device_id);
       const revokedAt = new Date().toISOString();
       await base44.asServiceRole.entities.ActiveDeviceSession.update(session.id, { revoked_at: revokedAt });
       await audit(base44, user.id, "session.revoked", "ActiveDeviceSession", session.id, "success", "user_logout");

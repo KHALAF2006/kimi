@@ -131,8 +131,8 @@ export async function requireRole(base44, roles) {
   return { user, profile, role };
 }
 
-export async function requireActiveSession(base44, profile, sessionId) {
-  if (!profile || !sessionId) throw Object.assign(new Error("Active device session required"), { status: 403 });
+export async function requireActiveSession(base44, profile, sessionId, deviceId) {
+  if (!profile || !sessionId || !deviceId) throw Object.assign(new Error("Active device session required"), { status: 403, code: "DEVICE_SESSION_REQUIRED" });
   const token = parseSessionToken(sessionId);
   if (!token) throw Object.assign(new Error("Active device session required"), { status: 403 });
   let session = null;
@@ -142,12 +142,14 @@ export async function requireActiveSession(base44, profile, sessionId) {
     session = null;
   }
   const presentedHash = session ? await sha256(token.secret) : "";
+  const presentedDeviceHash = session ? await sha256(String(deviceId)) : "";
   if (!session
     || session.customer_id !== profile.id
     || session.revoked_at
     || new Date(session.expires_at) <= new Date()
-    || !fixedTimeEqual(presentedHash, session.session_hash)) {
-    throw Object.assign(new Error("Active device session required"), { status: 403 });
+    || !fixedTimeEqual(presentedHash, session.session_hash)
+    || !fixedTimeEqual(presentedDeviceHash, session.device_hash)) {
+    throw Object.assign(new Error("Active device session required"), { status: 403, code: "DEVICE_SESSION_MISMATCH" });
   }
   const now = Date.now();
   const lastSeen = new Date(session.last_seen_at || 0).getTime();
@@ -298,7 +300,7 @@ export function requireMarketEntitlement(context, requestedMarketCode) {
   return marketCode;
 }
 
-export async function authorizationContext(base44, sessionId) {
+export async function authorizationContext(base44, sessionId, deviceId) {
   const user = await requireUser(base44);
   // Existing Base44 administrators can hold a stale customer role from before
   // the administration model was deployed. Reconcile that trusted platform
@@ -306,7 +308,7 @@ export async function authorizationContext(base44, sessionId) {
   // not lose owner operations or market visibility until the next login.
   const profile = await ensureAdministrativeProfile(base44, user);
   if (!profile) throw Object.assign(new Error("Profile not found"), { status: 404, code: "PROFILE_NOT_FOUND" });
-  await requireActiveSession(base44, profile, sessionId);
+  await requireActiveSession(base44, profile, sessionId, deviceId);
   const role = resolvedRole(user, profile);
   const { account, membership } = await ensurePersonalAccount(base44, profile, user.id);
   const assigned = await assignedPermissions(base44, membership);
@@ -327,8 +329,8 @@ export async function authorizationContext(base44, sessionId) {
   };
 }
 
-export async function requirePermission(base44, sessionId, permissionCode) {
-  const context = await authorizationContext(base44, sessionId);
+export async function requirePermission(base44, sessionId, deviceId, permissionCode) {
+  const context = await authorizationContext(base44, sessionId, deviceId);
   if (!context.permissions.has(permissionCode)) {
     throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
   }

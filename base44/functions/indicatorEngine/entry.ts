@@ -5,7 +5,7 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req, 1024 * 1024);
-    await requirePermission(base44, body.session_id, "data.operations.read");
+    await requirePermission(base44, body.session_id, body.device_id, "data.operations.read");
     if (!Array.isArray(body.bars) || body.bars.length < 2) {
       return Response.json({ status: "insufficient_history", required: 2 }, { status: 422 });
     }

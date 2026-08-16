@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req);
-    const context = await requirePermission(base44, body.session_id, "data.operations.read");
+    const context = await requirePermission(base44, body.session_id, body.device_id, "data.operations.read");
     const action = String(body.action || "summary");
     const [sources, openIssues, runs, deliveryEvents] = await Promise.all([
       base44.asServiceRole.entities.DataSource.list("name", 100),
@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
 
     if (action === "reconcile_recovered_issues") {
       if (!requestedMarket) throw Object.assign(new Error("A supported market_code is required"), { status: 400, code: "MARKET_REQUIRED" });
-      const writeContext = await requirePermission(base44, body.session_id, "data.quality.manage");
+      const writeContext = await requirePermission(base44, body.session_id, body.device_id, "data.quality.manage");
       const reason = String(body.reason || "").trim();
       if (reason.length < 10 || reason.length > 500) throw Object.assign(new Error("A reason between 10 and 500 characters is required"), { status: 400, code: "REASON_REQUIRED" });
       const recoveredForMarket = classified.recovered.filter((issue) => issue.market_code === requestedMarket);

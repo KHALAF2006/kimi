@@ -143,7 +143,7 @@ Deno.serve(async (req) => {
       const automationUser = await base44.auth.me();
       if (!automationUser || automationUser.role !== "admin") throw Object.assign(new Error("Automation authentication required"), { status: 401, code: "AUTOMATION_AUTH_REQUIRED" });
     } else {
-      const context = await authorizationContext(base44, body.session_id);
+      const context = await authorizationContext(base44, body.session_id, body.device_id);
       if (context.role !== "owner") throw Object.assign(new Error("Owner access required"), { status: 403, code: "OWNER_ONLY" });
       actor = context.user.id;
     }
