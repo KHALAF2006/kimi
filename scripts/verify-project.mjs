@@ -926,6 +926,8 @@ assert.match(marketIngestionFunction, /groupRowsByKey\(issues,\s*keyFor\)/, "qua
 assert.match(marketIngestionFunction, /row\.instrument_id\s*\|\|\s*row\.symbol\s*\|\|\s*"market"/, "source issues without instrument IDs must remain distinct per symbol");
 assert.match(marketIngestionFunction, /bulkUpdateUnique\(base44\.asServiceRole\.entities\.DataQualityIssue,\s*updates\)/, "quality issue updates must send every entity ID at most once");
 assert.match(marketIngestionFunction, /bulkUpdateUnique\(base44\.asServiceRole\.entities\.QuoteLatest,\s*updates\)/, "stale quote updates must send every entity ID at most once");
+assert.match(marketIngestionFunction, /\.filter\(isSupportedPublicSaudiSymbol\)/, "the Saudi public-source queue must use the canonical symbol allowlist");
+assert.match(marketIngestionFunction, /normalized === "TASI" \? "\^TASI\.SR"/, "the Saudi market index must retain its provider-specific symbol in the deployed ingestion bundle");
 const legacySchemaBridge = await readFile(new URL("../base44/functions/legacySchemaBridge/entry.ts", import.meta.url), "utf8");
 assert.match(legacySchemaBridge, /requireTrustedOwner/, "the additive legacy bridge must be restricted to the centralized trusted owner policy");
 assert.doesNotMatch(legacySchemaBridge, /PLATFORM_OWNER_USER_ID/, "owner authorization must not depend on a hard-coded user identifier");
