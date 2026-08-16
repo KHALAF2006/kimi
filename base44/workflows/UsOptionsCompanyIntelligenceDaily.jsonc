@@ -1,15 +1,37 @@
 {
   "definition": {
-    "document": { "dsl": "1.0.0", "name": "us_options_company_intelligence_daily", "version": "1.0", "namespace": "base44" },
+    "document": { "dsl": "1.0.0", "name": "us_options_company_intelligence_daily", "version": "1.1", "namespace": "base44" },
     "do": [{
-      "refresh_us_options_company_intelligence": {
+      "refresh_us_options_company_intelligence_01": {
         "call": "invoke_backend_function",
-        "with": { "function_name": "usOptionsCompanyIntelligence", "args": { "market_code": "US_OPTIONS", "batch_size": 10 } },
+        "with": { "function_name": "usOptionsCompanyIntelligence", "args": { "market_code": "US_OPTIONS", "batch_size": 5 } },
+        "then": "wait_after_company_batch_01"
+      }
+    }, {
+      "wait_after_company_batch_01": {
+        "wait": "PT2M",
+        "then": "refresh_us_options_company_intelligence_02"
+      }
+    }, {
+      "refresh_us_options_company_intelligence_02": {
+        "call": "invoke_backend_function",
+        "with": { "function_name": "usOptionsCompanyIntelligence", "args": { "market_code": "US_OPTIONS", "batch_size": 5 } },
+        "then": "wait_after_company_batch_02"
+      }
+    }, {
+      "wait_after_company_batch_02": {
+        "wait": "PT2M",
+        "then": "refresh_us_options_company_intelligence_03"
+      }
+    }, {
+      "refresh_us_options_company_intelligence_03": {
+        "call": "invoke_backend_function",
+        "with": { "function_name": "usOptionsCompanyIntelligence", "args": { "market_code": "US_OPTIONS", "batch_size": 5 } },
         "then": "end"
       }
     }]
   },
-  "description": "تحديث دفعة متناوبة من إفصاحات وماليات وإجراءات وملكية شركات عقود الخيارات.",
+  "description": "يحدّث يومياً 15 شركة بالتناوب ضمن ثلاث دفعات محدودة من الإفصاحات والماليات والإجراءات والملكية.",
   "name": "سوق الخيارات — معلومات الشركات",
   "trigger": {
     "condition": null,

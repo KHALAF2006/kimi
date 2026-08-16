@@ -1,6 +1,6 @@
 {
   "definition": {
-    "document": { "dsl": "1.0.0", "name": "us_benchmarks_signals_daily", "version": "1.0", "namespace": "base44" },
+    "document": { "dsl": "1.0.0", "name": "us_benchmarks_signals_daily", "version": "1.1", "namespace": "base44" },
     "do": [
       {
         "refresh_us_benchmarks_signals_01": {
@@ -12,9 +12,9 @@
       },
       {
         "wait_after_batch_01": {
-          "wait": "PT5M",
+          "wait": "PT2M",
           "then": "refresh_us_benchmarks_signals_02",
-          "x-base44": { "title": "انتظار 5 دقائق" }
+          "x-base44": { "title": "انتظار دقيقتين" }
         }
       },
       {
@@ -27,9 +27,9 @@
       },
       {
         "wait_after_batch_02": {
-          "wait": "PT5M",
+          "wait": "PT2M",
           "then": "refresh_us_benchmarks_signals_03",
-          "x-base44": { "title": "انتظار 5 دقائق" }
+          "x-base44": { "title": "انتظار دقيقتين" }
         }
       },
       {
@@ -42,13 +42,58 @@
       },
       {
         "wait_after_batch_03": {
-          "wait": "PT5M",
+          "wait": "PT2M",
           "then": "refresh_us_benchmarks_signals_04",
-          "x-base44": { "title": "انتظار 5 دقائق" }
+          "x-base44": { "title": "انتظار دقيقتين" }
         }
       },
       {
         "refresh_us_benchmarks_signals_04": {
+          "call": "invoke_backend_function",
+          "with": { "function_name": "usBenchmarksSignalRefresh", "args": { "market_code": "US_BENCHMARKS", "source": "daily_session_projection" } },
+          "then": "wait_after_batch_04",
+          "x-base44": { "title": "استئناف الدفعة 4" }
+        }
+      },
+      {
+        "wait_after_batch_04": {
+          "wait": "PT2M",
+          "then": "refresh_us_benchmarks_signals_05",
+          "x-base44": { "title": "انتظار دقيقتين" }
+        }
+      },
+      {
+        "refresh_us_benchmarks_signals_05": {
+          "call": "invoke_backend_function",
+          "with": { "function_name": "usBenchmarksSignalRefresh", "args": { "market_code": "US_BENCHMARKS", "source": "daily_session_projection" } },
+          "then": "wait_after_batch_05",
+          "x-base44": { "title": "استئناف الدفعة 5" }
+        }
+      },
+      {
+        "wait_after_batch_05": {
+          "wait": "PT2M",
+          "then": "refresh_us_benchmarks_signals_06",
+          "x-base44": { "title": "انتظار دقيقتين" }
+        }
+      },
+      {
+        "refresh_us_benchmarks_signals_06": {
+          "call": "invoke_backend_function",
+          "with": { "function_name": "usBenchmarksSignalRefresh", "args": { "market_code": "US_BENCHMARKS", "source": "daily_session_projection" } },
+          "then": "wait_after_batch_06",
+          "x-base44": { "title": "استئناف الدفعة 6" }
+        }
+      },
+      {
+        "wait_after_batch_06": {
+          "wait": "PT2M",
+          "then": "refresh_us_benchmarks_signals_07",
+          "x-base44": { "title": "انتظار دقيقتين" }
+        }
+      },
+      {
+        "refresh_us_benchmarks_signals_07": {
           "call": "invoke_backend_function",
           "with": { "function_name": "usBenchmarksSignalRefresh", "args": { "market_code": "US_BENCHMARKS", "source": "daily_session_projection" } },
           "then": "end",
@@ -57,7 +102,7 @@
       }
     ]
   },
-  "description": "يبني الشموع اليومية والأسبوعية والشهرية والإشارات من البيانات المحفوظة للمؤشرات والصناديق الأمريكية عبر 3 دفعات محدودة ثم خطوة تحقق نهائية.",
+  "description": "يبني الشموع اليومية والأسبوعية والشهرية والإشارات من البيانات المحفوظة للمؤشرات والصناديق الأمريكية عبر 6 دفعات محدودة ثم خطوة تحقق نهائية.",
   "name": "المؤشرات والصناديق الأمريكية — الشموع والإشارات اليومية",
   "trigger": {
     "condition": null,

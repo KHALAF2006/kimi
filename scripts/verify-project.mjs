@@ -347,8 +347,10 @@ assert.match(telegramDeliveryFunction, /requirePermission\(base44, payload\.sess
 assert.match(whatsappDeliveryFunction, /requirePermission\(base44, payload\.session_id, payload\.device_id, "delivery\.channels\.manage"\)/, "manual WhatsApp delivery must require the owner-only centralized delivery permission from its registered device");
 assert.match(deliveryWorkerFunction, /MAX_EVENT_AGE_MS = 60 \* 60 \* 1000/, "the centralized delivery worker must expire stale alerts before any real delivery");
 assert.match(deliveryWorkerFunction, /dryRun = args\.dry_run === true/, "the centralized delivery worker must support a non-sending diagnostic mode");
+assert.match(deliveryWorkerFunction, /const \[pending, retryRows, campaigns\] = await Promise\.all/, "delivery diagnostics must query independent queues concurrently to stay below the workflow timeout");
 assert.match(deliveryWorkerFunction, /unsupported_delivery_channel/, "unsupported queued channels must be closed instead of remaining pending forever");
 assert.match(deliveryWorkerWorkflow, /"dry_run": true/, "the centralized delivery workflow must remain in diagnostic mode until live delivery is explicitly approved");
+assert.match(deliveryWorkerWorkflow, /"cron_expression": "0 10-23 \* \* 0-5"/, "a diagnostic-only delivery workflow must not consume credits every fifteen minutes");
 assert.match(adminSubscriptionsPersistenceFunction, /SUBSCRIPTION_PERSISTENCE_FAILED/, "subscription changes must be read back and confirmed before success");
 assert.match(adminRolesPersistenceFunction, /ROLE_ASSIGNMENT_PERSISTENCE_FAILED/, "role assignments must be read back and confirmed before success");
 assert.match(subscriptionsAdminPage, /transitionOptions\(item\.status\)/, "subscription status choices must only expose valid backend transitions");

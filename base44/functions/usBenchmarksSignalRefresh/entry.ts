@@ -907,7 +907,7 @@ async function closeExpiredIngestionRuns(base44, marketCode, now = /* @__PURE__ 
 
 // base44/functions/usBenchmarksSignalRefresh/source.ts
 var MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
-var PROJECTION_BATCH_SIZE = 12;
+var PROJECTION_BATCH_SIZE = 6;
 var PROJECTION_BATCH_COUNT = Math.ceil(US_BENCHMARKS_CATALOG.instruments.length / PROJECTION_BATCH_SIZE);
 function rows2(value) {
   if (Array.isArray(value)) return value;
@@ -966,11 +966,13 @@ async function projectionSource(base44) {
 async function projectBatch(base44, instruments, sessionDate, sourceId, runId) {
   const ids = instruments.map((item2) => item2.id);
   const idQuery = { $in: ids };
-  const [candleRows, snapshotRows] = await Promise.all([
-    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE }, "-start_time", 2e3),
+  const [sourceCandleRows, projectedCandleRows, snapshotRows] = await Promise.all([
+    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE, interval: { $in: ["1d", "15m"] } }, "-start_time", 500),
+    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE, interval: { $in: ["1wk", "1mo"] } }, "-start_time", 500),
     base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE }, "-source_as_of", 500)
   ]);
-  const chunks = rows2(candleRows).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+  const chunks = rows2(sourceCandleRows).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+  const existingProjectedCandles = rows2(projectedCandleRows).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
   const existingSnapshots = rows2(snapshotRows);
   const projectedCandles = [];
   const snapshots = [];
@@ -998,7 +1000,7 @@ async function projectBatch(base44, instruments, sessionDate, sourceId, runId) {
   }
   return {
     instruments: instruments.length,
-    candles: await upsert(base44, "CandleChunk", projectedCandles, chunks, ["instrument_id", "interval", "chunk_key"]),
+    candles: await upsert(base44, "CandleChunk", projectedCandles, existingProjectedCandles, ["instrument_id", "interval", "chunk_key"]),
     signals: await upsert(base44, "IndicatorSnapshot", snapshots, existingSnapshots, ["instrument_id", "indicator_key", "timeframe"]),
     skipped
   };

@@ -52,12 +52,15 @@ Deno.serve(async (req) => {
     if (!automationUser || automationUser.role !== "admin") return Response.json({ error: "Automation authentication required", code: "AUTOMATION_AUTH_REQUIRED" }, { status: 401 });
     const now = Date.now();
     const dryRun = args.dry_run === true;
-    const pending = await base44.asServiceRole.entities.DeliveryEvent.filter({ status: "pending" }, "created_date", DELIVERY_BATCH);
-    const retry = (await base44.asServiceRole.entities.DeliveryEvent.filter({ status: "retry" }, "next_attempt_at", DELIVERY_BATCH)).filter((event) => !event.next_attempt_at || new Date(event.next_attempt_at).getTime() <= now);
+    const [pending, retryRows, campaigns] = await Promise.all([
+      base44.asServiceRole.entities.DeliveryEvent.filter({ status: "pending" }, "created_date", DELIVERY_BATCH),
+      base44.asServiceRole.entities.DeliveryEvent.filter({ status: "retry" }, "next_attempt_at", DELIVERY_BATCH),
+      base44.asServiceRole.entities.EmailCampaign.filter({ status: "sending" }, "created_date", 5),
+    ]);
+    const retry = retryRows.filter((event) => !event.next_attempt_at || new Date(event.next_attempt_at).getTime() <= now);
     const events = [...new Map([...pending, ...retry].map((event) => [event.id, event])).values()].slice(0, DELIVERY_BATCH);
     const expiredEvents = events.filter((event) => isExpiredEvent(event, now));
     const deliverableEvents = events.filter((event) => !isExpiredEvent(event, now));
-    const campaigns = await base44.asServiceRole.entities.EmailCampaign.filter({ status: "sending" }, "created_date", 5);
     if (dryRun) {
       return Response.json({
         status: "diagnostic_complete",

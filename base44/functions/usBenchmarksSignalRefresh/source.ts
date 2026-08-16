@@ -6,9 +6,10 @@ import { US_BENCHMARKS_CATALOG, US_BENCHMARKS_MARKET_CODE, US_BENCHMARKS_SYMBOLS
 import { closeExpiredIngestionRuns } from "../../shared/ingestion-run-lifecycle.ts";
 
 const MARKET_OPTIONS = { timeZone: "America/New_York", weekStartsOn: 1 };
-// One bounded batch per workflow invocation. The previous monolithic job
-// finished only its first 12 instruments before Base44 stopped the function.
-const PROJECTION_BATCH_SIZE = 12;
+// One bounded batch per workflow invocation. Runtime evidence showed that a
+// 12-instrument batch could exceed Base44's execution lease, so keep enough
+// headroom for entity reads, hashing, and writes under provider/database load.
+const PROJECTION_BATCH_SIZE = 6;
 const PROJECTION_BATCH_COUNT = Math.ceil(US_BENCHMARKS_CATALOG.instruments.length / PROJECTION_BATCH_SIZE);
 
 function rows(value) {
@@ -74,11 +75,13 @@ async function projectionSource(base44) {
 async function projectBatch(base44, instruments, sessionDate, sourceId, runId) {
   const ids = instruments.map((item) => item.id);
   const idQuery = { $in: ids };
-  const [candleRows, snapshotRows] = await Promise.all([
-    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE }, "-start_time", 2000),
+  const [sourceCandleRows, projectedCandleRows, snapshotRows] = await Promise.all([
+    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE, interval: { $in: ["1d", "15m"] } }, "-start_time", 500),
+    base44.asServiceRole.entities.CandleChunk.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE, interval: { $in: ["1wk", "1mo"] } }, "-start_time", 500),
     base44.asServiceRole.entities.IndicatorSnapshot.filter({ instrument_id: idQuery, market_code: US_BENCHMARKS_MARKET_CODE }, "-source_as_of", 500),
   ]);
-  const chunks = rows(candleRows).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+  const chunks = rows(sourceCandleRows).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
+  const existingProjectedCandles = rows(projectedCandleRows).filter((chunk) => chunk.quality_status !== "quarantined" && Array.isArray(chunk.bars));
   const existingSnapshots = rows(snapshotRows);
   const projectedCandles = [];
   const snapshots = [];
@@ -111,7 +114,7 @@ async function projectBatch(base44, instruments, sessionDate, sourceId, runId) {
   }
   return {
     instruments: instruments.length,
-    candles: await upsert(base44, "CandleChunk", projectedCandles, chunks, ["instrument_id", "interval", "chunk_key"]),
+    candles: await upsert(base44, "CandleChunk", projectedCandles, existingProjectedCandles, ["instrument_id", "interval", "chunk_key"]),
     signals: await upsert(base44, "IndicatorSnapshot", snapshots, existingSnapshots, ["instrument_id", "indicator_key", "timeframe"]),
     skipped,
   };

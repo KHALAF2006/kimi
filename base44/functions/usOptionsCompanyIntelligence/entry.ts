@@ -1995,8 +1995,8 @@ function normalizeNasdaqHolders(payload, instrument, sourceId, nowIso) {
 var SEC_SOURCE = "OFFICIAL_SEC_EDGAR_US_OPTIONS";
 var NASDAQ_SOURCE = "REFERENCE_NASDAQ_US_COMPANY";
 var YAHOO_ACTIONS_SOURCE = "REFERENCE_YAHOO_US_ACTIONS";
-var DEFAULT_BATCH_SIZE = 10;
-var MAX_BATCH_SIZE = 20;
+var DEFAULT_BATCH_SIZE = 5;
+var MAX_BATCH_SIZE = 5;
 var SEC_USER_AGENT = "Mozilla/5.0 SMART_INVESTORMarketPlatform/1.0";
 var SEC_CONTACT = "khalaf2006@users.noreply.github.com";
 function rows(value) {
@@ -2079,8 +2079,10 @@ async function ensureCatalog(base44) {
   for (const company of US_OPTIONS_CATALOG.companies) {
     const payload = catalogInstrument(company);
     const current = byKey.get(payload.composite_key);
-    if (current) updates.push({ id: current.id, ...payload });
-    else creates.push(payload);
+    if (current) {
+      const changed = Object.entries(payload).some(([field, value]) => String(current[field] ?? "") !== String(value ?? ""));
+      if (changed) updates.push({ id: current.id, ...payload });
+    } else creates.push(payload);
   }
   if (creates.length) await base44.asServiceRole.entities.Instrument.bulkCreate(creates);
   if (updates.length) await base44.asServiceRole.entities.Instrument.bulkUpdate(updates);
@@ -2118,12 +2120,13 @@ async function syncCompany(base44, instrument, cikRecord, sources, nowIso) {
   }
   const actions = payloads.actions.value ? normalizeYahooActions(payloads.actions.value, instrument, sources.yahoo.id, nowIso) : [];
   const shareholders = payloads.holders.value ? normalizeNasdaqHolders(payloads.holders.value, instrument, sources.nasdaq.id, nowIso) : [];
-  const results = {
-    financials: await upsertMany(base44, "CompanyFinancial", financials, ["instrument_id", "period", "statement_type"]),
-    announcements: await upsertMany(base44, "CompanyAnnouncement", announcements, ["instrument_id", "announcement_id"]),
-    actions: await upsertMany(base44, "CorporateAction", actions, ["instrument_id", "event_type", "ex_date"]),
-    shareholders: await upsertMany(base44, "MajorShareholder", shareholders, ["instrument_id", "shareholder_key"])
-  };
+  const [financialResult, announcementResult, actionResult, shareholderResult] = await Promise.all([
+    upsertMany(base44, "CompanyFinancial", financials, ["instrument_id", "period", "statement_type"]),
+    upsertMany(base44, "CompanyAnnouncement", announcements, ["instrument_id", "announcement_id"]),
+    upsertMany(base44, "CorporateAction", actions, ["instrument_id", "event_type", "ex_date"]),
+    upsertMany(base44, "MajorShareholder", shareholders, ["instrument_id", "shareholder_key"])
+  ]);
+  const results = { financials: financialResult, announcements: announcementResult, actions: actionResult, shareholders: shareholderResult };
   const complete = failures.length === 0 && Boolean(payloads.submissions.value && payloads.companyFacts.value && financials.length && announcements.length);
   await base44.asServiceRole.entities.Instrument.update(instrument.id, {
     ...profile,
@@ -2157,7 +2160,6 @@ Deno.serve(async (req) => {
       nasdaq: await ensureSource(base44, NASDAQ_SOURCE, { name: "Nasdaq company and institutional holdings reference", source_type: "reference", license_status: "restricted", quote_mode: "end_of_day", delay_seconds: 0, public_enabled: false, base_url: "https://api.nasdaq.com" }),
       yahoo: await ensureSource(base44, YAHOO_ACTIONS_SOURCE, { name: "Yahoo corporate action history reference adapter", source_type: "reference", license_status: "restricted", quote_mode: "end_of_day", delay_seconds: 0, public_enabled: false, base_url: "https://query1.finance.yahoo.com" })
     };
-    const tickerMap = normalizeSecTickerMap(await fetchJson("https://www.sec.gov/files/company_tickers.json", { sec: true }));
     const requested = Array.isArray(body.symbols) ? new Set(body.symbols.map((value) => String(value).toUpperCase())) : null;
     const batchSize = Math.min(MAX_BATCH_SIZE, Math.max(1, Number(body.batch_size) || DEFAULT_BATCH_SIZE));
     const selected = instruments.filter((instrument) => !requested || requested.has(instrument.symbol)).sort((a, b) => String(a.company_data_as_of || "").localeCompare(String(b.company_data_as_of || "")) || a.symbol.localeCompare(b.symbol)).slice(0, batchSize);
@@ -2176,6 +2178,7 @@ Deno.serve(async (req) => {
       source_id: sources.sec.id,
       notes: "Official SEC filings and financials plus source-backed corporate actions and institutional ownership"
     });
+    const tickerMap = normalizeSecTickerMap(await fetchJson("https://www.sec.gov/files/company_tickers.json", { sec: true }));
     const results = [];
     let cursor = 0;
     async function worker() {
@@ -2188,7 +2191,7 @@ Deno.serve(async (req) => {
         }
       }
     }
-    await Promise.all(Array.from({ length: Math.min(3, selected.length) }, () => worker()));
+    await Promise.all(Array.from({ length: selected.length }, () => worker()));
     const succeeded = results.filter((result) => result.status !== "failed").length;
     const status = succeeded === selected.length ? "success" : succeeded ? "partial" : "failed";
     await base44.asServiceRole.entities.IngestionRun.update(run.id, {

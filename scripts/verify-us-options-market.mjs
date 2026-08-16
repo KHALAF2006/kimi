@@ -232,6 +232,12 @@ for (const marker of ["normalizeSecFinancials", "normalizeSecFilings", "normaliz
 assert.match(companyIntelligence, /data\.sec\.gov/);
 assert.match(companyIntelligence, /institutional-holdings/);
 assert.match(companyIntelligence, /const complete = failures\.length === 0/);
+assert.match(companyIntelligence, /const DEFAULT_BATCH_SIZE = 5/);
+assert.match(companyIntelligence, /const MAX_BATCH_SIZE = 5/);
+assert.match(companyIntelligence, /Object\.entries\(payload\)\.some/, "unchanged catalog rows must not be rewritten on every company cycle");
+assert.match(companyIntelligence, /const \[financialResult, announcementResult, actionResult, shareholderResult\] = await Promise\.all/, "independent company entity upserts must run concurrently within the bounded provider wave");
+assert.ok(companyIntelligence.indexOf("IngestionRun.create") < companyIntelligence.indexOf("company_tickers.json"), "provider-map failures must be recorded in the ingestion run instead of disappearing before observability begins");
+assert.match(companyIntelligence, /length: selected\.length/, "each bounded company must use one worker so the invocation cannot create multiple timeout waves");
 const adminMarketData = await source("base44/functions/adminMarketData/entry.ts");
 assert.match(adminMarketData, /REFERENCE_YAHOO_US_OPTIONS_T15/);
 assert.match(adminMarketData, /refresh_company_intelligence/);
@@ -333,7 +339,13 @@ for (let index = 0; index < usSignalSteps.length; index += 1) {
 }
 assert.equal(historyWorkflow.trigger.config.ends_type, "never");
 assert.equal(historyWorkflow.trigger.config.ends_after_count, null);
-assert.equal(Object.values(companyWorkflow.definition.do[0])[0].with.args.batch_size, 10);
+const companySteps = companyWorkflow.definition.do.map((entry) => Object.values(entry)[0]);
+const companyCalls = companySteps.filter((step) => step.call === "invoke_backend_function");
+const companyWaits = companySteps.filter((step) => step.wait === "PT2M");
+assert.equal(companyCalls.length, 3, "company intelligence must cover 15 rotating companies per day through three bounded calls");
+assert.equal(companyWaits.length, 2, "company intelligence calls must be separated to avoid provider and function bursts");
+assert.ok(companyCalls.every((step) => step.with.args.batch_size === 5));
+for (let index = 0; index < companySteps.length; index += 1) assert.equal(companySteps[index].then, companySteps[index + 1] ? Object.keys(companyWorkflow.definition.do[index + 1])[0] : "end");
 for (const workflow of [ingestionWorkflow, ingestionBatch2Workflow, signalWorkflow, historyWorkflow, companyWorkflow]) {
   assert.equal(workflow.trigger.config.trigger_type, "scheduled");
   assert.equal(workflow.trigger.config.schedule_mode, "recurring");
