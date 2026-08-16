@@ -10,6 +10,13 @@ function rowCreatedAt(row) {
   return new Date(row.created_date || row.created_at || row.updated_date || 0).getTime();
 }
 
+function secureSixDigitOtp() {
+  const ceiling = Math.floor(0x1_0000_0000 / 1_000_000) * 1_000_000;
+  const buffer = new Uint32Array(1);
+  do crypto.getRandomValues(buffer); while (buffer[0] >= ceiling);
+  return String(buffer[0] % 1_000_000).padStart(6, "0");
+}
+
 async function enforceOtpStartLimit(base44, user, profile) {
   const now = Date.now();
   const challenges = await base44.asServiceRole.entities.LoginChallenge.filter({
@@ -50,7 +57,7 @@ Deno.serve(async (req) => {
     if (profile.account_status !== "active") return Response.json({ error: "Account is not active", code: "ACCOUNT_NOT_ACTIVE" }, { status: 403 });
     if (body.action === "start") {
       await enforceOtpStartLimit(base44, user, profile);
-      const otp = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1e6).padStart(6, "0");
+      const otp = secureSixDigitOtp();
       const challenge2 = await base44.asServiceRole.entities.LoginChallenge.create({ customer_id: profile.id, purpose: "login", email_otp_hash: await sha256(otp), attempts: 0, max_attempts: 5, expires_at: new Date(Date.now() + OTP_TTL_MS).toISOString() });
       await base44.asServiceRole.integrations.Core.SendEmail({ to: user.email, subject: "رمز دخول المستثمر الذكي", body: `رمز التحقق الخاص بك هو: ${otp}
 \u064A\u0646\u062A\u0647\u064A \u062E\u0644\u0627\u0644 10 \u062F\u0642\u0627\u0626\u0642.` });

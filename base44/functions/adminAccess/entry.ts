@@ -20,7 +20,7 @@ function referralUrl(value) {
   const result = text(value, 1000);
   let parsed;
   try { parsed = new URL(result); } catch { fail("Enter a valid referral URL", "INVALID_REFERRAL_URL"); }
-  if (!['https:', 'http:'].includes(parsed.protocol)) fail("Referral URL must use HTTPS or HTTP", "INVALID_REFERRAL_URL");
+  if (parsed.protocol !== "https:") fail("Referral URL must use HTTPS", "INVALID_REFERRAL_URL");
   return parsed.toString();
 }
 function platformCode(value) {

@@ -927,6 +927,13 @@ assert.match(companyChart, /series\.update\(nextData\.at\(-1\)\)/, "chart replay
 assert.doesNotMatch(drawingTools, /secondFrame/, "drawing overlays must not schedule duplicate animation frames for one interaction");
 assert.doesNotMatch(drawingTools, /\["wheel", "pointermove"/, "drawing overlays must not redraw unconditionally for every pointer movement");
 assert.match(marketReadFunction, /MARKET_SESSION_DATE_FORMATTERS/, "market reads must reuse timezone formatters instead of allocating one for every candle");
+assert.doesNotMatch(sharedSecurity, /if \(!explicitMarkets\.length\) marketCodes\.add\("SA_MAIN"\)/, "plans without explicit market entitlements must fail closed");
+assert.match(sharedSecurity, /smart-investor-trial-10d-sa_main/, "only an explicitly named legacy Saudi trial may retain compatibility access");
+assert.match(adminSubscriptionsFunction, /OWNER_REQUIRED_FOR_PAID_ACTIVATION/, "manual paid-plan activation must remain owner-only");
+assert.match(adminSubscriptionsFunction, /subscription\.manual_activation_reused/, "manual activation retries must reuse an existing active subscription");
+assert.match(messageCenterFunction, /contact_masked: !fullContact/, "support customer listings must disclose whether contact details are masked");
+assert.match(adminAccessFunction, /parsed\.protocol !== "https:"/, "trading-platform referral links must require HTTPS");
+assert.match(authLoginFunction, /function secureSixDigitOtp\(/, "login OTP generation must use rejection sampling without modulo bias");
 assert.equal(replayStartIndex(risingBars, risingBars[8].time), 8, "bar replay must resolve the selected historical candle deterministically");
 assert.equal(replayCandles(risingBars, 8).length, 9, "bar replay must hide every candle after the current replay cursor");
 assert.equal(nextReplayCursor(8, risingBars.length, -1), 7, "bar replay must step backwards one candle");

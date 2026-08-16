@@ -43,6 +43,21 @@ function addMonths(date, count) {
   return value.toISOString();
 }
 
+async function confirmedAccessSnapshot(base44, customerId) {
+  const now = Date.now();
+  const subscriptions = (await base44.asServiceRole.entities.Subscription.filter({ customer_id: customerId, status: "active" }))
+    .filter((item) => !item.ends_at || new Date(item.ends_at).getTime() > now);
+  const markets = new Set();
+  for (const subscription of subscriptions) {
+    const entitlements = await base44.asServiceRole.entities.PlanEntitlement.filter({ plan_id: subscription.plan_id, enabled: true });
+    const codes = new Set(entitlements.map((item) => item.code));
+    if (["market.saudi", "market.saudi.delayed", "market.saudi.realtime"].some((code) => codes.has(code))) markets.add("SA_MAIN");
+    if (codes.has("market.us.options")) markets.add("US_OPTIONS");
+    if (codes.has("market.us.benchmarks")) markets.add("US_BENCHMARKS");
+  }
+  return { subscriptions, market_access: [...markets] };
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -119,6 +134,7 @@ Deno.serve(async (req) => {
       const plan = await base44.asServiceRole.entities.SubscriptionPlan.get(String(body.plan_id || ""));
       if (!customer) bad("Customer not found", "CUSTOMER_NOT_FOUND", 404);
       if (!plan?.active) bad("Active plan not found", "PLAN_NOT_FOUND", 404);
+      if (Number(plan.price_sar || 0) > 0 && context.role !== "owner") bad("Only the platform owner can manually activate a paid plan", "OWNER_REQUIRED_FOR_PAID_ACTIVATION", 403);
       const memberships = await base44.asServiceRole.entities.AccountMember.filter({ customer_id: customer.id, status: "active" });
       const initialized = memberships[0] ? null : await ensurePersonalAccount(base44, customer, context.user.id);
       const allowedAccountIds = new Set([
@@ -131,6 +147,13 @@ Deno.serve(async (req) => {
       if (!accountId) bad("Customer account could not be initialized", "ACCOUNT_NOT_INITIALIZED", 409);
       const startsAt = body.starts_at ? new Date(body.starts_at) : new Date();
       if (Number.isNaN(startsAt.getTime())) bad("Invalid subscription start date");
+      const existing = (await base44.asServiceRole.entities.Subscription.filter({ customer_id: customer.id, status: "active" }))
+        .find((item) => item.plan_id === plan.id && String(item.account_id || "") === accountId && (!item.ends_at || new Date(item.ends_at).getTime() > Date.now()));
+      if (existing) {
+        const accessSnapshot = await confirmedAccessSnapshot(base44, customer.id);
+        await audit(base44, context.user.id, "subscription.manual_activation_reused", "Subscription", existing.id, "success", reason, existing, existing);
+        return Response.json({ subscription: existing, access_snapshot: accessSnapshot, idempotent: true });
+      }
       const subscription = await base44.asServiceRole.entities.Subscription.create({
         customer_id: customer.id,
         account_id: accountId,
@@ -143,8 +166,11 @@ Deno.serve(async (req) => {
         activation_method: "manual",
         revision: 1,
       });
-      await audit(base44, context.user.id, "subscription.manual_activation", "Subscription", subscription.id, "success", reason, {}, subscription);
-      return Response.json({ subscription });
+      const confirmed = await base44.asServiceRole.entities.Subscription.get(subscription.id);
+      if (!confirmed?.id || confirmed.status !== "active") bad("Subscription activation could not be confirmed", "SUBSCRIPTION_NOT_CONFIRMED", 500);
+      const accessSnapshot = await confirmedAccessSnapshot(base44, customer.id);
+      await audit(base44, context.user.id, "subscription.manual_activation", "Subscription", confirmed.id, "success", reason, {}, confirmed);
+      return Response.json({ subscription: confirmed, access_snapshot: accessSnapshot, idempotent: false });
     }
 
     if (body.action === "transition") {

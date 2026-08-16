@@ -2,6 +2,16 @@ import { createClientFromRequest } from "npm:@base44/sdk@0.8.41";
 import { audit, authorizationContext, readJsonBody, replyError } from "../../shared/security.ts";
 
 const STAFF_PERMISSION = "messages.manage";
+
+function maskedEmail(value) {
+  const [local = "", domain = ""] = String(value || "").split("@");
+  return domain ? `${local.slice(0, 2)}***@${domain}` : "***";
+}
+
+function maskedPhone(value) {
+  const phone = String(value || "");
+  return phone.length > 4 ? `${phone.slice(0, 4)}*****${phone.slice(-2)}` : "***";
+}
 const MAX_BODY = 4000;
 const MAX_SUBJECT = 160;
 const OPEN_STATUSES = new Set(["open", "pending_customer", "pending_staff"]);
@@ -184,9 +194,15 @@ Deno.serve(async (req) => {
 
     if (body.action === "list_customers") {
       if (!staff) fail("Staff permission required", "PERMISSION_DENIED", 403);
+      const fullContact = context.role === "owner" || context.permissions.has("customers.full.read");
       const customers = (await base44.asServiceRole.entities.CustomerProfile.list("full_name", 300))
         .filter((profile) => profile.role === "user" && profile.account_status !== "closed")
-        .map(({ id, full_name, customer_number, email_normalized, phone_e164, account_status }) => ({ id, full_name, customer_number, email_normalized, phone_e164, account_status }));
+        .map(({ id, full_name, customer_number, email_normalized, phone_e164, account_status }) => ({
+          id, full_name, customer_number, account_status,
+          email_normalized: fullContact ? email_normalized : maskedEmail(email_normalized),
+          phone_e164: fullContact ? phone_e164 : maskedPhone(phone_e164),
+          contact_masked: !fullContact,
+        }));
       return Response.json({ customers });
     }
 

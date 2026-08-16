@@ -278,15 +278,20 @@ async function subscriptionContext(base44, profile, account) {
   const marketCodes = new Set();
   // Resolve access per subscribed plan, then union the results. This preserves
   // a legacy Saudi subscription when the same account also buys U.S. access.
-  entitlementGroups.forEach((group) => {
+  entitlementGroups.forEach((group, index) => {
     const codes = new Set(group.map((item) => item.code));
     const explicitMarkets = [...codes].filter((code) => code.startsWith("market."));
     if (codes.has("market.us.options")) marketCodes.add("US_OPTIONS");
     if (codes.has("market.us.benchmarks")) marketCodes.add("US_BENCHMARKS");
     if ([...codes].some((code) => ["market.saudi", "market.saudi.delayed", "market.saudi.realtime"].includes(code))) marketCodes.add("SA_MAIN");
-    // Existing SMART_INVESTOR plans predate market-specific entitlements. Preserve their
-    // Saudi access only; never infer U.S. access from a legacy subscription.
-    if (!explicitMarkets.length) marketCodes.add("SA_MAIN");
+    // Fail closed for plans without market entitlements. Only explicitly named
+    // legacy trial plans retain their original single-market mapping.
+    if (!explicitMarkets.length) {
+      const planCode = String(plans.find((plan) => plan.id === planIds[index])?.code || "").toLowerCase();
+      if (planCode === "smart-investor-trial-10d-sa_main") marketCodes.add("SA_MAIN");
+      if (planCode === "smart-investor-trial-10d-us_options") marketCodes.add("US_OPTIONS");
+      if (planCode === "smart-investor-trial-10d-us_benchmarks") marketCodes.add("US_BENCHMARKS");
+    }
   });
   const marketAccess = [...marketCodes].map((marketCode) => ({ market_code: marketCode, ...MARKET_ACCESS[marketCode] }));
   return {
