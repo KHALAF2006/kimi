@@ -21,6 +21,8 @@
     "reviewed_by_user_id": { "type": "string" },
     "reviewed_at": { "type": "string", "format": "date-time" },
     "decision_reason": { "type": "string" },
+    "decision_token": { "type": "string" },
+    "decision_started_at": { "type": "string", "format": "date-time" },
     "approved_subscription_id": { "type": "string" },
     "revision": { "type": "integer", "minimum": 1 }
   },

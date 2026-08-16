@@ -98,52 +98,27 @@ export function resolvedRole(user, profile) {
   return hasTrustedOwnerMarker(user, profile) ? "owner" : (profile?.role || user?.role);
 }
 
-function normalizedEmail(user) {
-  return String(user?.email || "").trim().toLowerCase();
-}
-
-function administrativeName(user) {
-  const fullName = String(user?.full_name || "").trim();
-  if (fullName) return fullName;
-  return normalizedEmail(user).split("@")[0];
-}
-
 /**
- * Reconciles only Base44's trusted built-in admin identity. This exists for
- * app owners created before CustomerProfile was deployed. It never promotes a
- * normal user and never fabricates a phone number or country.
+ * Base44's built-in admin role is a hosting identity, not an application role.
+ * Application administration must already be granted in CustomerProfile. The
+ * only reconciliation retained here is the explicitly bootstrapped owner
+ * marker used by this app; no missing profile is created and no pending
+ * profile is activated implicitly.
  */
 export async function ensureAdministrativeProfile(base44, user) {
   let profile = await profileFor(base44, user);
-  if (user?.role !== "admin") return profile;
+  if (!profile || user?.role !== "admin") return profile;
 
-  const now = new Date().toISOString();
-  if (!profile) {
-    profile = await base44.asServiceRole.entities.CustomerProfile.create({
-      customer_number: `SMART_INVESTOR-ADMIN-${String(user.id).slice(-8).toUpperCase()}`,
-      auth_user_id: user.id,
-      email_normalized: normalizedEmail(user),
-      full_name: administrativeName(user),
-      preferred_language: "ar",
-      account_status: "active",
-      role: "admin",
-      tags: ["base44_admin_bootstrap"],
-      email_verified_at: now,
-      last_seen_at: now,
-    });
-    await audit(base44, user.id, "customer.admin_bootstrapped", "CustomerProfile", profile.id, "success");
-    return profile;
-  }
-
-  const owner = hasTrustedOwnerMarker(user, profile) || profile.role === "owner";
-  if (!["admin", "owner"].includes(profile.role) || profile.account_status === "pending_verification" || (owner && profile.role !== "owner")) {
+  const owner = hasTrustedOwnerMarker(user, profile);
+  if (owner && (profile.role !== "owner" || profile.account_status !== "active")) {
+    const now = new Date().toISOString();
     profile = await base44.asServiceRole.entities.CustomerProfile.update(profile.id, {
-      role: owner ? "owner" : "admin",
+      role: "owner",
       account_status: "active",
       email_verified_at: profile.email_verified_at || now,
       last_seen_at: now,
     });
-    await audit(base44, user.id, "customer.admin_reconciled", "CustomerProfile", profile.id, "success");
+    await audit(base44, user.id, "customer.owner_reconciled", "CustomerProfile", profile.id, "success");
   }
   return profile;
 }

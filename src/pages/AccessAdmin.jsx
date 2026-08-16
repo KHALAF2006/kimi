@@ -87,7 +87,8 @@ export default function AccessAdmin() {
     if (!decision.reason.trim() || !decision.ids.length || state.busy) return;
     setState((current) => ({ ...current, busy: true, error: "", notice: "" }));
     try {
-      const result = await invokeAppFunction("adminAccess", { action: decision.ids.length > 1 ? "decide_applications" : "decide_application", application_ids: decision.ids, application_id: decision.ids[0], decision: decision.value, reason: decision.reason.trim() });
+      const expectedRevisions = Object.fromEntries(state.applications.filter((item) => decision.ids.includes(item.id)).map((item) => [item.id, item.revision || 1]));
+      const result = await invokeAppFunction("adminAccess", { action: decision.ids.length > 1 ? "decide_applications" : "decide_application", application_ids: decision.ids, application_id: decision.ids[0], decision: decision.value, reason: decision.reason.trim(), expected_revisions: expectedRevisions });
       await load();
       setDecision((current) => ({ ...current, open: false }));
       setSelected([]);

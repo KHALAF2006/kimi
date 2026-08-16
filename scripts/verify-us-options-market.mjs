@@ -130,8 +130,10 @@ assert.match(security, /if \(codes\.has\("market\.us\.options"\)\) marketCodes\.
 assert.match(security, /Fail closed for plans without market entitlements/);
 assert.match(security, /smart-investor-trial-10d-us_options/);
 assert.match(security, /MARKET_SUBSCRIPTION_REQUIRED/);
-assert.match(security, /authorizationContext[\s\S]*ensureAdministrativeProfile\(base44, user\)/, "an existing Base44 administrator must be reconciled at the authorization boundary without requiring a fresh login");
-assert.match(security, /if \(user\?\.role !== "admin"\) return profile/, "administrative reconciliation must never promote a normal customer");
+assert.match(security, /authorizationContext[\s\S]*ensureAdministrativeProfile\(base44, user\)/, "the explicitly bootstrapped owner must be reconciled at the authorization boundary without requiring a fresh login");
+assert.match(security, /if \(!profile \|\| user\?\.role !== "admin"\) return profile/, "a Base44 admin identity without an application profile must fail closed");
+assert.doesNotMatch(security, /customer\.admin_bootstrapped/, "application administrators must never be created from Base44's hosting role alone");
+assert.match(security, /const owner = hasTrustedOwnerMarker\(user, profile\)/, "only the explicit platform owner marker may reconcile elevated access");
 
 const permissions = await source("base44/shared/permissions.ts");
 assert.match(permissions, /"market\.us\.options"/);
@@ -140,6 +142,12 @@ assert.match(subscriptionsAdmin, /otherActiveSubscriptions/);
 assert.match(subscriptionsAdmin, /remaining_active_subscriptions/);
 assert.match(subscriptionsAdmin, /\["suspended", "expired", "banned"\]\.includes\(status\) && otherActiveSubscriptions\.length === 0/);
 assert.doesNotMatch(subscriptionsAdmin, /status === "banned" \|\|/);
+
+const adminAccess = await source("base44/functions/adminAccess/entry.ts");
+assert.match(adminAccess, /expectedRevisions\[id\]/, "access decisions must carry the revision viewed by the administrator");
+assert.match(adminAccess, /claimed\?\.decision_token !== decisionToken/, "access decisions must confirm their unique logical claim before side effects");
+assert.match(adminAccess, /approval decision superseded/, "a superseded approval must revoke the subscription it created");
+assert.match(adminAccess, /duplicate application activation reconciled/, "concurrent duplicate subscriptions must be reconciled to one active record");
 
 const marketRead = await source("base44/functions/marketRead/entry.ts");
 assert.match(marketRead, /function localizedInstrument/, "U.S. Arabic catalog labels must be projected at read time without waiting for the next ingestion cycle");

@@ -105,7 +105,7 @@ async function reconcileApplicationSubscriptions(base44, actor, applicationId, r
   }
   return canonical;
 }
-async function decideOne(base44, actor, applicationId, decision, reason) {
+async function decideOne(base44, actor, applicationId, decision, reason, expectedRevision) {
   const application = await base44.asServiceRole.entities.MarketAccessApplication.get(String(applicationId || ""));
   if (!application) fail("Application not found", "APPLICATION_NOT_FOUND", 404);
   if (!MARKETS[application.market_code]) fail("Unsupported market", "UNSUPPORTED_MARKET", 400);
@@ -118,16 +118,35 @@ async function decideOne(base44, actor, applicationId, decision, reason) {
     }
     fail("Application was already reviewed", "APPLICATION_ALREADY_REVIEWED", 409);
   }
+  if (Number(expectedRevision) !== Number(application.revision || 1)) fail("Application changed in another session", "REVISION_CONFLICT", 409);
   const customer = await base44.asServiceRole.entities.CustomerProfile.get(application.customer_id);
   if (!customer || customer.role === "owner") fail("Customer not found", "CUSTOMER_NOT_FOUND", 404);
   const now = new Date();
+  const decisionToken = crypto.randomUUID();
+  const transitioned = await base44.asServiceRole.entities.MarketAccessApplication.update(application.id, {
+    status: decision,
+    reviewed_by_user_id: actor.id,
+    reviewed_at: now.toISOString(),
+    decision_reason: reason,
+    decision_token: decisionToken,
+    decision_started_at: now.toISOString(),
+    revision: Number(application.revision || 1) + 1,
+  });
+  const claimed = await base44.asServiceRole.entities.MarketAccessApplication.get(transitioned.id);
+  if (claimed?.decision_token !== decisionToken || claimed?.status !== decision) fail("Application changed in another session", "REVISION_CONFLICT", 409);
 
   if (decision === "rejected") {
-    const updated = await base44.asServiceRole.entities.MarketAccessApplication.update(application.id, {
-      status: "rejected", reviewed_by_user_id: actor.id, reviewed_at: now.toISOString(), decision_reason: reason,
-      revision: Number(application.revision || 1) + 1,
-    });
-    const confirmed = await base44.asServiceRole.entities.MarketAccessApplication.get(updated.id);
+    const confirmed = await base44.asServiceRole.entities.MarketAccessApplication.get(application.id);
+    if (confirmed?.decision_token !== decisionToken || confirmed?.status !== "rejected") fail("Application changed in another session", "REVISION_CONFLICT", 409);
+    const activeSubscriptions = await base44.asServiceRole.entities.Subscription.filter({ application_id: application.id, status: "active" });
+    for (const activeSubscription of activeSubscriptions) {
+      await base44.asServiceRole.entities.Subscription.update(activeSubscription.id, {
+        status: "suspended",
+        suspended_at: now.toISOString(),
+        reason: `${activeSubscription.reason || reason} | application rejected`.trim(),
+        revision: Number(activeSubscription.revision || 1) + 1,
+      });
+    }
     await sendMessage(base44, {
       recipient_auth_user_id: customer.auth_user_id, recipient_customer_id: customer.id, message_type: "application", priority: "important",
       title_ar: "نتيجة طلب الوصول", title_en: "Access application result",
@@ -160,10 +179,19 @@ async function decideOne(base44, actor, applicationId, decision, reason) {
   const confirmedSubscription = await base44.asServiceRole.entities.Subscription.get(subscription.id);
   if (!confirmedSubscription || confirmedSubscription.status !== "active") fail("Subscription activation could not be confirmed", "SUBSCRIPTION_NOT_CONFIRMED", 500);
   const updated = await base44.asServiceRole.entities.MarketAccessApplication.update(application.id, {
-    status: "approved", reviewed_by_user_id: actor.id, reviewed_at: now.toISOString(), decision_reason: reason,
-    approved_subscription_id: confirmedSubscription.id, revision: Number(application.revision || 1) + 1,
+    approved_subscription_id: confirmedSubscription.id,
+    revision: Number(claimed.revision || 1) + 1,
   });
   const confirmed = await base44.asServiceRole.entities.MarketAccessApplication.get(updated.id);
+  if (confirmed?.status !== "approved" || confirmed?.decision_token !== decisionToken || confirmed?.approved_subscription_id !== confirmedSubscription.id) {
+    await base44.asServiceRole.entities.Subscription.update(confirmedSubscription.id, {
+      status: "suspended",
+      suspended_at: new Date().toISOString(),
+      reason: `${confirmedSubscription.reason || reason} | approval decision superseded`.trim(),
+      revision: Number(confirmedSubscription.revision || 1) + 1,
+    });
+    fail("Application changed in another session", "REVISION_CONFLICT", 409);
+  }
   await sendMessage(base44, {
     recipient_auth_user_id: customer.auth_user_id, recipient_customer_id: customer.id, message_type: "application", priority: "important",
     title_ar: "تم تفعيل السوق", title_en: "Market access activated",
@@ -243,11 +271,12 @@ Deno.serve(async (req) => {
       if (!new Set(["approved", "rejected"]).has(decision)) fail("Select an approval decision", "DECISION_REQUIRED");
       const reason = text(body.reason, 500);
       const ids = body.action === "decide_applications" ? [...new Set((Array.isArray(body.application_ids) ? body.application_ids : []).map(String).filter(Boolean))] : [String(body.application_id || "")];
+      const expectedRevisions = body.expected_revisions && typeof body.expected_revisions === "object" ? body.expected_revisions : {};
       if (!ids.length || ids.length > 100) fail("Select between 1 and 100 applications", "APPLICATION_SELECTION_REQUIRED");
       const batch_id = crypto.randomUUID();
       const results = [];
       for (const id of ids) {
-        try { results.push({ application_id: id, ok: true, ...(await decideOne(base44, context.user, id, decision, reason)) }); }
+        try { results.push({ application_id: id, ok: true, ...(await decideOne(base44, context.user, id, decision, reason, expectedRevisions[id])) }); }
         catch (error) { results.push({ application_id: id, ok: false, code: error?.code || "APPLICATION_DECISION_FAILED", error: String(error?.message || "Application decision failed") }); }
       }
       await audit(base44, context.user.id, "market_access.batch_decision", "MarketAccessBatch", batch_id, results.every((row) => row.ok) ? "success" : "partial", reason, { application_ids: ids, decision }, { results: results.map((row) => ({ application_id: row.application_id, ok: row.ok, code: row.code || "OK" })) });
