@@ -13,6 +13,18 @@ export const PROVIDER_FRESHNESS_GRACE_SECONDS = MARKET_REFRESH_CADENCE_SECONDS
 export const EXPERIMENTAL_SOURCE_MAX_AGE_SECONDS = 60 * 60;
 export const PUBLIC_CANDLE_OVERLAP_MILLISECONDS = 15 * 60 * 1000;
 export const PUBLIC_CANDLE_MAX_INCREMENTAL_LOOKBACK_MILLISECONDS = 8 * 24 * 60 * 60 * 1000;
+export const TASI_SYMBOL = "TASI";
+
+export function publicProviderSymbol(symbol) {
+  const normalized = String(symbol || "").trim().toUpperCase();
+  return normalized === TASI_SYMBOL ? "^TASI.SR" : `${normalized}.SR`;
+}
+
+export function isSupportedPublicSaudiSymbol(symbol) {
+  const normalized = String(symbol || "").trim().toUpperCase();
+  return /^\d{4}$/.test(normalized) || normalized === TASI_SYMBOL;
+}
+
 const SAUDI_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Riyadh",
   year: "numeric",
@@ -843,7 +855,7 @@ export function normalizePublicDelayedCharts(chartResults, contextsBySymbol = ne
     const low = Math.min(...currentBars.map((bar) => bar.low));
     const volume = currentBars.reduce((sum, bar) => sum + nonNegativeNumber(bar.volume), 0);
     const changePercent = (last.close - previousClose) / previousClose * 100;
-    const providerSymbol = `${symbol}.SR`;
+    const providerSymbol = publicProviderSymbol(symbol);
     const metaTradeTime = new Date(Number(item?.result?.meta?.regularMarketTime) * 1000);
     const lastTradeTime = Number.isFinite(metaTradeTime.getTime())
       && riyadhClock(metaTradeTime).date === sessionDate
@@ -889,7 +901,9 @@ export async function fetchPublicDelayedCharts({
   attempts = 2,
   timeoutMilliseconds = 15_000,
 }) {
-  const queue = [...new Set(symbols.map((value) => String(value).trim()).filter((value) => /^\d{4}$/.test(value)))];
+  const queue = [...new Set(symbols
+    .map((value) => String(value || "").trim().toUpperCase())
+    .filter(isSupportedPublicSaudiSymbol))];
   const results = [];
   const failures = [];
   let cursor = 0;
@@ -903,7 +917,7 @@ export async function fetchPublicDelayedCharts({
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMilliseconds);
       try {
-        const providerSymbol = `${symbol}.SR`;
+        const providerSymbol = publicProviderSymbol(symbol);
         const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(providerSymbol)}`);
         url.searchParams.set("interval", "15m");
         const context = contextForSymbol(contextsBySymbol, symbol);
