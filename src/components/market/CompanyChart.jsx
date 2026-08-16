@@ -205,6 +205,7 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   const replayTimerRef = useRef(0);
   const fittedDataScopeRef = useRef("");
   const seriesDataCacheRef = useRef(/** @type {Record<string, {data: any[], signature: string}>} */ ({}));
+  const chartSnapshotRef = useRef({ key: "", etag: "" });
   const chartTarget = sector || symbol;
   const chartTargetType = sector ? "sector" : symbol === "TASI" ? "market-index" : "instrument";
   const seriesScope = `${marketCode}:${chartTargetType}:${chartTarget}`;
@@ -490,7 +491,9 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
   useEffect(() => {
     if (!chartTarget) return;
     let active = true;
-    setLoading(true);
+    const requestScope = `${marketCode}:${chartTargetType}:${chartTarget}:${interval}:${range}:${requestedPeakLookbackDays}`;
+    const conditionalEtag = !sector && chartSnapshotRef.current.key === requestScope ? chartSnapshotRef.current.etag : "";
+    if (!conditionalEtag) setLoading(true);
     const request = sector
       ? { action: "sector_chart", sector, market_code: marketCode, interval, range, lookback_days: requestedPeakLookbackDays }
       : {
@@ -501,16 +504,23 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
         interval,
         range,
         lookback_days: requestedPeakLookbackDays,
+        if_chart_etag: conditionalEtag || undefined,
       };
-    setIndicatorState({ key: indicatorKey, momentum: null });
-    readMarketChart(request)
+    if (!conditionalEtag) setIndicatorState({ key: indicatorKey, momentum: null });
+    readMarketChart(request, conditionalEtag ? { maxAgeMs: 0 } : undefined)
       .then((data) => {
         if (!active) return;
         const responseIsArabic = isArabicRef.current;
+        if (data?.not_modified) {
+          if (data.data_meta?.chart_etag) chartSnapshotRef.current = { key: requestScope, etag: data.data_meta.chart_etag };
+          setError("");
+          return;
+        }
         const nextCandles = Array.isArray(data.candles) ? data.candles : [];
         if (!nextCandles.length) throw Object.assign(new Error("chart_data_not_available"), { code: "CHART_DATA_NOT_AVAILABLE" });
         setCandles(nextCandles);
         const nextMeta = data.data_meta || null;
+        if (nextMeta?.chart_etag) chartSnapshotRef.current = { key: requestScope, etag: nextMeta.chart_etag };
         setHistoryMeta(nextMeta);
         setIndicatorState({ key: indicatorKey, momentum: data.momentum_indicator || null });
         if (nextMeta?.range_complete === false) {
