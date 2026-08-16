@@ -5484,6 +5484,15 @@ const storedCandleCache = new Map();
 function storedCandleCacheKey(instrument, interval, marketCode) {
   return `${normalizedMarketCode(marketCode)}:${instrument.id}:${String(instrument.symbol || "").trim().toUpperCase()}:${interval}`;
 }
+function chartEntityTag(latestChunk) {
+  if (!latestChunk) return "";
+  return [
+    latestChunk.id || latestChunk.chunk_key || "",
+    latestChunk.checksum || latestChunk.snapshot_version || "",
+    latestChunk.end_time || "",
+    latestChunk.received_time || latestChunk.updated_date || latestChunk.created_date || ""
+  ].map((value) => String(value || "")).join(":");
+}
 function rememberStoredCandleResult(key, signature, value) {
   if (storedCandleCache.has(key)) storedCandleCache.delete(key);
   storedCandleCache.set(key, { signature, value });
@@ -5603,14 +5612,31 @@ async function chartResponse(base44, body, sources) {
   if (!ALLOWED_INTERVALS.has(interval) || !ALLOWED_RANGES.has(range) || !INTERVAL_RANGE_MATRIX[interval]?.includes(range)) {
     throw Object.assign(new Error("Unsupported chart interval or range"), { status: 400 });
   }
-  const [stored, historyRows] = await Promise.all([
-    storedCandlesForInterval(base44, instrument, interval, body.market_code),
-    readHistoricalSyncs(base44, instrument, body.market_code)
-  ]);
+  const stored = await storedCandlesForInterval(base44, instrument, interval, body.market_code);
   if (!stored.bars.length) {
     throw Object.assign(new Error("Stored chart data is not available until a market ingestion run provides it"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
   }
   const latestChunk = stored.latestChunk;
+  const chartEtag = chartEntityTag(latestChunk);
+  const source = sources.find((item) => item.id === latestChunk?.source_id) || null;
+  const asOf = latestChunk?.provider_as_of || stored.latestSourceTime || latestChunk?.end_time || stored.bars.at(-1)?.time;
+  if (chartEtag && String(body.if_chart_etag || "") === chartEtag) {
+    return {
+      not_modified: true,
+      as_of: asOf,
+      data_state: stateFor(asOf, source),
+      data_meta: {
+        chart_etag: chartEtag,
+        snapshot_version: latestChunk?.snapshot_version || null,
+        run_id: latestChunk?.run_id || null,
+        provider_as_of: latestChunk?.provider_as_of || asOf,
+        received_time: latestChunk?.received_time || latestChunk?.updated_date || latestChunk?.created_date || asOf,
+        requested_interval: interval,
+        requested_range: range
+      }
+    };
+  }
+  const historyRows = await readHistoricalSyncs(base44, instrument, body.market_code);
   const latestBarTime = new Date(stored.bars[stored.bars.length - 1].time).getTime();
   const history = historyRows.find((item) => item.status === "complete" && item.coverage_verified === true && item.provider_partial !== true) || historyRows[0] || null;
   const historyComplete = history?.status === "complete" && history?.coverage_verified === true && history?.provider_partial !== true;
@@ -5618,8 +5644,7 @@ async function chartResponse(base44, body, sources) {
   const cutoff = range === "max" ? Number.NEGATIVE_INFINITY : latestBarTime - RANGE_MILLISECONDS[range];
   const candles = stored.bars.filter((bar) => new Date(bar.time).getTime() >= cutoff);
   if (!candles.length) throw Object.assign(new Error("Stored chart data contains no valid candles for the requested range"), { status: 503, code: "CHART_DATA_NOT_AVAILABLE" });
-  const source = sources.find((item) => item.id === latestChunk.source_id) || null;
-  const asOf = latestChunk.provider_as_of || stored.latestSourceTime || latestChunk.end_time || candles[candles.length - 1].time;
+
   const momentumBars = stored.bars.map((bar, index) => ({
     ...bar,
     is_final: index < stored.bars.length - 1 || latestChunk?.is_final !== false,
@@ -5652,6 +5677,7 @@ async function chartResponse(base44, body, sources) {
       available_intervals: availableIntervals(stored.storedIntervals),
       stored_interval: stored.storedInterval,
       stored_intervals: stored.storedIntervals,
+      chart_etag: chartEtag,
       snapshot_version: latestChunk.snapshot_version || null,
       run_id: latestChunk.run_id || null,
       provider_as_of: latestChunk.provider_as_of || asOf,
