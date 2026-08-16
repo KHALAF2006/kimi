@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { build } from "esbuild";
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,6 +8,19 @@ import ts from "typescript";
 import { chartControlTransition, closedChartControls } from "../src/lib/chart-controls.js";
 
 const root = new URL("../", import.meta.url);
+
+async function importTypeScriptModule(moduleUrl) {
+  const result = await build({
+    entryPoints: [fileURLToPath(moduleUrl)],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    write: false,
+  });
+  const bundledSource = result.outputFiles[0]?.text;
+  assert.ok(bundledSource, `TypeScript verification bundle is empty: ${moduleUrl}`);
+  return import(`data:text/javascript;base64,${Buffer.from(bundledSource).toString("base64")}`);
+}
 const catalogPath = new URL("../base44/data/official-main-market-catalog-2026-07-21.json", import.meta.url);
 const catalogBytes = await readFile(catalogPath);
 const catalog = JSON.parse(catalogBytes.toString("utf8"));
@@ -836,7 +850,7 @@ assert.match(sharedSecurity, /fixedTimeEqual\(presentedHash, session\.session_ha
 assert.match(sharedSecurity, /fixedTimeEqual\(presentedDeviceHash, session\.device_hash\)/, "every authenticated request must verify the registered browser device");
 assert.doesNotMatch(sharedSecurity, /ActiveDeviceSession\.get\(sessionId\)/, "a raw entity identifier must never be accepted as a device session credential");
 assert.match(sharedSecurity, /readJsonBody/, "backend functions must share bounded JSON request parsing");
-const { createSessionToken, readJsonBody, requireActiveSession, sha256 } = await import(new URL("../base44/shared/security.ts", import.meta.url));
+const { createSessionToken, readJsonBody, requireActiveSession, sha256 } = await importTypeScriptModule(new URL("../base44/shared/security.ts", import.meta.url));
 const sessionRecordId = "session_record_1234567890";
 const sessionSecret = "12345678-1234-1234-1234-123456789012abcdef0123456789abcdef0123456789";
 const registeredDeviceId = "12345678-1234-1234-1234-123456789012";
