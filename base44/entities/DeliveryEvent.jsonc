@@ -20,6 +20,13 @@
       ]
     },
     "market_code": { "type": "string" },
+    "trigger_price": { "type": "number" },
+    "trigger_observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "trigger_condition": { "type": "string" },
+    "trigger_threshold": { "type": "number" },
     "status": {
       "type": "string",
       "enum": [

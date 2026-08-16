@@ -165,10 +165,13 @@ Deno.serve(async (req) => {
       return Response.json({ runs, market_code: MARKET_CODE });
     }
     if (action === "issues") {
-      const issues = body.status
-        ? await base44.asServiceRole.entities.DataQualityIssue.filter({ status: String(body.status) })
-        : await base44.asServiceRole.entities.DataQualityIssue.list("-last_seen_at", Math.min(Math.max(Number(body.limit) || 200, 1), 500));
-      return Response.json({ issues: issues.filter((item) => (item.market_code || "SA_MAIN") === MARKET_CODE), market_code: MARKET_CODE });
+      const issueFilter = { market_code: MARKET_CODE, ...(body.status ? { status: String(body.status) } : {}) };
+      const issues = await base44.asServiceRole.entities.DataQualityIssue.filter(
+        issueFilter,
+        "-last_seen_at",
+        Math.min(Math.max(Number(body.limit) || 200, 1), 500),
+      );
+      return Response.json({ issues, market_code: MARKET_CODE });
     }
     if (!["retry_slot", "reconcile_close", "refresh_signals", "backfill_history", "refresh_company_intelligence"].includes(action)) {
       throw Object.assign(new Error("Unsupported market-data admin action"), { status: 400, code: "INVALID_ACTION" });

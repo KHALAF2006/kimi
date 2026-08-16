@@ -65,6 +65,21 @@ assert.ok((ingestion.match(/renewOwnedIngestionLease\(base44, run\)/g) || []).le
 assert.match(ingestion, /failure_code:\s*"SLOT_LEASE_SUPERSEDED"/, "a concurrent losing ingestion run must terminate visibly without promoting data");
 assert.match(ingestion, /QuoteLatest\.filter\(\{\s*instrument_id:\s*\{ \$in: instrumentIds \},\s*market_code: marketCode/s, "previous-quote and stale-quote reads must be scoped by both market and instrument identity");
 assert.doesNotMatch(ingestion, /QuoteLatest\.list\("-updated_date", 500\)/, "Saudi candle context must not derive previous close from a global quote list");
+assert.match(ingestion, /trigger_price:\s*Number\(quote\.last_price\)/, "Saudi alert events must persist the trigger price at evaluation time");
+assert.match(ingestion, /trigger_observed_at:/, "Saudi alert events must persist the trigger timestamp at evaluation time");
+
+const deliveryEventSchema = JSON.parse(await readFile(new URL("../base44/entities/DeliveryEvent.jsonc", import.meta.url), "utf8"));
+assert.equal(deliveryEventSchema.properties.trigger_price.type, "number", "delivery events must own an immutable trigger-price snapshot");
+assert.equal(deliveryEventSchema.properties.trigger_observed_at.format, "date-time", "delivery events must own the trigger timestamp");
+const telegramDelivery = await readFile(new URL("../base44/functions/telegramDelivery/entry.ts", import.meta.url), "utf8");
+const whatsappDelivery = await readFile(new URL("../base44/functions/whatsappDelivery/entry.ts", import.meta.url), "utf8");
+const alertEvaluation = await readFile(new URL("../base44/functions/alertEvaluation/entry.ts", import.meta.url), "utf8");
+for (const [name, delivery] of [["Telegram", telegramDelivery], ["WhatsApp", whatsappDelivery]]) {
+  assert.match(delivery, /event\.trigger_price/, `${name} must send the evaluated trigger price, not a later quote`);
+  assert.match(delivery, /event\.trigger_observed_at/, `${name} must send the evaluated trigger time`);
+  assert.doesNotMatch(delivery, /QuoteLatest\.filter/, `${name} delivery must not replace the trigger snapshot with a later quote`);
+}
+assert.match(alertEvaluation, /TRIGGER_SNAPSHOT_REQUIRED/, "manual alert evaluation must fail closed without a verifiable trigger snapshot");
 
 const historicalBackfill = await readFile(new URL("../base44/functions/historicalCandleBackfill/entry.ts", import.meta.url), "utf8");
 assert.match(historicalBackfill, /requireAdminUser\(base44\)/, "historical backfill must require a verified admin identity");

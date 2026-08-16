@@ -36,16 +36,16 @@ Deno.serve(async (req) => {
     const templateName = channel.configuration?.template_name;
     const templateLanguage = channel.configuration?.template_language;
     if (!token || !graphVersion || !templateName || !templateLanguage) return Response.json({ error: "WhatsApp channel configuration is incomplete", code: "CHANNEL_CONFIGURATION_INCOMPLETE" }, { status: 409 });
-    const quotes = await base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: rule.instrument_id, market_code: rule.market_code });
-    const quote = quotes.sort((a, b) => String(b.quote_time).localeCompare(String(a.quote_time)))[0];
-    if (!quote) return Response.json({ error: "Verified market quote required" }, { status: 422 });
+    const triggerPrice = Number(event.trigger_price);
+    const triggerObservedAt = String(event.trigger_observed_at || "");
+    if (!Number.isFinite(triggerPrice) || !triggerObservedAt) return Response.json({ error: "Verified alert trigger snapshot required", code: "TRIGGER_SNAPSHOT_REQUIRED" }, { status: 422 });
     const recipients = await marketRecipients(base44, rule.market_code);
     if (!recipients.length) return Response.json({ error: "No eligible WhatsApp recipients in this market", code: "NO_ELIGIBLE_RECIPIENTS" }, { status: 422 });
     recipientCursor = Math.max(0, Number(event.recipient_cursor || 0));
     const batch = recipients.slice(recipientCursor, recipientCursor + 20);
     const messageIds = [];
     for (const recipient of batch) {
-      const response = await fetch(`https://graph.facebook.com/${graphVersion}/${channel.external_id}/messages`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ messaging_product: "whatsapp", to: recipient.phone_e164, type: "template", template: { name: templateName, language: { code: templateLanguage }, components: [{ type: "body", parameters: [{ type: "text", text: instrument.name_ar || instrument.name_en }, { type: "text", text: rule.symbol }, { type: "text", text: Number(quote.last_price).toFixed(2) }, { type: "text", text: String(rule.condition) }, { type: "text", text: String(quote.quote_time) }] }] } }) });
+      const response = await fetch(`https://graph.facebook.com/${graphVersion}/${channel.external_id}/messages`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ messaging_product: "whatsapp", to: recipient.phone_e164, type: "template", template: { name: templateName, language: { code: templateLanguage }, components: [{ type: "body", parameters: [{ type: "text", text: instrument.name_ar || instrument.name_en }, { type: "text", text: rule.symbol }, { type: "text", text: triggerPrice.toFixed(2) }, { type: "text", text: String(event.trigger_condition || rule.condition) }, { type: "text", text: triggerObservedAt }] }] } }) });
       const result = await response.json();
       if (!response.ok || result.error) throw Object.assign(new Error("WhatsApp provider rejected the message"), { providerCode: String(result.error?.code || response.status) });
       messageIds.push(String(result.messages?.[0]?.id || "sent"));

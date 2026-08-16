@@ -728,7 +728,7 @@ function normalizeIntraday(item2, result, now) {
   const marketCap = Math.max(0, Number(result?.meta?.marketCap || 0));
   return { item: item2, sessionDate, providerAsOf: canonicalProviderAsOf, sessions: [...sessions.entries()].map(([date, values]) => ({ date, bars: completeBars(values) })).filter((session) => session.bars.length), previousClose, marketCap, quote: quoteFromBars(currentBars, previousClose, marketCap) };
 }
-async function queueAlertDeliveries(base44, rule, bucket) {
+async function queueAlertDeliveries(base44, rule, quote, bucket) {
   if (rule.market_code !== US_BENCHMARKS_MARKET_CODE) throw new Error("alert_market_mismatch");
   const channels = entityRows(await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: US_BENCHMARKS_MARKET_CODE, active: true })).filter((item2) => item2.verified_at);
   for (const channel of channels) {
@@ -741,7 +741,11 @@ async function queueAlertDeliveries(base44, rule, bucket) {
       dedupe_key: dedupeKey,
       channel: channel.channel,
       status: "pending",
-      attempt_count: 0
+      attempt_count: 0,
+      trigger_price: Number(quote.last_price),
+      trigger_observed_at: quote.provider_as_of || quote.source_time || quote.quote_time,
+      trigger_condition: rule.condition,
+      trigger_threshold: Number(rule.threshold)
     });
   }
 }
@@ -761,7 +765,7 @@ async function evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate) 
     if (crossed) {
       const cooldown = Math.max(15, Number(rule.cooldown_minutes) || 15) * 6e4;
       if (!rule.last_triggered_at || Date.parse(quote.provider_as_of) - Date.parse(rule.last_triggered_at) >= cooldown) {
-        await queueAlertDeliveries(base44, rule, bucket);
+        await queueAlertDeliveries(base44, rule, quote, bucket);
         update.last_triggered_at = quote.provider_as_of;
         if (rule.frequency === "once") update.enabled = false;
       }

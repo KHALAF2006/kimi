@@ -347,7 +347,7 @@ async function fetchUniverse(now, symbols, windowsBySymbol) {
   return { output, failures };
 }
 
-async function queueAlertDeliveries(base44, rule, bucket) {
+async function queueAlertDeliveries(base44, rule, quote, bucket) {
   if (rule.market_code !== US_OPTIONS_MARKET_CODE) throw new Error("alert_market_mismatch");
   const channels = (await base44.asServiceRole.entities.DeliveryChannel.filter({ market_code: US_OPTIONS_MARKET_CODE, active: true })).filter((item) => item.verified_at);
   for (const channel of channels) {
@@ -356,6 +356,10 @@ async function queueAlertDeliveries(base44, rule, bucket) {
     if (!existing.length) await base44.asServiceRole.entities.DeliveryEvent.create({
       alert_rule_id: rule.id, destination_id: channel.id, market_code: US_OPTIONS_MARKET_CODE, dedupe_key,
       channel: channel.channel, status: "pending", attempt_count: 0,
+      trigger_price: Number(quote.last_price),
+      trigger_observed_at: quote.provider_as_of || quote.source_time || quote.quote_time,
+      trigger_condition: rule.condition,
+      trigger_threshold: Number(rule.threshold),
     });
   }
 }
@@ -380,7 +384,7 @@ async function evaluateAlerts(base44, acceptedQuotes, isFinal, nextTradingDate) 
     if (crossed) {
       const cooldown = Math.max(15, Number(rule.cooldown_minutes) || 15) * 60e3;
       if (!rule.last_triggered_at || Date.parse(quote.provider_as_of) - Date.parse(rule.last_triggered_at) >= cooldown) {
-        await queueAlertDeliveries(base44, rule, bucket);
+        await queueAlertDeliveries(base44, rule, quote, bucket);
         update.last_triggered_at = quote.provider_as_of;
         if (rule.frequency === "once") update.enabled = false;
       }

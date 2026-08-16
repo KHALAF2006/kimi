@@ -19,12 +19,12 @@ Deno.serve(async (req) => {
     if (!channel || !rule || !instrument || channel.channel !== "telegram" || !channel.active || !channel.verified_at || !rule.market_code || channel.market_code !== rule.market_code || event.market_code !== rule.market_code || instrument.market_code !== rule.market_code || instrument.symbol !== rule.symbol) return Response.json({ error: "Telegram delivery market mismatch", code: "DELIVERY_MARKET_MISMATCH" }, { status: 422 });
     const token = Deno.env.get(channel.secret_ref);
     if (!token) return Response.json({ error: "Telegram secret is not configured", code: "SECRET_NOT_CONFIGURED" }, { status: 409 });
-    const quotes = await base44.asServiceRole.entities.QuoteLatest.filter({ instrument_id: rule.instrument_id, market_code: rule.market_code });
-    const quote = quotes.sort((a, b) => String(b.quote_time).localeCompare(String(a.quote_time)))[0];
-    if (!quote || quote.market_code !== rule.market_code) return Response.json({ error: "Verified market quote required" }, { status: 422 });
+    const triggerPrice = Number(event.trigger_price);
+    const triggerObservedAt = String(event.trigger_observed_at || "");
+    if (!Number.isFinite(triggerPrice) || !triggerObservedAt) return Response.json({ error: "Verified alert trigger snapshot required", code: "TRIGGER_SNAPSHOT_REQUIRED" }, { status: 422 });
     const condition = { crosses_above: "اختراق السعر صعوداً", crosses_below: "كسر السعر هبوطاً", enters_zone: "دخول منطقة", exits_zone: "خروج من منطقة" }[rule.condition] || rule.condition;
     const market = MARKET_ACCESS[rule.market_code];
-    const message = [`تنبيه المستثمر الذكي — ${instrument.name_ar || instrument.name_en} (${rule.symbol})`, `السوق: ${market.name_ar}`, `الحالة: ${condition}`, `السعر: ${Number(quote.last_price).toFixed(2)} ${market.currency}`, rule.threshold ? `القيمة المحددة: ${Number(rule.threshold).toFixed(2)} ${market.currency}` : null, `وقت السعر: ${quote.quote_time}`].filter(Boolean).join("\n");
+    const message = [`تنبيه المستثمر الذكي — ${instrument.name_ar || instrument.name_en} (${rule.symbol})`, `السوق: ${market.name_ar}`, `الحالة: ${condition}`, `سعر تحقق التنبيه: ${triggerPrice.toFixed(2)} ${market.currency}`, Number.isFinite(Number(event.trigger_threshold)) ? `القيمة المحددة: ${Number(event.trigger_threshold).toFixed(2)} ${market.currency}` : null, `وقت تحقق التنبيه: ${triggerObservedAt}`].filter(Boolean).join("\n");
     const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: channel.external_id, text: message, disable_web_page_preview: true }) });
     const result = await response.json();
     if (!response.ok || !result.ok) throw Object.assign(new Error("Telegram provider rejected the message"), { providerCode: String(result.error_code || response.status) });

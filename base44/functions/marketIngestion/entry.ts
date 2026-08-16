@@ -5908,7 +5908,19 @@ async function evaluateDrawingAlerts(base44, quotes) {
         const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
         const dedupeKey = Array.from(new Uint8Array(bytes)).map((value) => value.toString(16).padStart(2, "0")).join("");
         const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: dedupeKey });
-        if (!existing.length) await base44.asServiceRole.entities.DeliveryEvent.create({ alert_rule_id: rule.id, destination_id: channel.id, market_code: "SA_MAIN", dedupe_key: dedupeKey, channel: channel.channel, status: "pending", attempt_count: 0 });
+        if (!existing.length) await base44.asServiceRole.entities.DeliveryEvent.create({
+          alert_rule_id: rule.id,
+          destination_id: channel.id,
+          market_code: "SA_MAIN",
+          dedupe_key: dedupeKey,
+          channel: channel.channel,
+          status: "pending",
+          attempt_count: 0,
+          trigger_price: currentPrice,
+          trigger_observed_at: quote.provider_as_of || quote.source_time || quote.quote_time,
+          trigger_condition: rule.condition,
+          trigger_threshold: Number.isFinite(currentLevel) ? currentLevel : undefined,
+        });
       }
       update.last_triggered_at = quote.quote_time;
       if (rule.frequency === "once") update.enabled = false;
@@ -5956,7 +5968,19 @@ async function queueRuleDeliveries(base44, rule, quote, bucket) {
     const dedupeKey = Array.from(new Uint8Array(bytes)).map((value) => value.toString(16).padStart(2, "0")).join("");
     const existing = await base44.asServiceRole.entities.DeliveryEvent.filter({ dedupe_key: dedupeKey });
     if (!existing.length) {
-      await base44.asServiceRole.entities.DeliveryEvent.create({ alert_rule_id: rule.id, destination_id: channel.id, market_code: "SA_MAIN", dedupe_key: dedupeKey, channel: channel.channel, status: "pending", attempt_count: 0 });
+      await base44.asServiceRole.entities.DeliveryEvent.create({
+        alert_rule_id: rule.id,
+        destination_id: channel.id,
+        market_code: "SA_MAIN",
+        dedupe_key: dedupeKey,
+        channel: channel.channel,
+        status: "pending",
+        attempt_count: 0,
+        trigger_price: Number(quote.last_price),
+        trigger_observed_at: quote.provider_as_of || quote.source_time || quote.quote_time,
+        trigger_condition: rule.condition,
+        trigger_threshold: Number(rule.threshold),
+      });
       created += 1;
     }
   }
