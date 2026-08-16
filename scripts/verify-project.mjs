@@ -418,7 +418,10 @@ assert.match(companyChart, /subscribeDblClick/, "double-clicking the chart plot 
 assert.match(companyChart, /ChartSettingsSheet/, "chart settings must use the professional settings sheet");
 assert.match(companyChart, /buildDisplayCandles/, "the chart must switch one exclusive candle representation at a time");
 assert.match(companyChart, /indicator-hub-button/, "indicators must be grouped under one compact menu");
-assert.equal((companyChart.match(/readMarketChart\(request\)/g) || []).length, 1, "each chart state must use one combined candle and investor-zone request");
+assert.equal((companyChart.match(/readMarketChart\(request,/g) || []).length, 1, "each chart state must use one combined candle and investor-zone request");
+assert.match(companyChart, /if_chart_etag: conditionalEtag \|\| undefined/, "routine chart refreshes must send the last confirmed chart entity tag");
+assert.match(companyChart, /if \(data\?\.not_modified\)/, "an unchanged chart response must preserve the current candle and indicator state");
+assert.match(companyChart, /conditionalEtag \? \{ maxAgeMs: 0 \} : undefined/, "conditional polling must bypass the client TTL so newly stored candles are not hidden");
 assert.doesNotMatch(companyChart, /indicatorRange/, "the chart must not issue a second full-history request for investor zones");
 assert.match(companyChart, /backendMomentum \|\| fallbackMomentum\s*\?\s*null\s*:\s*calculateMomentumSnapshot/, "the browser must not repeat the full investor-zone calculation when the backend already returned it");
 assert.doesNotMatch(companyChart, /retryKey, isArabic\]\);/, "switching the interface language must not issue a new chart network request");
@@ -685,6 +688,10 @@ assert.match(marketReadFunction, /const STORED_CANDLE_CACHE_MAX_ENTRIES = 80/, "
 assert.match(marketReadFunction, /cached\?\.signature === signature/, "merged candle history must be reused only while its latest stored chunk signature is unchanged");
 assert.match(marketReadFunction, /latest\.checksum \|\| latest\.snapshot_version/, "the chart cache must invalidate from canonical candle content identity rather than an arbitrary timeout");
 assert.match(marketReadFunction, /rememberStoredCandleResult\(cacheKey, signature, result\)/, "a verified full-history merge must be cached after calculation");
+assert.match(marketReadFunction, /function chartEntityTag\(latestChunk\)/, "chart responses must expose a content validator derived from the latest stored candle chunk");
+assert.match(marketReadFunction, /String\(body\.if_chart_etag \|\| ""\) === chartEtag/, "unchanged chart polling must stop before history and momentum recomputation");
+assert.match(marketReadFunction, /not_modified: true/, "the backend must return an explicit unchanged-chart contract");
+assert.match(marketReadFunction, /chart_etag: chartEtag/, "full and unchanged chart responses must carry the confirmed validator");
 assert.match(companyChart, /data\.momentum_indicator/, "the chart must consume the backend lifecycle result instead of becoming a second calculation authority");
 assert.match(companyChart, /replayActive\s*\?\s*calculateMomentumSnapshot\(visibleOrderedCandles/, "historical replay must recompute zones only from candles already revealed to the user");
 assert.match(companyChart, /backendMomentum \|\| fallbackMomentum \|\| calculatedMomentum/, "the chart must preserve investor zones by calculating from loaded verified candles when a persisted snapshot is delayed");
