@@ -1038,6 +1038,9 @@ assert.doesNotMatch(sharedSecurity, /if \(!explicitMarkets\.length\) marketCodes
 assert.match(sharedSecurity, /smart-investor-trial-10d-sa_main/, "only an explicitly named legacy Saudi trial may retain compatibility access");
 assert.match(adminSubscriptionsFunction, /OWNER_REQUIRED_FOR_PAID_ACTIVATION/, "manual paid-plan activation must remain owner-only");
 assert.match(adminSubscriptionsFunction, /subscription\.manual_activation_reused/, "manual activation retries must reuse an existing active subscription");
+assert.match(messageCenterFunction, /const fullContact = context\.role === "owner" \|\| context\.permissions\.has\("customers\.full\.read"\)/, "only the owner or an explicit full-contact permission may read unmasked customer contact details");
+assert.match(messageCenterFunction, /email_normalized: fullContact \? email_normalized : maskedEmail\(email_normalized\)/, "support customer listings must mask email addresses for ordinary messaging staff");
+assert.match(messageCenterFunction, /phone_e164: fullContact \? phone_e164 : maskedPhone\(phone_e164\)/, "support customer listings must mask phone numbers for ordinary messaging staff");
 assert.match(messageCenterFunction, /contact_masked: !fullContact/, "support customer listings must disclose whether contact details are masked");
 assert.match(adminAccessFunction, /parsed\.protocol !== "https:"/, "trading-platform referral links must require HTTPS");
 assert.match(adminAccessFunction, /function reconcileApplicationSubscriptions\(/, "concurrent application approvals must reconcile to one canonical subscription");
