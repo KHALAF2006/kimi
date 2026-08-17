@@ -1063,6 +1063,11 @@ assert.equal(hiddenWatermark.watermarkVisible, false, "watermark opt-out must su
 assert.deepEqual(CHART_REPLAY_SPEEDS.map((speed) => speed.value), [250, 3000, 5000, 10000], "bar replay must avoid a frame-saturating 10ms preset while retaining practical playback speeds");
 assert.match(companyChart, /function updateSeriesData\(/, "chart series must support incremental tail updates instead of replacing full history on every replay step");
 assert.match(companyChart, /series\.update\(nextData\.at\(-1\)\)/, "chart replay must append or revise only the latest bar when the series identity is unchanged");
+assert.match(companyChart, /function seriesThroughTime\(/, "replay must use a bounded time slice of causal indicator series");
+assert.match(companyChart, /calculateRsiSeries\(orderedCandles/, "RSI must be calculated once from the stable full candle series");
+assert.doesNotMatch(companyChart, /calculateRsiSeries\(visibleOrderedCandles/, "RSI must not be recomputed from zero on every replay cursor");
+assert.match(companyChart, /calculateSmaSeries\(orderedCandles/, "SMA series must be calculated once and time-sliced during replay");
+assert.doesNotMatch(companyChart, /calculateSmaSeries\(visibleOrderedCandles/, "SMA series must not be recomputed from zero on every replay cursor");
 assert.doesNotMatch(drawingTools, /secondFrame/, "drawing overlays must not schedule duplicate animation frames for one interaction");
 assert.doesNotMatch(drawingTools, /\["wheel", "pointermove"/, "drawing overlays must not redraw unconditionally for every pointer movement");
 assert.match(marketReadFunction, /MARKET_SESSION_DATE_FORMATTERS/, "market reads must reuse timezone formatters instead of allocating one for every candle");
