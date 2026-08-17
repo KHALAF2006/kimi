@@ -1,5 +1,5 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.40";
-import { audit, readJsonBody, replyError, requirePermission } from "../../shared/security.ts";
+import { audit, readJsonBody, replyError, requirePermission, requireTrustedOwner } from "../../shared/security.ts";
 
 const SUPPORTED_MARKETS = new Set(["SA_MAIN", "US_OPTIONS", "US_BENCHMARKS"]);
 
@@ -23,6 +23,48 @@ function latestSuccessfulRuns(runs: any[]) {
   return result;
 }
 
+async function deleteInBatches(entityApi: any, records: any[], size = 25) {
+  let deleted = 0;
+  for (let offset = 0; offset < records.length; offset += size) {
+    const batch = records.slice(offset, offset + size);
+    const results = await Promise.allSettled(batch.map((record) => entityApi.delete(record.id)));
+    deleted += results.filter((result) => result.status === "fulfilled").length;
+  }
+  return deleted;
+}
+
+async function purgeExpiredQuoteObservations(base44: any) {
+  const retentionDays = Math.min(90, Math.max(1, Number(Deno.env.get("SMART_INVESTOR_RAW_OBSERVATION_RETENTION_DAYS")) || 14));
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+  const expired = await base44.asServiceRole.entities.QuoteObservation.filter(
+    { received_time: { "$lt": cutoff } },
+    "received_time",
+    2000,
+  );
+  const deleted = await deleteInBatches(base44.asServiceRole.entities.QuoteObservation, expired);
+  return { retention_days: retentionDays, cutoff, candidates: expired.length, deleted };
+}
+
+async function backfillMissingMarketCodes(base44: any) {
+  const entityNames = ["CandleChunk", "IndicatorSnapshot", "QuoteLatest"];
+  const result: Record<string, any> = {};
+  for (const entityName of entityNames) {
+    const candidates = (await base44.asServiceRole.entities[entityName].list("updated_date", 500))
+      .filter((row: any) => !String(row.market_code || "").trim() && row.instrument_id);
+    const instrumentIds = [...new Set(candidates.map((row: any) => row.instrument_id))];
+    const instruments = instrumentIds.length
+      ? await base44.asServiceRole.entities.Instrument.filter({ id: { "$in": instrumentIds } }, "symbol", instrumentIds.length)
+      : [];
+    const marketByInstrument = new Map(instruments.map((instrument: any) => [instrument.id, normalizedMarket(instrument.market_code)]));
+    const updates = candidates
+      .map((row: any) => ({ id: row.id, market_code: marketByInstrument.get(row.instrument_id) }))
+      .filter((row: any) => row.market_code);
+    if (updates.length) await base44.asServiceRole.entities[entityName].bulkUpdate(updates);
+    result[entityName] = { inspected: Math.min(500, candidates.length), repaired: updates.length };
+  }
+  return result;
+}
+
 function classifyIssues(issues: any[], sourcesById: Map<string, any>, latestRuns: Map<string, any>) {
   const active: any[] = [];
   const recovered: any[] = [];
@@ -42,8 +84,24 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req);
-    const context = await requirePermission(base44, body.session_id, body.device_id, "data.operations.read");
     const action = String(body.action || "summary");
+    if (action === "scheduled_maintenance") {
+      const owner = await requireTrustedOwner(base44);
+      const [observationRetention, marketCodeBackfill] = await Promise.all([
+        purgeExpiredQuoteObservations(base44),
+        backfillMissingMarketCodes(base44),
+      ]);
+      await audit(base44, owner.user.id, "market_data.maintenance_completed", "MarketData", "scheduled", "success", "scheduled_data_retention_and_market_identity_repair", {}, {
+        observation_retention: observationRetention,
+        market_code_backfill: marketCodeBackfill,
+      });
+      return Response.json({
+        status: "success",
+        observation_retention: observationRetention,
+        market_code_backfill: marketCodeBackfill,
+      });
+    }
+    const context = await requirePermission(base44, body.session_id, body.device_id, "data.operations.read");
     const [sources, openIssues, runs, deliveryEvents] = await Promise.all([
       base44.asServiceRole.entities.DataSource.list("name", 100),
       base44.asServiceRole.entities.DataQualityIssue.filter({ status: "open" }, "-last_seen_at", 1000),
