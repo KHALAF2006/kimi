@@ -261,7 +261,8 @@ assert.equal(companyFinancialsTwiceWeekly.trigger.config.timezone, "Asia/Riyadh"
 const entityDirectory = fileURLToPath(new URL("../base44/entities/", import.meta.url));
 const allEntityFiles = (await readdir(entityDirectory)).filter((name) => name.endsWith(".jsonc")).sort();
 const entityFiles = allEntityFiles.filter((name) => /^[A-Z][A-Za-z0-9]*\.jsonc$/.test(name));
-assert.equal(entityFiles.length, 62, "all 62 identity-preserving Base44 entity schemas must be present");
+assert.equal(entityFiles.length, 60, "all 60 active identity-preserving Base44 entity schemas must be present");
+assert.ok(!entityFiles.includes("OperationUsage.jsonc") && !entityFiles.includes("UsageCounter.jsonc"), "empty unused usage entities must not remain in the active schema");
 assert.ok(entityFiles.includes("SectorChartSnapshot.jsonc"), "central sector charts must have one backend-only reusable snapshot entity");
 assert.ok(entityFiles.includes("CourseAccessGrant.jsonc"), "independent ten-day course access grants must have a canonical entity");
 assert.deepEqual(allEntityFiles, [...entityFiles].sort(), "duplicate or identity-changing entity schema files must not remain beside the Base44 schemas");
@@ -289,7 +290,7 @@ for (const name of entityFiles) {
 }
 assert.ok(entityNames.has("User"), "the Base44 User extension must be present without redefining built-in fields or permissions");
 const entityNamesLower = new Set([...entityNames].map((name) => name.toLowerCase()));
-for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "QuoteObservation", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "UsageCounter", "Market", "InstrumentAlias", "ProviderInstrumentMap", "TradingPlatform", "MarketAccessApplication", "Message", "NotificationPreference", "SupportConversation", "SupportMessage", "SupportReadState", "Course", "CourseLesson", "PlaybackLease", "ContentSecurityEvent", "CustomerReportSnapshot", "SectorChartSnapshot"]) {
+for (const required of ["CustomerProfile", "Instrument", "QuoteLatest", "QuoteObservation", "CandleChunk", "ActiveDeviceSession", "Subscription", "ChartDrawing", "CompanyAnnouncement", "Account", "AccountMember", "PermissionDefinition", "RoleDefinition", "RolePermission", "MemberRoleAssignment", "PlanEntitlement", "Market", "InstrumentAlias", "ProviderInstrumentMap", "TradingPlatform", "MarketAccessApplication", "Message", "NotificationPreference", "SupportConversation", "SupportMessage", "SupportReadState", "Course", "CourseLesson", "PlaybackLease", "ContentSecurityEvent", "CustomerReportSnapshot", "SectorChartSnapshot"]) {
   assert.ok(entityNamesLower.has(required.toLowerCase()), `required entity is missing: ${required}`);
 }
 const customerProfile = JSON.parse(await readFile(new URL("../base44/entities/CustomerProfile.jsonc", import.meta.url), "utf8"));
