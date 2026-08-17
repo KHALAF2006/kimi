@@ -100,6 +100,21 @@ async function requireUser(base44) {
   if (!user) throw Object.assign(new Error("Unauthorized"), { status: 401 });
   return user;
 }
+async function requireAdminUser(base44) {
+  const user = await requireUser(base44);
+  if (user.role !== "admin") {
+    throw Object.assign(new Error("Forbidden"), { status: 403, code: "PERMISSION_DENIED" });
+  }
+  return user;
+}
+async function requireTrustedOwner(base44) {
+  const user = await requireAdminUser(base44);
+  const profile = await profileFor(base44, user);
+  if (!hasTrustedOwnerMarker(user, profile)) {
+    throw Object.assign(new Error("Forbidden"), { status: 403, code: "OWNER_REQUIRED" });
+  }
+  return { user, profile, role: "owner" };
+}
 async function profileFor(base44, user) {
   const rows = await base44.asServiceRole.entities.CustomerProfile.filter({ auth_user_id: user.id });
   return rows[0] || null;
@@ -312,6 +327,40 @@ function latestSuccessfulRuns(runs) {
   }
   return result;
 }
+async function deleteInBatches(entityApi, records, size = 25) {
+  let deleted = 0;
+  for (let offset = 0; offset < records.length; offset += size) {
+    const batch = records.slice(offset, offset + size);
+    const results = await Promise.allSettled(batch.map((record) => entityApi.delete(record.id)));
+    deleted += results.filter((result) => result.status === "fulfilled").length;
+  }
+  return deleted;
+}
+async function purgeExpiredQuoteObservations(base44) {
+  const retentionDays = Math.min(90, Math.max(1, Number(Deno.env.get("SMART_INVESTOR_RAW_OBSERVATION_RETENTION_DAYS")) || 14));
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1e3).toISOString();
+  const expired = await base44.asServiceRole.entities.QuoteObservation.filter(
+    { received_time: { "$lt": cutoff } },
+    "received_time",
+    2e3
+  );
+  const deleted = await deleteInBatches(base44.asServiceRole.entities.QuoteObservation, expired);
+  return { retention_days: retentionDays, cutoff, candidates: expired.length, deleted };
+}
+async function backfillMissingMarketCodes(base44) {
+  const entityNames = ["CandleChunk", "IndicatorSnapshot", "QuoteLatest"];
+  const result = {};
+  for (const entityName of entityNames) {
+    const candidates = (await base44.asServiceRole.entities[entityName].list("updated_date", 500)).filter((row) => !String(row.market_code || "").trim() && row.instrument_id);
+    const instrumentIds = [...new Set(candidates.map((row) => row.instrument_id))];
+    const instruments = instrumentIds.length ? await base44.asServiceRole.entities.Instrument.filter({ id: { "$in": instrumentIds } }, "symbol", instrumentIds.length) : [];
+    const marketByInstrument = new Map(instruments.map((instrument) => [instrument.id, normalizedMarket(instrument.market_code)]));
+    const updates = candidates.map((row) => ({ id: row.id, market_code: marketByInstrument.get(row.instrument_id) })).filter((row) => row.market_code);
+    if (updates.length) await base44.asServiceRole.entities[entityName].bulkUpdate(updates);
+    result[entityName] = { inspected: Math.min(500, candidates.length), repaired: updates.length };
+  }
+  return result;
+}
 function classifyIssues(issues, sourcesById, latestRuns) {
   const active = [];
   const recovered = [];
@@ -330,8 +379,24 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const body = await readJsonBody(req);
-    const context = await requirePermission(base44, body.session_id, body.device_id, "data.operations.read");
     const action = String(body.action || "summary");
+    if (action === "scheduled_maintenance") {
+      const owner = await requireTrustedOwner(base44);
+      const [observationRetention, marketCodeBackfill] = await Promise.all([
+        purgeExpiredQuoteObservations(base44),
+        backfillMissingMarketCodes(base44)
+      ]);
+      await audit(base44, owner.user.id, "market_data.maintenance_completed", "MarketData", "scheduled", "success", "scheduled_data_retention_and_market_identity_repair", {}, {
+        observation_retention: observationRetention,
+        market_code_backfill: marketCodeBackfill
+      });
+      return Response.json({
+        status: "success",
+        observation_retention: observationRetention,
+        market_code_backfill: marketCodeBackfill
+      });
+    }
+    const context = await requirePermission(base44, body.session_id, body.device_id, "data.operations.read");
     const [sources, openIssues, runs, deliveryEvents] = await Promise.all([
       base44.asServiceRole.entities.DataSource.list("name", 100),
       base44.asServiceRole.entities.DataQualityIssue.filter({ status: "open" }, "-last_seen_at", 1e3),
