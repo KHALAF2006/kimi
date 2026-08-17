@@ -44,7 +44,6 @@ const STATUS_ENTITIES = {
   MarketHoliday: "market-holiday",
   MarketSession: "market-session",
   MemberRoleAssignment: "member-role-assignment",
-  OperationUsage: "operation-usage",
   PermissionDefinition: "permission-definition",
   PlanEntitlement: "plan-entitlement",
   ProviderInstrumentMap: "provider-instrument-map",
@@ -55,7 +54,6 @@ const STATUS_ENTITIES = {
   SavedScreen: "saved-screen",
   Subscription: "subscription",
   SubscriptionPlan: "subscription-plan",
-  UsageCounter: "usage-counter",
   Watchlist: "watchlist",
   WatchlistItem: "watchlist-item",
 };
