@@ -147,6 +147,18 @@ function normalizeCandles(values) {
     .filter((candle) => !seen.has(candle.time) && seen.add(candle.time));
 }
 
+function seriesThroughTime(series, cutoffTime) {
+  if (!Number.isFinite(Number(cutoffTime))) return series;
+  let low = 0;
+  let high = series.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (Number(series[middle]?.time) <= Number(cutoffTime)) low = middle + 1;
+    else high = middle;
+  }
+  return low === series.length ? series : series.slice(0, low);
+}
+
 function colorWithOpacity(color, opacity) {
   const hex = String(color || "").replace("#", "");
   if (!/^[0-9a-f]{6}$/i.test(hex)) return color;
@@ -319,9 +331,13 @@ export default function CompanyChart({ symbol = "", companyNameAr = "", companyN
     ...current,
     sma: { ...current.sma, slow: { ...current.sma.slow, enabled: typeof next === "function" ? next(current.sma.slow.enabled) : Boolean(next) } },
   }, theme)), [theme]);
-  const rsiData = useMemo(() => calculateRsiSeries(visibleOrderedCandles, rsiSettings.length, rsiSettings.source), [visibleOrderedCandles, rsiSettings.length, rsiSettings.source]);
-  const sma20Data = useMemo(() => calculateSmaSeries(visibleOrderedCandles, chartPreferences.sma.fast.length), [visibleOrderedCandles, chartPreferences.sma.fast.length]);
-  const sma50Data = useMemo(() => calculateSmaSeries(visibleOrderedCandles, chartPreferences.sma.slow.length), [visibleOrderedCandles, chartPreferences.sma.slow.length]);
+  const fullRsiData = useMemo(() => calculateRsiSeries(orderedCandles, rsiSettings.length, rsiSettings.source), [orderedCandles, rsiSettings.length, rsiSettings.source]);
+  const fullSma20Data = useMemo(() => calculateSmaSeries(orderedCandles, chartPreferences.sma.fast.length), [orderedCandles, chartPreferences.sma.fast.length]);
+  const fullSma50Data = useMemo(() => calculateSmaSeries(orderedCandles, chartPreferences.sma.slow.length), [orderedCandles, chartPreferences.sma.slow.length]);
+  const replayCutoffTime = replayActive ? visibleOrderedCandles.at(-1)?.time : null;
+  const rsiData = useMemo(() => replayActive ? seriesThroughTime(fullRsiData, replayCutoffTime) : fullRsiData, [fullRsiData, replayActive, replayCutoffTime]);
+  const sma20Data = useMemo(() => replayActive ? seriesThroughTime(fullSma20Data, replayCutoffTime) : fullSma20Data, [fullSma20Data, replayActive, replayCutoffTime]);
+  const sma50Data = useMemo(() => replayActive ? seriesThroughTime(fullSma50Data, replayCutoffTime) : fullSma50Data, [fullSma50Data, replayActive, replayCutoffTime]);
   const orderedCandlesRef = useRef(visibleOrderedCandles);
   const displayCandlesRef = useRef(displayCandles);
   const rsiDataRef = useRef(rsiData);
