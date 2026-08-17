@@ -133,6 +133,8 @@ assert.doesNotMatch(signalRefresh, /Base44-Service-Authorization/, "signal refre
 const marketRead = await readFile(new URL("../base44/functions/marketRead/entry.ts", import.meta.url), "utf8");
 const sectorChartRefresh = await readFile(new URL("../base44/functions/sectorChartRefresh/source.ts", import.meta.url), "utf8");
 const centralSectorChartWorkflow = JSON.parse(await readFile(new URL("../base44/workflows/CentralSectorChartSnapshots.jsonc", import.meta.url), "utf8"));
+const operationsQualitySource = await readFile(new URL("../base44/functions/operationsQuality/source.ts", import.meta.url), "utf8");
+const dailyMarketMaintenanceWorkflow = JSON.parse(await readFile(new URL("../base44/workflows/DailyMarketDataMaintenance.jsonc", import.meta.url), "utf8"));
 assert.match(marketRead, /official_main_market_catalog_2026_07_21_default\.companies/, "deployed reads must contain the bundled verified catalog");
 assert.match(marketRead, /MAIN_MARKET_SYMBOLS\.has\(item\.symbol\)/, "market reads must exclude non-main-market records");
 assert.match(marketRead, /optionalRows/, "optional source metadata must not take down the market catalog");
@@ -148,6 +150,12 @@ assert.equal(centralSectorChartWorkflow.trigger.config.cron_expression, "35 10-1
 assert.equal(centralSectorChartWorkflow.trigger.config.timezone, "Asia/Riyadh", "central sector projection must use Riyadh market time");
 assert.equal(centralSectorChartWorkflow.definition.document.version, "1.1", "central sector workflow must retain its bounded 22-sector batching contract");
 assert.equal(centralSectorChartWorkflow.definition.do.filter((step) => Object.keys(step)[0]?.startsWith("refresh_sector_batch_")).length, 11, "22 Saudi sectors must be refreshed in exactly 11 two-sector batches without empty calls");
+assert.match(operationsQualitySource, /action === "scheduled_maintenance"[\s\S]*?requireTrustedOwner\(base44\)/, "daily data maintenance must be owner-only before any retention or repair write");
+assert.match(operationsQualitySource, /SMART_INVESTOR_RAW_OBSERVATION_RETENTION_DAYS[\s\S]*?\|\| 14/, "raw observations must default to a bounded 14-day retention policy");
+assert.match(operationsQualitySource, /QuoteObservation\.filter\([\s\S]*?2000/, "raw-observation cleanup must use a bounded oldest-first batch");
+assert.match(operationsQualitySource, /\["CandleChunk", "IndicatorSnapshot", "QuoteLatest"\]/, "legacy market identity repair must cover every chart and quote storage layer");
+assert.equal(dailyMarketMaintenanceWorkflow.trigger.config.cron_expression, "30 2 * * *", "market-data retention and identity repair must run daily");
+assert.equal(dailyMarketMaintenanceWorkflow.trigger.config.timezone, "Asia/Riyadh", "daily market maintenance must use Riyadh time");
 
 const schedule = JSON.parse(await readFile(new URL("../base44/functions/marketIngestion/function.jsonc", import.meta.url), "utf8"));
 assert.equal(schedule.name, "marketIngestion");
